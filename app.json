@@ -10,14 +10,22 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.betright.app"
+      "bundleIdentifier": "com.probaly.app",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSCameraUsageDescription": "This app does not use the camera.",
+        "NSPhotoLibraryUsageDescription": "This app does not access photos.",
+        "NSLocationWhenInUseUsageDescription": "This app does not use location.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#1A237E",
         "foregroundImage": "./assets/images/probaly-logo.png"
       },
-      "package": "com.betright.app",
+      "package": "com.probaly.app",
+      "versionCode": 1,
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },

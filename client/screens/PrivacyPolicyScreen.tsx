@@ -96,7 +96,7 @@ export default function PrivacyPolicyScreen() {
           8. Children's Privacy
         </ThemedText>
         <ThemedText type="body" style={[styles.paragraph, { color: theme.textSecondary }]}>
-          BetRight is not intended for users under 18 years of age. We do not knowingly collect personal information from children. If we become aware of such collection, we will delete the information immediately.
+          Probaly is not intended for users under 18 years of age. We do not knowingly collect personal information from children. If we become aware of such collection, we will delete the information immediately.
         </ThemedText>
       </View>
 
@@ -114,7 +114,7 @@ export default function PrivacyPolicyScreen() {
           10. Contact Us
         </ThemedText>
         <ThemedText type="body" style={[styles.paragraph, { color: theme.textSecondary }]}>
-          For privacy-related inquiries, please contact us at privacy@betright.app
+          For privacy-related inquiries, please contact us at privacy@probaly.app
         </ThemedText>
       </View>
     </ScrollView>

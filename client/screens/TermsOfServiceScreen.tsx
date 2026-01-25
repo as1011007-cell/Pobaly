@@ -105,7 +105,7 @@ export default function TermsOfServiceScreen() {
           9. Contact Us
         </ThemedText>
         <ThemedText type="body" style={[styles.paragraph, { color: theme.textSecondary }]}>
-          If you have any questions about these Terms of Service, please contact us at support@betright.app
+          If you have any questions about these Terms of Service, please contact us at support@probaly.app
         </ThemedText>
       </View>
     </ScrollView>
