@@ -1,4 +1,4 @@
-# BetRight Design Guidelines
+# Probaly Design Guidelines
 
 ## 1. Brand Identity
 
@@ -26,7 +26,7 @@
 ### Onboarding Flow (Stack-Only)
 **Welcome Screen**
 - Hero illustration showing data visualization
-- App name "BetRight" and tagline: "AI-Powered Sports Intelligence"
+- App name "Probaly" and tagline: "AI-Powered Sports Intelligence"
 - "Get Started" button
 - "Sign In" text button
 
@@ -36,7 +36,7 @@
 - Success state with checkmark animation
 
 ### Home Tab
-**Header**: Transparent, title "BetRight", settings icon (right)
+**Header**: Transparent, title "Probaly", settings icon (right)
 **Layout**: Scrollable with sections:
 1. Free Tip of the Day (hero card)
    - Large prediction card with gradient background (Navy to Red)
@@ -161,4 +161,4 @@
 **Premium**:
 - premium-unlock.png — Lock opening with sparkle effect
 
-**Style Note**: All illustrations should complement the bold, confident BetRight brand aesthetic.
+**Style Note**: All illustrations should complement the bold, confident Probaly brand aesthetic.

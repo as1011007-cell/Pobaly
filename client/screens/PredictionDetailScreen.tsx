@@ -91,7 +91,7 @@ export default function PredictionDetailScreen() {
       </View>
 
       <LinearGradient
-        colors={[BetRightColors.primary, BetRightColors.accent]}
+        colors={[ProbalyColors.primary, ProbalyColors.accent]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.probabilityCard}
