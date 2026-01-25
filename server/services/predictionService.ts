@@ -322,8 +322,8 @@ export async function generateYesterdayHistory(): Promise<void> {
       )
     );
   
-  // Yesterday's completed matches with results
-  const yesterdayMatches = [
+  // Pool of yesterday's completed matches with results
+  const allMatches = [
     { homeTeam: "Manchester City", awayTeam: "Tottenham", sport: "football", outcome: "Manchester City Win", prob: 78, conf: "high" as const, explanation: "City dominated with clinical finishing." },
     { homeTeam: "Liverpool", awayTeam: "Aston Villa", sport: "football", outcome: "Liverpool Win", prob: 72, conf: "high" as const, explanation: "Salah brace sealed the victory." },
     { homeTeam: "Celtics", awayTeam: "Bulls", sport: "basketball", outcome: "Celtics Win", prob: 75, conf: "high" as const, explanation: "Celtics defense too strong for Bulls." },
@@ -335,6 +335,11 @@ export async function generateYesterdayHistory(): Promise<void> {
     { homeTeam: "Volkanovski", awayTeam: "Rodriguez", sport: "mma", outcome: "Volkanovski Win", prob: 74, conf: "high" as const, explanation: "Champion pressure proved too much." },
     { homeTeam: "Scheffler", awayTeam: "McIlroy", sport: "golf", outcome: "Scheffler Win", prob: 58, conf: "medium" as const, explanation: "Scheffler clutch putting on back nine." },
   ];
+  
+  // Randomly select 5-8 predictions
+  const count = Math.floor(Math.random() * 4) + 5; // 5 to 8
+  const shuffled = allMatches.sort(() => Math.random() - 0.5);
+  const yesterdayMatches = shuffled.slice(0, count);
   
   // Assign random times throughout yesterday
   for (let i = 0; i < yesterdayMatches.length; i++) {
