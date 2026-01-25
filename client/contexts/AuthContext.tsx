@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { User } from "@/types";
 import { storage } from "@/lib/storage";
+import { apiRequest, getApiUrl } from "@/lib/query-client";
 
 interface AuthContextType {
   user: User | null;
@@ -10,7 +11,7 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, name: string) => Promise<void>;
   signOut: () => Promise<void>;
-  upgradeToPremium: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -34,36 +35,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const signIn = async (email: string, _password: string) => {
+  const signIn = async (email: string, password: string) => {
     setIsLoading(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      const newUser: User = {
-        id: `user-${Date.now()}`,
+      const response = await apiRequest("POST", "/api/auth/login", {
         email,
-        name: email.split("@")[0],
-        isPremium: false,
+        password,
+      });
+      const data = await response.json();
+
+      const newUser: User = {
+        id: data.user.id,
+        email: data.user.email,
+        name: data.user.name,
+        isPremium: data.user.isPremium || false,
+        subscriptionExpiry: data.user.subscriptionExpiry,
       };
+
       await storage.setUser(newUser);
-      await storage.setAuthToken(`token-${Date.now()}`);
+      await storage.setAuthToken(data.token);
       setUser(newUser);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const signUp = async (email: string, _password: string, name: string) => {
+  const signUp = async (email: string, password: string, name: string) => {
     setIsLoading(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      const newUser: User = {
-        id: `user-${Date.now()}`,
+      const response = await apiRequest("POST", "/api/auth/register", {
         email,
+        password,
         name,
-        isPremium: false,
+      });
+      const data = await response.json();
+
+      const newUser: User = {
+        id: data.user.id,
+        email: data.user.email,
+        name: data.user.name,
+        isPremium: data.user.isPremium || false,
+        subscriptionExpiry: data.user.subscriptionExpiry,
       };
+
       await storage.setUser(newUser);
-      await storage.setAuthToken(`token-${Date.now()}`);
+      await storage.setAuthToken(data.token);
       await storage.setOnboardingComplete();
       setUser(newUser);
     } finally {
@@ -81,17 +97,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const upgradeToPremium = async () => {
+  const refreshUser = async () => {
     if (!user) return;
-    const updatedUser: User = {
-      ...user,
-      isPremium: true,
-      subscriptionExpiry: new Date(
-        Date.now() + 365 * 24 * 60 * 60 * 1000,
-      ).toISOString(),
-    };
-    await storage.setUser(updatedUser);
-    setUser(updatedUser);
+    try {
+      const baseUrl = getApiUrl();
+      const url = new URL(`/api/subscription/${user.id}`, baseUrl);
+      const response = await fetch(url.toString());
+      const data = await response.json();
+
+      if (data.isPremium !== user.isPremium) {
+        const updatedUser: User = {
+          ...user,
+          isPremium: data.isPremium,
+          subscriptionExpiry: data.expiryDate,
+        };
+        await storage.setUser(updatedUser);
+        setUser(updatedUser);
+      }
+    } catch (error) {
+      console.error("Failed to refresh user:", error);
+    }
   };
 
   return (
@@ -104,7 +129,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signIn,
         signUp,
         signOut,
-        upgradeToPremium,
+        refreshUser,
       }}
     >
       {children}

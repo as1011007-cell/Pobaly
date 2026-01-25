@@ -1,17 +1,19 @@
-import React, { useState } from "react";
-import { View, StyleSheet, ScrollView, Image, ActivityIndicator } from "react-native";
+import React, { useState, useEffect } from "react";
+import { View, StyleSheet, ScrollView, Image, ActivityIndicator, Linking, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useNavigation } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
+import * as WebBrowser from "expo-web-browser";
 
 import { ThemedText } from "@/components/ThemedText";
 import { Button } from "@/components/Button";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/contexts/AuthContext";
 import { BorderRadius, Spacing, ProbalyColors } from "@/constants/theme";
+import { apiRequest, getApiUrl } from "@/lib/query-client";
 
 const features = [
   { icon: "unlock", title: "All Daily Predictions", description: "Access every AI prediction" },
@@ -21,23 +23,82 @@ const features = [
   { icon: "bar-chart-2", title: "Analytics Dashboard", description: "Performance insights" },
 ];
 
+interface StripePrice {
+  id: string;
+  unit_amount: number;
+  currency: string;
+  recurring: { interval: string } | null;
+}
+
+interface StripeProduct {
+  id: string;
+  name: string;
+  description: string;
+  prices: StripePrice[];
+}
+
 export default function SubscriptionScreen() {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const navigation = useNavigation();
-  const { upgradeToPremium, isPremium } = useAuth();
+  const { user, isPremium, refreshUser } = useAuth();
 
   const [isLoading, setIsLoading] = useState(false);
+  const [products, setProducts] = useState<StripeProduct[]>([]);
+  const [loadingProducts, setLoadingProducts] = useState(true);
+
+  useEffect(() => {
+    fetchProducts();
+  }, []);
+
+  const fetchProducts = async () => {
+    try {
+      const baseUrl = getApiUrl();
+      const url = new URL("/api/products-with-prices", baseUrl);
+      const response = await fetch(url.toString());
+      const data = await response.json();
+      setProducts(data.data || []);
+    } catch (error) {
+      console.error("Failed to fetch products:", error);
+    } finally {
+      setLoadingProducts(false);
+    }
+  };
 
   const handleSubscribe = async () => {
+    if (!user) return;
+
+    const premiumProduct = products.find((p) => p.name.toLowerCase().includes("premium"));
+    const annualPrice = premiumProduct?.prices.find(
+      (p) => p.recurring?.interval === "year"
+    );
+
+    if (!annualPrice) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return;
+    }
+
     setIsLoading(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      await upgradeToPremium();
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      navigation.goBack();
+      const response = await apiRequest("POST", "/api/checkout", {
+        userId: user.id,
+        priceId: annualPrice.id,
+      });
+      const data = await response.json();
+
+      if (data.url) {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        
+        if (Platform.OS === "web") {
+          window.location.href = data.url;
+        } else {
+          await WebBrowser.openBrowserAsync(data.url);
+          await refreshUser();
+        }
+      }
     } catch (error) {
+      console.error("Checkout error:", error);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setIsLoading(false);
@@ -72,6 +133,12 @@ export default function SubscriptionScreen() {
       </View>
     );
   }
+
+  const premiumProduct = products.find((p) => p.name.toLowerCase().includes("premium"));
+  const annualPrice = premiumProduct?.prices.find(
+    (p) => p.recurring?.interval === "year"
+  );
+  const displayPrice = annualPrice ? annualPrice.unit_amount / 100 : 49;
 
   return (
     <ScrollView
@@ -134,7 +201,7 @@ export default function SubscriptionScreen() {
         </View>
         <View style={styles.priceRow}>
           <ThemedText style={styles.currency}>$</ThemedText>
-          <ThemedText style={styles.price}>49</ThemedText>
+          <ThemedText style={styles.price}>{Math.floor(displayPrice)}</ThemedText>
           <ThemedText style={styles.period}>/year</ThemedText>
         </View>
         <ThemedText style={styles.priceSubtitle}>
@@ -144,7 +211,7 @@ export default function SubscriptionScreen() {
 
       <Button
         onPress={handleSubscribe}
-        disabled={isLoading}
+        disabled={isLoading || loadingProducts}
         style={styles.subscribeButton}
         testID="button-subscribe"
       >
