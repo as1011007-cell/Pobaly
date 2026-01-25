@@ -196,8 +196,8 @@ export async function generateDailyFreePrediction(): Promise<void> {
     try {
       const analysis = await generatePredictionForMatch(match);
       
-      // If probability is 70% or higher, use this one
-      if (analysis.probability >= 70) {
+      // If probability is over 70%, use this one
+      if (analysis.probability > 70) {
         bestAnalysis = analysis;
         bestMatch = match;
         break;
@@ -218,8 +218,8 @@ export async function generateDailyFreePrediction(): Promise<void> {
     return;
   }
   
-  // Ensure minimum probability of 70% for display (boost if needed)
-  const displayProbability = Math.max(bestAnalysis.probability, 70);
+  // Ensure minimum probability over 70% for display (boost if needed)
+  const displayProbability = Math.max(bestAnalysis.probability, 71);
   const displayConfidence = displayProbability >= 75 ? "high" : bestAnalysis.confidence;
   
   try {
