@@ -13,9 +13,11 @@ import { SubscriptionCard } from "@/components/SubscriptionCard";
 import { SettingsRow } from "@/components/SettingsRow";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { BorderRadius, Spacing } from "@/constants/theme";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
+import { getLanguageName } from "@/lib/translations";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -26,15 +28,16 @@ export default function ProfileScreen() {
   const { theme } = useTheme();
   const { user, isPremium, signOut, refreshUser } = useAuth();
   const navigation = useNavigation<NavigationProp>();
+  const { language, t } = useLanguage();
 
   const [notificationsEnabled, setNotificationsEnabled] = React.useState(false);
   const [isRestoring, setIsRestoring] = React.useState(false);
 
   const handleSignOut = () => {
-    Alert.alert("Sign Out", "Are you sure you want to sign out?", [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert(t.signOut, t.signOutConfirm, [
+      { text: t.cancel, style: "cancel" },
       {
-        text: "Sign Out",
+        text: t.signOut,
         style: "destructive",
         onPress: async () => {
           await signOut();
@@ -146,27 +149,27 @@ export default function ProfileScreen() {
 
       <View style={styles.section}>
         <ThemedText type="small" style={[styles.sectionTitle, { color: theme.textSecondary }]}>
-          SETTINGS
+          {t.settings.toUpperCase()}
         </ThemedText>
         <View style={[styles.settingsCard, { backgroundColor: theme.backgroundDefault }]}>
           <SettingsRow
             icon="bell"
-            title="Notifications"
+            title={t.notifications}
             hasSwitch
             switchValue={notificationsEnabled}
             onSwitchChange={handleNotificationToggle}
           />
           <SettingsRow
             icon="globe"
-            title="Language"
-            value="English"
+            title={t.language}
+            value={getLanguageName(language)}
             hasChevron
-            onPress={() => {}}
+            onPress={() => navigation.navigate("LanguageSelect")}
           />
           <SettingsRow
             icon="moon"
-            title="Appearance"
-            value="System"
+            title={t.appearance}
+            value={t.system}
             hasChevron
             onPress={() => {}}
           />
@@ -175,12 +178,12 @@ export default function ProfileScreen() {
 
       <View style={styles.section}>
         <ThemedText type="small" style={[styles.sectionTitle, { color: theme.textSecondary }]}>
-          SUBSCRIPTION
+          {t.subscription.toUpperCase()}
         </ThemedText>
         <View style={[styles.settingsCard, { backgroundColor: theme.backgroundDefault }]}>
           <SettingsRow
             icon="refresh-cw"
-            title="Restore Purchases"
+            title={t.restorePurchases}
             hasChevron
             onPress={handleRestorePurchases}
             rightElement={isRestoring ? <ActivityIndicator size="small" color={theme.primary} /> : undefined}
@@ -190,18 +193,18 @@ export default function ProfileScreen() {
 
       <View style={styles.section}>
         <ThemedText type="small" style={[styles.sectionTitle, { color: theme.textSecondary }]}>
-          LEGAL
+          {t.legal.toUpperCase()}
         </ThemedText>
         <View style={[styles.settingsCard, { backgroundColor: theme.backgroundDefault }]}>
           <SettingsRow
             icon="file-text"
-            title="Terms of Service"
+            title={t.termsOfService}
             hasChevron
             onPress={() => navigation.navigate("TermsOfService")}
           />
           <SettingsRow
             icon="shield"
-            title="Privacy Policy"
+            title={t.privacyPolicy}
             hasChevron
             onPress={() => navigation.navigate("PrivacyPolicy")}
           />
@@ -212,7 +215,7 @@ export default function ProfileScreen() {
         <View style={[styles.settingsCard, { backgroundColor: theme.backgroundDefault }]}>
           <SettingsRow
             icon="log-out"
-            title="Sign Out"
+            title={t.signOut}
             destructive
             onPress={handleSignOut}
           />
@@ -220,7 +223,7 @@ export default function ProfileScreen() {
       </View>
 
       <ThemedText type="small" style={[styles.version, { color: theme.textSecondary }]}>
-        Version 1.0.0
+        {t.version} 1.0.0
       </ThemedText>
     </KeyboardAwareScrollViewCompat>
   );

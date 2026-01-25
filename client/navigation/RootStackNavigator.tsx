@@ -9,9 +9,11 @@ import SportDetailScreen from "@/screens/SportDetailScreen";
 import SubscriptionScreen from "@/screens/SubscriptionScreen";
 import TermsOfServiceScreen from "@/screens/TermsOfServiceScreen";
 import PrivacyPolicyScreen from "@/screens/PrivacyPolicyScreen";
+import LanguageSelectScreen from "@/screens/LanguageSelectScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/hooks/useTheme";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { Sport } from "@/types";
 
 export type RootStackParamList = {
@@ -22,6 +24,7 @@ export type RootStackParamList = {
   Subscription: undefined;
   TermsOfService: undefined;
   PrivacyPolicy: undefined;
+  LanguageSelect: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -30,8 +33,9 @@ export default function RootStackNavigator() {
   const screenOptions = useScreenOptions();
   const { isAuthenticated, isLoading } = useAuth();
   const { theme } = useTheme();
+  const { t, isLoading: languageLoading } = useLanguage();
 
-  if (isLoading) {
+  if (isLoading || languageLoading) {
     return (
       <View
         style={{
@@ -83,7 +87,12 @@ export default function RootStackNavigator() {
           <Stack.Screen
             name="PrivacyPolicy"
             component={PrivacyPolicyScreen}
-            options={{ title: "Privacy Policy" }}
+            options={{ title: t.privacyPolicy }}
+          />
+          <Stack.Screen
+            name="LanguageSelect"
+            component={LanguageSelectScreen}
+            options={{ title: t.language }}
           />
         </>
       ) : (

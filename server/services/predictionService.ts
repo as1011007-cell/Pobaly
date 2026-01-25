@@ -30,16 +30,68 @@ interface PredictionAnalysis {
 }
 
 // Sample upcoming matches - in production, fetch from sports API
+// Generates 5+ matches per sport category
 function getUpcomingMatches(): SportsMatch[] {
+  const hours = (h: number) => new Date(Date.now() + h * 60 * 60 * 1000);
+  
   return [
-    { homeTeam: "Manchester United", awayTeam: "Liverpool", sport: "football", matchTime: new Date(Date.now() + 24 * 60 * 60 * 1000), league: "Premier League" },
-    { homeTeam: "Real Madrid", awayTeam: "Barcelona", sport: "football", matchTime: new Date(Date.now() + 48 * 60 * 60 * 1000), league: "La Liga" },
-    { homeTeam: "Bayern Munich", awayTeam: "Dortmund", sport: "football", matchTime: new Date(Date.now() + 36 * 60 * 60 * 1000), league: "Bundesliga" },
-    { homeTeam: "Lakers", awayTeam: "Celtics", sport: "basketball", matchTime: new Date(Date.now() + 12 * 60 * 60 * 1000), league: "NBA" },
-    { homeTeam: "Warriors", awayTeam: "Bucks", sport: "basketball", matchTime: new Date(Date.now() + 18 * 60 * 60 * 1000), league: "NBA" },
-    { homeTeam: "India", awayTeam: "Australia", sport: "cricket", matchTime: new Date(Date.now() + 72 * 60 * 60 * 1000), league: "Test Series" },
-    { homeTeam: "Djokovic", awayTeam: "Alcaraz", sport: "tennis", matchTime: new Date(Date.now() + 96 * 60 * 60 * 1000), league: "ATP Tour" },
-    { homeTeam: "Arsenal", awayTeam: "Chelsea", sport: "football", matchTime: new Date(Date.now() + 60 * 60 * 60 * 1000), league: "Premier League" },
+    // Football/Soccer (6 matches)
+    { homeTeam: "Manchester United", awayTeam: "Liverpool", sport: "football", matchTime: hours(24), league: "Premier League" },
+    { homeTeam: "Real Madrid", awayTeam: "Barcelona", sport: "football", matchTime: hours(48), league: "La Liga" },
+    { homeTeam: "Bayern Munich", awayTeam: "Dortmund", sport: "football", matchTime: hours(36), league: "Bundesliga" },
+    { homeTeam: "Arsenal", awayTeam: "Chelsea", sport: "football", matchTime: hours(60), league: "Premier League" },
+    { homeTeam: "PSG", awayTeam: "Lyon", sport: "football", matchTime: hours(72), league: "Ligue 1" },
+    { homeTeam: "Juventus", awayTeam: "AC Milan", sport: "football", matchTime: hours(84), league: "Serie A" },
+    
+    // Basketball (6 matches)
+    { homeTeam: "Lakers", awayTeam: "Celtics", sport: "basketball", matchTime: hours(12), league: "NBA" },
+    { homeTeam: "Warriors", awayTeam: "Bucks", sport: "basketball", matchTime: hours(18), league: "NBA" },
+    { homeTeam: "Nuggets", awayTeam: "Heat", sport: "basketball", matchTime: hours(30), league: "NBA" },
+    { homeTeam: "76ers", awayTeam: "Suns", sport: "basketball", matchTime: hours(42), league: "NBA" },
+    { homeTeam: "Mavericks", awayTeam: "Clippers", sport: "basketball", matchTime: hours(54), league: "NBA" },
+    { homeTeam: "Nets", awayTeam: "Knicks", sport: "basketball", matchTime: hours(66), league: "NBA" },
+    
+    // Tennis (5 matches)
+    { homeTeam: "Djokovic", awayTeam: "Alcaraz", sport: "tennis", matchTime: hours(20), league: "ATP Tour" },
+    { homeTeam: "Sinner", awayTeam: "Medvedev", sport: "tennis", matchTime: hours(32), league: "ATP Tour" },
+    { homeTeam: "Zverev", awayTeam: "Ruud", sport: "tennis", matchTime: hours(44), league: "ATP Tour" },
+    { homeTeam: "Swiatek", awayTeam: "Sabalenka", sport: "tennis", matchTime: hours(56), league: "WTA Tour" },
+    { homeTeam: "Gauff", awayTeam: "Rybakina", sport: "tennis", matchTime: hours(68), league: "WTA Tour" },
+    
+    // Baseball (5 matches)
+    { homeTeam: "Yankees", awayTeam: "Red Sox", sport: "baseball", matchTime: hours(22), league: "MLB" },
+    { homeTeam: "Dodgers", awayTeam: "Giants", sport: "baseball", matchTime: hours(34), league: "MLB" },
+    { homeTeam: "Cubs", awayTeam: "Cardinals", sport: "baseball", matchTime: hours(46), league: "MLB" },
+    { homeTeam: "Astros", awayTeam: "Rangers", sport: "baseball", matchTime: hours(58), league: "MLB" },
+    { homeTeam: "Braves", awayTeam: "Phillies", sport: "baseball", matchTime: hours(70), league: "MLB" },
+    
+    // Hockey (5 matches)
+    { homeTeam: "Rangers", awayTeam: "Bruins", sport: "hockey", matchTime: hours(26), league: "NHL" },
+    { homeTeam: "Maple Leafs", awayTeam: "Canadiens", sport: "hockey", matchTime: hours(38), league: "NHL" },
+    { homeTeam: "Oilers", awayTeam: "Flames", sport: "hockey", matchTime: hours(50), league: "NHL" },
+    { homeTeam: "Lightning", awayTeam: "Panthers", sport: "hockey", matchTime: hours(62), league: "NHL" },
+    { homeTeam: "Penguins", awayTeam: "Capitals", sport: "hockey", matchTime: hours(74), league: "NHL" },
+    
+    // Cricket (5 matches)
+    { homeTeam: "India", awayTeam: "Australia", sport: "cricket", matchTime: hours(28), league: "Test Series" },
+    { homeTeam: "England", awayTeam: "New Zealand", sport: "cricket", matchTime: hours(40), league: "ODI Series" },
+    { homeTeam: "Pakistan", awayTeam: "South Africa", sport: "cricket", matchTime: hours(52), league: "T20 Series" },
+    { homeTeam: "West Indies", awayTeam: "Bangladesh", sport: "cricket", matchTime: hours(64), league: "ODI Series" },
+    { homeTeam: "Sri Lanka", awayTeam: "Afghanistan", sport: "cricket", matchTime: hours(76), league: "T20 Series" },
+    
+    // MMA (5 matches)
+    { homeTeam: "Jones", awayTeam: "Miocic", sport: "mma", matchTime: hours(96), league: "UFC" },
+    { homeTeam: "Makhachev", awayTeam: "Oliveira", sport: "mma", matchTime: hours(108), league: "UFC" },
+    { homeTeam: "Adesanya", awayTeam: "Pereira", sport: "mma", matchTime: hours(120), league: "UFC" },
+    { homeTeam: "Edwards", awayTeam: "Covington", sport: "mma", matchTime: hours(132), league: "UFC" },
+    { homeTeam: "O'Malley", awayTeam: "Dvalishvili", sport: "mma", matchTime: hours(144), league: "UFC" },
+    
+    // Golf (5 events)
+    { homeTeam: "Scheffler", awayTeam: "McIlroy", sport: "golf", matchTime: hours(100), league: "PGA Tour" },
+    { homeTeam: "Rahm", awayTeam: "Koepka", sport: "golf", matchTime: hours(112), league: "LIV Golf" },
+    { homeTeam: "DeChambeau", awayTeam: "Hovland", sport: "golf", matchTime: hours(124), league: "PGA Tour" },
+    { homeTeam: "Spieth", awayTeam: "Thomas", sport: "golf", matchTime: hours(136), league: "PGA Tour" },
+    { homeTeam: "Morikawa", awayTeam: "Cantlay", sport: "golf", matchTime: hours(148), league: "PGA Tour" },
   ];
 }
 
@@ -183,8 +235,9 @@ export async function generatePremiumPredictionsForUser(userId: string): Promise
   
   const matches = getUpcomingMatches();
   
-  // Generate predictions for matches 1-7 (skip first one which is free)
-  for (let i = 1; i < Math.min(matches.length, 8); i++) {
+  // Generate predictions for all matches (skip first one which is free)
+  // This gives 5+ predictions per sport category
+  for (let i = 1; i < matches.length; i++) {
     const match = matches[i];
     
     try {

@@ -91,6 +91,7 @@ export const userPreferences = pgTable("user_preferences", {
   notificationsEnabled: boolean("notifications_enabled").default(true),
   emailNotifications: boolean("email_notifications").default(true),
   predictionAlerts: boolean("prediction_alerts").default(true),
+  language: varchar("language", { length: 10 }).default("en"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
