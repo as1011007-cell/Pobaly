@@ -5,13 +5,15 @@ import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { Feather } from "@expo/vector-icons";
 
 import { PredictionCard } from "@/components/PredictionCard";
 import { EmptyState } from "@/components/EmptyState";
 import { ThemedText } from "@/components/ThemedText";
+import { Button } from "@/components/Button";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/contexts/AuthContext";
-import { Spacing } from "@/constants/theme";
+import { BorderRadius, Spacing } from "@/constants/theme";
 import { fetchLivePredictions } from "@/lib/predictionsApi";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { Prediction } from "@/types";
@@ -89,6 +91,36 @@ export default function LiveScreen() {
     );
   }
 
+  if (!isPremium) {
+    return (
+      <View
+        style={[
+          styles.emptyContainer,
+          {
+            backgroundColor: theme.backgroundRoot,
+            paddingTop: headerHeight,
+            paddingBottom: tabBarHeight,
+          },
+        ]}
+      >
+        <View style={[styles.upgradeCard, { backgroundColor: theme.backgroundDefault }]}>
+          <View style={[styles.iconContainer, { backgroundColor: `${theme.accent}15` }]}>
+            <Feather name="zap" size={32} color={theme.accent} />
+          </View>
+          <ThemedText type="h4" style={{ textAlign: "center", marginBottom: Spacing.sm }}>
+            Live Predictions
+          </ThemedText>
+          <ThemedText type="body" style={{ textAlign: "center", color: theme.textSecondary, marginBottom: Spacing.lg }}>
+            Get real-time probability updates during live matches with a Premium subscription
+          </ThemedText>
+          <Button onPress={() => navigation.navigate("Subscription")}>
+            Upgrade to Premium
+          </Button>
+        </View>
+      </View>
+    );
+  }
+
   if (livePredictions.length === 0) {
     return (
       <View
@@ -139,5 +171,21 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+    paddingHorizontal: Spacing.lg,
+  },
+  upgradeCard: {
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.xl,
+    alignItems: "center",
+    width: "100%",
+    maxWidth: 320,
+  },
+  iconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: Spacing.lg,
   },
 });
