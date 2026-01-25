@@ -81,8 +81,8 @@ export default function HomeScreen() {
       <View style={styles.sectionSpacer} />
 
       <SectionHeader
-        title={isPremium ? "Premium Predictions" : "Unlock Premium"}
-        actionLabel={isPremium ? "See All" : undefined}
+        title={isPremium ? "Your Predictions" : "Unlock Premium"}
+        actionLabel={isPremium && premiumPredictions.length > 4 ? "See More" : undefined}
         onAction={isPremium ? () => navigation.navigate("MainTabs", { screen: "SportsTab" }) : undefined}
       />
 
@@ -105,6 +105,8 @@ export default function HomeScreen() {
       ) : null}
     </View>
   );
+
+  const displayPredictions = isPremium ? premiumPredictions.slice(0, 4) : premiumPredictions;
 
   const renderFooter = () => (
     <View style={[styles.disclaimerContainer, { backgroundColor: theme.backgroundSecondary }]}>
@@ -167,7 +169,7 @@ export default function HomeScreen() {
       scrollIndicatorInsets={{ bottom: insets.bottom }}
       ListHeaderComponent={renderHeader}
       ListFooterComponent={renderFooter}
-      data={premiumPredictions}
+      data={displayPredictions}
       renderItem={renderPrediction}
       keyExtractor={(item) => item.id}
       numColumns={2}
