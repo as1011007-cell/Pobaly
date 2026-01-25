@@ -42,6 +42,16 @@ export class StripeService {
   async getSubscription(subscriptionId: string) {
     return await storage.getSubscription(subscriptionId);
   }
+
+  async getActiveSubscription(customerId: string) {
+    const stripe = await getUncachableStripeClient();
+    const subscriptions = await stripe.subscriptions.list({
+      customer: customerId,
+      status: 'active',
+      limit: 1,
+    });
+    return subscriptions.data[0] || null;
+  }
 }
 
 export const stripeService = new StripeService();

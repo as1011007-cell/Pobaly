@@ -1,4 +1,4 @@
-import { users, type User, type InsertUser } from "@shared/schema";
+import { users, userPreferences, type User, type InsertUser, type UserPreferences } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { db } from "./db";
 import { randomUUID } from "crypto";
@@ -15,6 +15,8 @@ export interface IStorage {
     isPremium?: boolean;
     subscriptionExpiry?: Date;
   }): Promise<User | undefined>;
+  getUserPreferences(userId: string): Promise<UserPreferences | undefined>;
+  saveUserPreferences(userId: string, prefs: Partial<UserPreferences>): Promise<UserPreferences>;
   getProduct(productId: string): Promise<any>;
   listProducts(active?: boolean, limit?: number, offset?: number): Promise<any[]>;
   listProductsWithPrices(active?: boolean, limit?: number, offset?: number): Promise<any[]>;
@@ -53,6 +55,30 @@ export class DatabaseStorage implements IStorage {
   }): Promise<User | undefined> {
     const [user] = await db.update(users).set(stripeInfo).where(eq(users.id, userId)).returning();
     return user;
+  }
+
+  async getUserPreferences(userId: string): Promise<UserPreferences | undefined> {
+    const [prefs] = await db.select().from(userPreferences).where(eq(userPreferences.userId, userId));
+    return prefs;
+  }
+
+  async saveUserPreferences(userId: string, prefs: Partial<UserPreferences>): Promise<UserPreferences> {
+    const existing = await this.getUserPreferences(userId);
+    
+    if (existing) {
+      const [updated] = await db
+        .update(userPreferences)
+        .set({ ...prefs, updatedAt: new Date() })
+        .where(eq(userPreferences.userId, userId))
+        .returning();
+      return updated;
+    } else {
+      const [created] = await db
+        .insert(userPreferences)
+        .values({ userId, ...prefs })
+        .returning();
+      return created;
+    }
   }
 
   async getProduct(productId: string) {

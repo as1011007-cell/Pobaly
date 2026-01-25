@@ -349,6 +349,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ============ User Preferences Routes ============
+
+  // Get user preferences
+  app.get("/api/user/preferences/:userId", async (req: Request, res: Response) => {
+    try {
+      const { userId } = req.params;
+      const preferences = await storage.getUserPreferences(userId);
+      res.json(preferences || { notificationsEnabled: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Save user preferences
+  app.post("/api/user/preferences", async (req: Request, res: Response) => {
+    try {
+      const { userId, notificationsEnabled, emailNotifications, predictionAlerts } = req.body;
+      
+      if (!userId) {
+        return res.status(400).json({ error: "userId is required" });
+      }
+
+      const preferences = await storage.saveUserPreferences(userId, {
+        notificationsEnabled,
+        emailNotifications,
+        predictionAlerts,
+      });
+      res.json(preferences);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============ Restore Purchases Route ============
+
+  app.post("/api/restore-purchases", async (req: Request, res: Response) => {
+    try {
+      const { userId } = req.body;
+      
+      if (!userId) {
+        return res.status(400).json({ error: "userId is required" });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Check if user has a Stripe customer ID
+      if (!user.stripeCustomerId) {
+        return res.json({ restored: false, message: "No purchases found" });
+      }
+
+      // Check for active subscriptions in Stripe
+      const subscription = await stripeService.getActiveSubscription(user.stripeCustomerId);
+      
+      if (subscription && subscription.status === "active") {
+        // Restore the subscription
+        const expiryDate = new Date(subscription.current_period_end * 1000);
+        await storage.updateUserStripeInfo(userId, {
+          stripeSubscriptionId: subscription.id,
+          isPremium: true,
+          subscriptionExpiry: expiryDate,
+        });
+        
+        return res.json({ restored: true, message: "Subscription restored successfully" });
+      }
+
+      return res.json({ restored: false, message: "No active subscriptions found" });
+    } catch (error: any) {
+      console.error("Error restoring purchases:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

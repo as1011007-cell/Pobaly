@@ -7,6 +7,8 @@ import AuthStackNavigator from "@/navigation/AuthStackNavigator";
 import PredictionDetailScreen from "@/screens/PredictionDetailScreen";
 import SportDetailScreen from "@/screens/SportDetailScreen";
 import SubscriptionScreen from "@/screens/SubscriptionScreen";
+import TermsOfServiceScreen from "@/screens/TermsOfServiceScreen";
+import PrivacyPolicyScreen from "@/screens/PrivacyPolicyScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/hooks/useTheme";
@@ -18,6 +20,8 @@ export type RootStackParamList = {
   PredictionDetail: { predictionId: string };
   SportDetail: { sport: Sport };
   Subscription: undefined;
+  TermsOfService: undefined;
+  PrivacyPolicy: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -70,6 +74,16 @@ export default function RootStackNavigator() {
               presentation: "modal",
               title: "Premium",
             }}
+          />
+          <Stack.Screen
+            name="TermsOfService"
+            component={TermsOfServiceScreen}
+            options={{ title: "Terms of Service" }}
+          />
+          <Stack.Screen
+            name="PrivacyPolicy"
+            component={PrivacyPolicyScreen}
+            options={{ title: "Privacy Policy" }}
           />
         </>
       ) : (

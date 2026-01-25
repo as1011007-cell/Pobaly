@@ -1,5 +1,5 @@
-import React from "react";
-import { View, StyleSheet, Alert, Image } from "react-native";
+import React, { useEffect } from "react";
+import { View, StyleSheet, Alert, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -15,6 +15,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/contexts/AuthContext";
 import { BorderRadius, Spacing } from "@/constants/theme";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
+import { apiRequest, getApiUrl } from "@/lib/query-client";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -23,10 +24,11 @@ export default function ProfileScreen() {
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
   const { theme } = useTheme();
-  const { user, isPremium, signOut, upgradeToPremium } = useAuth();
+  const { user, isPremium, signOut, refreshUser } = useAuth();
   const navigation = useNavigation<NavigationProp>();
 
   const [notificationsEnabled, setNotificationsEnabled] = React.useState(false);
+  const [isRestoring, setIsRestoring] = React.useState(false);
 
   const handleSignOut = () => {
     Alert.alert("Sign Out", "Are you sure you want to sign out?", [
@@ -46,10 +48,62 @@ export default function ProfileScreen() {
     navigation.navigate("Subscription");
   };
 
-  const handleNotificationToggle = (value: boolean) => {
+  const handleNotificationToggle = async (value: boolean) => {
     setNotificationsEnabled(value);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
+    if (user?.id) {
+      try {
+        await apiRequest("POST", new URL("/api/user/preferences", getApiUrl()).toString(), {
+          userId: user.id,
+          notificationsEnabled: value,
+        });
+      } catch (error) {
+        console.error("Error saving notification preference:", error);
+      }
+    }
   };
+
+  const handleRestorePurchases = async () => {
+    if (!user?.id) return;
+    
+    setIsRestoring(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    
+    try {
+      const response = await apiRequest("POST", new URL("/api/restore-purchases", getApiUrl()).toString(), {
+        userId: user.id,
+      });
+      const data = await response.json();
+      
+      if (data.restored) {
+        await refreshUser();
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Alert.alert("Success", "Your purchases have been restored successfully!");
+      } else {
+        Alert.alert("No Purchases Found", "We couldn't find any active subscriptions for your account.");
+      }
+    } catch (error) {
+      console.error("Error restoring purchases:", error);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert("Error", "Failed to restore purchases. Please try again.");
+    } finally {
+      setIsRestoring(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user?.id) {
+      fetch(new URL(`/api/user/preferences/${user.id}`, getApiUrl()).toString())
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.notificationsEnabled !== undefined) {
+            setNotificationsEnabled(data.notificationsEnabled);
+          }
+        })
+        .catch(console.error);
+    }
+  }, [user?.id]);
 
   const initials = user?.name
     ? user.name
@@ -121,6 +175,21 @@ export default function ProfileScreen() {
 
       <View style={styles.section}>
         <ThemedText type="small" style={[styles.sectionTitle, { color: theme.textSecondary }]}>
+          SUBSCRIPTION
+        </ThemedText>
+        <View style={[styles.settingsCard, { backgroundColor: theme.backgroundDefault }]}>
+          <SettingsRow
+            icon="refresh-cw"
+            title="Restore Purchases"
+            hasChevron
+            onPress={handleRestorePurchases}
+            rightElement={isRestoring ? <ActivityIndicator size="small" color={theme.primary} /> : undefined}
+          />
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <ThemedText type="small" style={[styles.sectionTitle, { color: theme.textSecondary }]}>
           LEGAL
         </ThemedText>
         <View style={[styles.settingsCard, { backgroundColor: theme.backgroundDefault }]}>
@@ -128,13 +197,13 @@ export default function ProfileScreen() {
             icon="file-text"
             title="Terms of Service"
             hasChevron
-            onPress={() => {}}
+            onPress={() => navigation.navigate("TermsOfService")}
           />
           <SettingsRow
             icon="shield"
             title="Privacy Policy"
             hasChevron
-            onPress={() => {}}
+            onPress={() => navigation.navigate("PrivacyPolicy")}
           />
         </View>
       </View>

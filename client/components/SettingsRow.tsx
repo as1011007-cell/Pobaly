@@ -16,6 +16,7 @@ interface SettingsRowProps {
   onPress?: () => void;
   onSwitchChange?: (value: boolean) => void;
   destructive?: boolean;
+  rightElement?: React.ReactNode;
 }
 
 export function SettingsRow({
@@ -29,6 +30,7 @@ export function SettingsRow({
   onPress,
   onSwitchChange,
   destructive = false,
+  rightElement,
 }: SettingsRowProps) {
   const { theme } = useTheme();
 
@@ -71,6 +73,8 @@ export function SettingsRow({
         </ThemedText>
       ) : null}
 
+      {rightElement ? rightElement : null}
+
       {hasSwitch ? (
         <Switch
           value={switchValue}
@@ -80,7 +84,7 @@ export function SettingsRow({
         />
       ) : null}
 
-      {hasChevron ? (
+      {hasChevron && !rightElement ? (
         <Feather
           name="chevron-right"
           size={20}
