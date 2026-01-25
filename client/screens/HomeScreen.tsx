@@ -83,7 +83,7 @@ export default function HomeScreen() {
       <SectionHeader
         title={isPremium ? "Premium Predictions" : "Unlock Premium"}
         actionLabel={isPremium ? "See All" : undefined}
-        onAction={isPremium ? () => {} : undefined}
+        onAction={isPremium ? () => navigation.navigate("MainTabs", { screen: "SportsTab" }) : undefined}
       />
 
       {!isPremium ? (
