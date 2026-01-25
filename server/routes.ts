@@ -168,10 +168,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       let customerId = user.stripeCustomerId;
+      
+      // Always create a new customer if none exists, or verify existing customer
       if (!customerId) {
         const customer = await stripeService.createCustomer(user.email, user.id);
         await storage.updateUserStripeInfo(user.id, { stripeCustomerId: customer.id });
         customerId = customer.id;
+      } else {
+        // Verify customer exists in current Stripe environment (handles sandbox -> live switch)
+        try {
+          await stripeService.getCustomer(customerId);
+        } catch (customerError: any) {
+          if (customerError.code === 'resource_missing') {
+            // Customer doesn't exist in current Stripe environment, create new one
+            console.log(`Customer ${customerId} not found in Stripe, creating new customer`);
+            const customer = await stripeService.createCustomer(user.email, user.id);
+            await storage.updateUserStripeInfo(user.id, { stripeCustomerId: customer.id });
+            customerId = customer.id;
+          } else {
+            throw customerError;
+          }
+        }
       }
 
       const baseUrl = `https://${process.env.REPLIT_DOMAINS?.split(',')[0]}`;

@@ -10,6 +10,11 @@ export class StripeService {
     });
   }
 
+  async getCustomer(customerId: string) {
+    const stripe = await getUncachableStripeClient();
+    return await stripe.customers.retrieve(customerId);
+  }
+
   async createCheckoutSession(
     customerId: string,
     priceId: string,
