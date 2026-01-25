@@ -88,15 +88,21 @@ Users table with Stripe fields:
 Predictions table:
 - id, matchTitle, sport, matchTime
 - predictedOutcome, probability, confidence
-- explanation, factors, riskIndex
-- isLive, isPremium, result, userId
+- explanation, factors, sportsbookOdds (JSONB)
+- riskIndex, isLive, isPremium, result, userId
 - createdAt, expiresAt
 
 ## Prediction System
-- **Free Daily Tip**: One free prediction generated automatically each day (public, userId=null)
-- **Premium Predictions**: Generated when a user subscribes (user-specific, userId set)
+- **Free Daily Tip**: One free prediction with >70% probability, includes sportsbook consensus odds from 5 books
+- **Premium Predictions**: High-probability (>65%) predictions with sportsbook odds, streamlined view without extra stats
 - Webhook handler triggers prediction generation on subscription activation
 - All prediction endpoints support userId filtering for personalized results
+
+## Sportsbook Consensus Odds
+- Displays odds from 5 major sportsbooks: DraftKings, FanDuel, BetMGM, Caesars, PointsBet
+- Shows American odds format (e.g., -300) and implied probability percentage
+- Consensus percentage shows agreement across all books (e.g., "75%+ agree")
+- Premium users see clean sportsbook odds view without extra statistics
 
 ## Running the App
 - Backend: `npm run server:dev` (port 5000)

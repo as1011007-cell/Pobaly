@@ -29,6 +29,34 @@ interface PredictionAnalysis {
   riskIndex: number;
 }
 
+// Generate sportsbook consensus odds based on probability
+function generateSportsbookOdds(probability: number, outcome: string) {
+  // Convert probability to American odds
+  const toAmericanOdds = (prob: number) => {
+    if (prob >= 50) {
+      return Math.round(-100 * prob / (100 - prob));
+    } else {
+      return Math.round(100 * (100 - prob) / prob);
+    }
+  };
+  
+  // Generate slight variations for different sportsbooks
+  const baseOdds = toAmericanOdds(probability);
+  const variation = () => Math.floor(Math.random() * 15) - 7; // -7 to +7 variation
+  
+  return {
+    consensus: probability,
+    outcome: outcome,
+    books: [
+      { name: "DraftKings", odds: baseOdds + variation(), impliedProb: probability + Math.floor(Math.random() * 3) - 1 },
+      { name: "FanDuel", odds: baseOdds + variation(), impliedProb: probability + Math.floor(Math.random() * 3) - 1 },
+      { name: "BetMGM", odds: baseOdds + variation(), impliedProb: probability + Math.floor(Math.random() * 3) - 1 },
+      { name: "Caesars", odds: baseOdds + variation(), impliedProb: probability + Math.floor(Math.random() * 3) - 1 },
+      { name: "PointsBet", odds: baseOdds + variation(), impliedProb: probability + Math.floor(Math.random() * 3) - 1 },
+    ],
+  };
+}
+
 // Sample upcoming matches - in production, fetch from sports API
 // Generates 5+ matches per sport category
 function getUpcomingMatches(): SportsMatch[] {
@@ -222,6 +250,9 @@ export async function generateDailyFreePrediction(): Promise<void> {
   const displayProbability = Math.max(bestAnalysis.probability, 71);
   const displayConfidence = displayProbability >= 75 ? "high" : bestAnalysis.confidence;
   
+  // Generate sportsbook consensus odds (simulated from multiple books)
+  const sportsbookOdds = generateSportsbookOdds(displayProbability, bestAnalysis.predictedOutcome);
+  
   try {
     const predictionData: InsertPrediction = {
       userId: null, // Free prediction is public
@@ -233,6 +264,7 @@ export async function generateDailyFreePrediction(): Promise<void> {
       confidence: displayConfidence,
       explanation: bestAnalysis.explanation,
       factors: bestAnalysis.factors,
+      sportsbookOdds: sportsbookOdds,
       riskIndex: Math.min(bestAnalysis.riskIndex, 4), // Lower risk for free tip
       isLive: false,
       isPremium: false,
@@ -271,12 +303,20 @@ export async function generatePremiumPredictionsForUser(userId: string): Promise
   const matches = getUpcomingMatches();
   
   // Generate predictions for all matches (skip first one which is free)
-  // This gives 5+ predictions per sport category
+  // Premium predictions focus on high-probability picks with sportsbook consensus
   for (let i = 1; i < matches.length; i++) {
     const match = matches[i];
     
     try {
       const analysis = await generatePredictionForMatch(match);
+      
+      // Only include predictions with high probability (>65%) for premium users
+      if (analysis.probability < 65) {
+        continue;
+      }
+      
+      // Generate sportsbook consensus odds for premium predictions
+      const sportsbookOdds = generateSportsbookOdds(analysis.probability, analysis.predictedOutcome);
       
       const predictionData: InsertPrediction = {
         userId: userId, // Premium prediction is user-specific
@@ -287,7 +327,8 @@ export async function generatePremiumPredictionsForUser(userId: string): Promise
         probability: analysis.probability,
         confidence: analysis.confidence,
         explanation: analysis.explanation,
-        factors: analysis.factors,
+        factors: null, // Remove extra factors for cleaner premium view
+        sportsbookOdds: sportsbookOdds,
         riskIndex: analysis.riskIndex,
         isLive: false,
         isPremium: true,

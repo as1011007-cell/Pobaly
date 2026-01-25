@@ -38,6 +38,7 @@ export const predictions = pgTable("predictions", {
   confidence: text("confidence").notNull(), // high, medium, low
   explanation: text("explanation").notNull(),
   factors: jsonb("factors"), // Array of analysis factors
+  sportsbookOdds: jsonb("sportsbook_odds"), // Consensus odds from multiple sportsbooks
   riskIndex: integer("risk_index").notNull(), // 0-100
   isLive: boolean("is_live").default(false),
   isPremium: boolean("is_premium").default(true),
