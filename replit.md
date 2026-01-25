@@ -68,6 +68,16 @@ The app uses Stripe for premium subscriptions:
 - Each prediction includes: probability, confidence, explanation, factors, risk index
 - Billing: OpenAI public API rates deducted from Replit credits
 
+## Sports Data Integration
+- **API**: The Odds API (https://the-odds-api.com) for real upcoming games
+- **Secret**: ODDS_API_KEY (required for live data, falls back to demo data without it)
+- **Coverage**: NFL, NBA, Premier League, La Liga, Bundesliga, Serie A, Ligue 1, MLB, NHL, UFC, ATP Tennis
+- **Daily Refresh**: Predictions automatically refresh every 24 hours
+  - Clears expired predictions (past matches)
+  - Fetches fresh upcoming games from sports API
+  - Regenerates AI predictions for new matches
+- **Scheduler**: `startDailyRefreshScheduler()` runs on server startup and every 24 hours
+
 ## API Endpoints
 - `POST /api/auth/register` - Create new user
 - `POST /api/auth/login` - User login
