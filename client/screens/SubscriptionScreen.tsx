@@ -38,6 +38,8 @@ interface StripeProduct {
   prices: StripePrice[];
 }
 
+type PlanType = "monthly" | "yearly";
+
 export default function SubscriptionScreen() {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
@@ -45,6 +47,7 @@ export default function SubscriptionScreen() {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const { user, isPremium, refreshUser } = useAuth();
   const [isRestoring, setIsRestoring] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<PlanType>("yearly");
 
   const [isLoading, setIsLoading] = useState(false);
   const [products, setProducts] = useState<StripeProduct[]>([]);
@@ -72,11 +75,12 @@ export default function SubscriptionScreen() {
     if (!user) return;
 
     const premiumProduct = products.find((p) => p.name.toLowerCase().includes("premium"));
-    const annualPrice = premiumProduct?.prices.find(
-      (p) => p.recurring?.interval === "year"
+    const interval = selectedPlan === "yearly" ? "year" : "month";
+    const selectedPrice = premiumProduct?.prices.find(
+      (p) => p.recurring?.interval === interval
     );
 
-    if (!annualPrice) {
+    if (!selectedPrice) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       return;
     }
@@ -85,7 +89,7 @@ export default function SubscriptionScreen() {
     try {
       const response = await apiRequest("POST", "/api/checkout", {
         userId: user.id,
-        priceId: annualPrice.id,
+        priceId: selectedPrice.id,
       });
       const data = await response.json();
 
@@ -105,6 +109,11 @@ export default function SubscriptionScreen() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSelectPlan = (plan: PlanType) => {
+    setSelectedPlan(plan);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
   const handleRestorePurchases = async () => {
@@ -157,10 +166,19 @@ export default function SubscriptionScreen() {
   }
 
   const premiumProduct = products.find((p) => p.name.toLowerCase().includes("premium"));
-  const annualPrice = premiumProduct?.prices.find(
+  const monthlyPrice = premiumProduct?.prices.find(
+    (p) => p.recurring?.interval === "month"
+  );
+  const yearlyPrice = premiumProduct?.prices.find(
     (p) => p.recurring?.interval === "year"
   );
-  const displayPrice = annualPrice ? annualPrice.unit_amount / 100 : 49;
+
+  const monthlyAmount = monthlyPrice ? monthlyPrice.unit_amount / 100 : 49;
+  const yearlyAmount = yearlyPrice ? yearlyPrice.unit_amount / 100 : 149;
+  const monthlyOriginal = 99;
+  const yearlyOriginal = 399;
+  const monthlySavings = Math.round(((monthlyOriginal - monthlyAmount) / monthlyOriginal) * 100);
+  const yearlySavings = Math.round(((yearlyOriginal - yearlyAmount) / yearlyOriginal) * 100);
 
   return (
     <ScrollView
@@ -212,35 +230,93 @@ export default function SubscriptionScreen() {
         ))}
       </View>
 
-      <LinearGradient
-        colors={[ProbalyColors.primary, ProbalyColors.accent]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.priceCard}
-      >
-        <View style={styles.priceBadge}>
-          <ThemedText style={styles.priceBadgeText}>BEST VALUE</ThemedText>
-        </View>
-        <View style={styles.priceRow}>
-          <ThemedText style={styles.currency}>$</ThemedText>
-          <ThemedText style={styles.price}>{Math.floor(displayPrice)}</ThemedText>
-          <ThemedText style={styles.period}>/year</ThemedText>
-        </View>
-        <ThemedText style={styles.priceSubtitle}>
-          Less than $1 per week
-        </ThemedText>
-      </LinearGradient>
+      <View style={styles.plansContainer}>
+        <Pressable
+          onPress={() => handleSelectPlan("monthly")}
+          style={[
+            styles.planCard,
+            { 
+              backgroundColor: theme.backgroundDefault,
+              borderColor: selectedPlan === "monthly" ? theme.primary : theme.border,
+              borderWidth: selectedPlan === "monthly" ? 2 : 1,
+            },
+          ]}
+        >
+          <View style={styles.planHeader}>
+            <ThemedText type="body" style={{ fontWeight: "700" }}>Monthly</ThemedText>
+            <View style={[styles.savingsBadge, { backgroundColor: `${theme.success}15` }]}>
+              <ThemedText style={[styles.savingsText, { color: theme.success }]}>
+                Save {monthlySavings}%
+              </ThemedText>
+            </View>
+          </View>
+          <View style={styles.planPriceRow}>
+            <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>
+              ${monthlyOriginal}
+            </ThemedText>
+            <ThemedText type="h2" style={{ color: theme.text }}>
+              ${monthlyAmount}
+            </ThemedText>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>/month</ThemedText>
+          </View>
+          {selectedPlan === "monthly" && (
+            <View style={[styles.selectedIndicator, { backgroundColor: theme.primary }]}>
+              <Feather name="check" size={14} color="#FFFFFF" />
+            </View>
+          )}
+        </Pressable>
+
+        <Pressable
+          onPress={() => handleSelectPlan("yearly")}
+          style={[
+            styles.planCard,
+            { 
+              backgroundColor: theme.backgroundDefault,
+              borderColor: selectedPlan === "yearly" ? theme.primary : theme.border,
+              borderWidth: selectedPlan === "yearly" ? 2 : 1,
+            },
+          ]}
+        >
+          <View style={styles.bestValueBadge}>
+            <ThemedText style={styles.bestValueText}>BEST VALUE</ThemedText>
+          </View>
+          <View style={styles.planHeader}>
+            <ThemedText type="body" style={{ fontWeight: "700" }}>Yearly</ThemedText>
+            <View style={[styles.savingsBadge, { backgroundColor: `${theme.success}15` }]}>
+              <ThemedText style={[styles.savingsText, { color: theme.success }]}>
+                Save {yearlySavings}%
+              </ThemedText>
+            </View>
+          </View>
+          <View style={styles.planPriceRow}>
+            <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>
+              ${yearlyOriginal}
+            </ThemedText>
+            <ThemedText type="h2" style={{ color: theme.text }}>
+              ${yearlyAmount}
+            </ThemedText>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>/year</ThemedText>
+          </View>
+          <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: Spacing.xs }}>
+            Only ${Math.round(yearlyAmount / 12)}/month
+          </ThemedText>
+          {selectedPlan === "yearly" && (
+            <View style={[styles.selectedIndicator, { backgroundColor: theme.primary }]}>
+              <Feather name="check" size={14} color="#FFFFFF" />
+            </View>
+          )}
+        </Pressable>
+      </View>
 
       <Button
         onPress={handleSubscribe}
         disabled={isLoading || loadingProducts}
         style={styles.subscribeButton}
-        testID="button-subscribe"
       >
         {isLoading ? (
           <ActivityIndicator color="#FFFFFF" size="small" />
         ) : (
-          "Start Annual Subscription"
+          `Start ${selectedPlan === "yearly" ? "Annual" : "Monthly"} Subscription`
         )}
       </Button>
 
@@ -316,52 +392,63 @@ const styles = StyleSheet.create({
   featureContent: {
     flex: 1,
   },
-  priceCard: {
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.xl,
-    alignItems: "center",
+  plansContainer: {
     marginBottom: Spacing.xl,
+    gap: Spacing.md,
   },
-  priceBadge: {
-    backgroundColor: "rgba(255,255,255,0.2)",
+  planCard: {
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    position: "relative",
+  },
+  planHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: Spacing.sm,
+  },
+  planPriceRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: Spacing.sm,
+  },
+  originalPrice: {
+    fontSize: 16,
+    textDecorationLine: "line-through",
+  },
+  savingsBadge: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.full,
+  },
+  savingsText: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  bestValueBadge: {
+    position: "absolute",
+    top: -10,
+    right: Spacing.lg,
+    backgroundColor: "#E53935",
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.xs,
     borderRadius: BorderRadius.full,
-    marginBottom: Spacing.md,
   },
-  priceBadgeText: {
+  bestValueText: {
     color: "#FFFFFF",
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "700",
     letterSpacing: 0.5,
   },
-  priceRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    marginBottom: Spacing.xs,
-  },
-  currency: {
-    color: "#FFFFFF",
-    fontSize: 24,
-    fontWeight: "600",
-    marginTop: Spacing.sm,
-  },
-  price: {
-    color: "#FFFFFF",
-    fontSize: 56,
-    fontWeight: "700",
-    lineHeight: 70,
-    includeFontPadding: true,
-  },
-  period: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: 18,
-    marginTop: Spacing.sm,
-    marginLeft: Spacing.xs,
-  },
-  priceSubtitle: {
-    color: "rgba(255,255,255,0.7)",
-    fontSize: 14,
+  selectedIndicator: {
+    position: "absolute",
+    top: Spacing.md,
+    right: Spacing.md,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
   },
   subscribeButton: {
     marginBottom: Spacing.xl,

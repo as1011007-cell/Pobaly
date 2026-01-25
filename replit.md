@@ -54,7 +54,9 @@ shared/           # Shared types and schemas
 
 ## Stripe Integration
 The app uses Stripe for premium subscriptions:
-- Product: "Probaly Premium" - $49/year
+- Product: "Probaly Premium"
+  - Monthly: $49/month (original $99/month - 50% off)
+  - Annual: $149/year (original $399/year - 63% off)
 - Webhook: `/api/stripe/webhook` (handled BEFORE express.json middleware)
 - Checkout: `/api/checkout` creates Stripe Checkout sessions
 
