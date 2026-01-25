@@ -133,18 +133,37 @@ export class DatabaseStorage implements IStorage {
         
         for (const product of products.data) {
           const prices = await stripe.prices.list({ product: product.id, active: true });
-          productsWithPrices.push({
-            product_id: product.id,
-            product_name: product.name,
-            product_description: product.description,
-            product_active: product.active,
-            product_metadata: product.metadata,
-            price_id: prices.data[0]?.id || null,
-            unit_amount: prices.data[0]?.unit_amount || null,
-            currency: prices.data[0]?.currency || null,
-            recurring: prices.data[0]?.recurring || null,
-            price_active: prices.data[0]?.active || null,
-          });
+          
+          if (prices.data.length === 0) {
+            productsWithPrices.push({
+              product_id: product.id,
+              product_name: product.name,
+              product_description: product.description,
+              product_active: product.active,
+              product_metadata: product.metadata,
+              price_id: null,
+              unit_amount: null,
+              currency: null,
+              recurring: null,
+              price_active: null,
+            });
+          } else {
+            for (const price of prices.data) {
+              productsWithPrices.push({
+                product_id: product.id,
+                product_name: product.name,
+                product_description: product.description,
+                product_active: product.active,
+                product_metadata: product.metadata,
+                price_id: price.id,
+                unit_amount: price.unit_amount,
+                currency: price.currency,
+                recurring: price.recurring,
+                price_active: price.active,
+                price_metadata: price.metadata,
+              });
+            }
+          }
         }
         
         return productsWithPrices;
