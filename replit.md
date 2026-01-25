@@ -54,11 +54,13 @@ shared/           # Shared types and schemas
 
 ## Stripe Integration
 The app uses Stripe for premium subscriptions:
-- Product: "Probaly Premium"
-  - Monthly: $49/month (original $99/month - 50% off)
-  - Annual: $149/year (original $399/year - 63% off)
+- **Mode**: Live (uses STRIPE_SECRET_KEY and STRIPE_PUBLISHABLE_KEY environment secrets)
+- Product: "Probaly Premium" (prod_Tr6EClKeYSwbhx)
+  - Monthly: $49/month (original $99/month - 50% off) - price_1StZauCow6jut3nLmIWUckQ7
+  - Annual: $149/year (original $399/year - 63% off) - price_1StZavCow6jut3nLwXuIAtSx
 - Webhook: `/api/stripe/webhook` (handled BEFORE express.json middleware)
 - Checkout: `/api/checkout` creates Stripe Checkout sessions
+- Note: If STRIPE_SECRET_KEY/STRIPE_PUBLISHABLE_KEY secrets are set, they override the Replit connector (sandbox)
 
 ## AI Predictions
 - Uses OpenAI GPT-4o via Replit AI Integrations
