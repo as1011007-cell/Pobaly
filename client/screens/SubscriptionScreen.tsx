@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from "react";
-import { View, StyleSheet, ScrollView, Image, ActivityIndicator, Linking, Platform } from "react-native";
+import { View, StyleSheet, ScrollView, Image, ActivityIndicator, Linking, Platform, Pressable, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, NavigationProp } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
 import * as WebBrowser from "expo-web-browser";
+import { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 import { ThemedText } from "@/components/ThemedText";
 import { Button } from "@/components/Button";
@@ -41,8 +42,9 @@ export default function SubscriptionScreen() {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
-  const navigation = useNavigation();
+  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const { user, isPremium, refreshUser } = useAuth();
+  const [isRestoring, setIsRestoring] = useState(false);
 
   const [isLoading, setIsLoading] = useState(false);
   const [products, setProducts] = useState<StripeProduct[]>([]);
@@ -102,6 +104,26 @@ export default function SubscriptionScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleRestorePurchases = async () => {
+    if (!user) return;
+    
+    setIsRestoring(true);
+    try {
+      await refreshUser();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (isPremium) {
+        Alert.alert("Success", "Your subscription has been restored!");
+      } else {
+        Alert.alert("No Subscription Found", "We couldn't find an active subscription for your account.");
+      }
+    } catch (error) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert("Error", "Failed to restore purchases. Please try again.");
+    } finally {
+      setIsRestoring(false);
     }
   };
 
@@ -191,7 +213,7 @@ export default function SubscriptionScreen() {
       </View>
 
       <LinearGradient
-        colors={[BetRightColors.primary, BetRightColors.accent]}
+        colors={[ProbalyColors.primary, ProbalyColors.accent]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.priceCard}
@@ -231,23 +253,27 @@ export default function SubscriptionScreen() {
           Privacy Policy.
         </ThemedText>
         <View style={styles.footerLinks}>
-          <ThemedText type="small" style={{ color: theme.accent }}>
-            Restore Purchase
-          </ThemedText>
+          <Pressable onPress={handleRestorePurchases} disabled={isRestoring} testID="button-restore">
+            <ThemedText type="small" style={{ color: theme.accent }}>
+              {isRestoring ? "Restoring..." : "Restore Purchase"}
+            </ThemedText>
+          </Pressable>
           <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            {" "}
-            •{" "}
+            {" "}•{" "}
           </ThemedText>
-          <ThemedText type="small" style={{ color: theme.accent }}>
-            Terms
-          </ThemedText>
+          <Pressable onPress={() => navigation.navigate("TermsOfService")} testID="link-terms">
+            <ThemedText type="small" style={{ color: theme.accent }}>
+              Terms
+            </ThemedText>
+          </Pressable>
           <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            {" "}
-            •{" "}
+            {" "}•{" "}
           </ThemedText>
-          <ThemedText type="small" style={{ color: theme.accent }}>
-            Privacy
-          </ThemedText>
+          <Pressable onPress={() => navigation.navigate("PrivacyPolicy")} testID="link-privacy">
+            <ThemedText type="small" style={{ color: theme.accent }}>
+              Privacy
+            </ThemedText>
+          </Pressable>
         </View>
       </View>
     </ScrollView>
