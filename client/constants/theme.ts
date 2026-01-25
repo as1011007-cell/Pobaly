@@ -17,9 +17,6 @@ export const ProbalyColors = {
   liveIndicator: "#E53935", // Red - matches brand
 };
 
-// Legacy alias for compatibility
-export const ProbalyColors = ProbalyColors;
-
 const tintColorLight = ProbalyColors.primary;
 const tintColorDark = ProbalyColors.accent;
 

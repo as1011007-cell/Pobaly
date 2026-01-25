@@ -108,7 +108,16 @@ Predictions table:
 - Backend: `npm run server:dev` (port 5000)
 - Frontend: `npm run expo:dev` (port 8081)
 
+## App Store Compliance
+- Bundle ID: com.probaly.app (iOS and Android)
+- Privacy Policy: Accessible from Profile and Subscription screens (privacy@probaly.app)
+- Terms of Service: Accessible from Profile and Subscription screens (support@probaly.app)
+- Gambling Disclaimer: Home screen footer with 18+ requirement and "entertainment purposes only"
+- Restore Purchase: Functional button in Subscription screen footer
+- Age Rating: 17+ (Frequent/Intense Simulated Gambling)
+
 ## Recent Changes
+- January 2026: Added App Store compliance (gambling disclaimer, restore purchases, legal pages)
 - January 2026: Added user-specific predictions (userId field for personalized premium predictions)
 - January 2026: Rebranded back to Probaly with new logo (keeping navy/red colors)
 - January 2026: Added AI-powered predictions using OpenAI GPT-4o
