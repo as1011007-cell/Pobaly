@@ -30,7 +30,7 @@ export default function WelcomeScreen({ navigation }: WelcomeScreenProps) {
     >
       <View style={styles.content}>
         <Image
-          source={require("../../assets/images/welcome-hero.png")}
+          source={require("../../assets/images/betright-logo.png")}
           style={styles.heroImage}
           resizeMode="contain"
         />
