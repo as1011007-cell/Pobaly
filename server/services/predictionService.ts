@@ -279,32 +279,35 @@ export async function generateDailyPredictions(): Promise<void> {
 export async function generateDemoPredictions(): Promise<void> {
   console.log("Generating demo predictions for all sports...");
   
-  // Check if demo predictions already exist
-  const existing = await db.select()
+  const matches = getUpcomingMatches();
+  
+  // Get existing demo predictions to avoid duplicates
+  const existingDemo = await db.select()
     .from(predictions)
     .where(
       and(
         eq(predictions.isPremium, true),
         isNull(predictions.userId)
       )
-    )
-    .limit(1);
+    );
   
-  if (existing.length > 0) {
-    console.log("Demo predictions already exist, skipping generation");
-    return;
-  }
+  const existingTitles = new Set(existingDemo.map(p => p.matchTitle));
   
-  const matches = getUpcomingMatches();
-  
-  // Generate predictions for all matches as demo (premium but public)
+  // Generate predictions for matches that don't exist yet
   for (const match of matches) {
+    const matchTitle = `${match.homeTeam} vs ${match.awayTeam}`;
+    
+    if (existingTitles.has(matchTitle)) {
+      console.log(`Demo prediction already exists: ${matchTitle}`);
+      continue;
+    }
+    
     try {
       const analysis = await generatePredictionForMatch(match);
       
       const predictionData: InsertPrediction = {
         userId: null, // Demo prediction is public but locked
-        matchTitle: `${match.homeTeam} vs ${match.awayTeam}`,
+        matchTitle: matchTitle,
         sport: match.sport,
         matchTime: match.matchTime,
         predictedOutcome: analysis.predictedOutcome,
@@ -320,9 +323,9 @@ export async function generateDemoPredictions(): Promise<void> {
       };
 
       await db.insert(predictions).values(predictionData);
-      console.log(`Generated demo prediction: ${match.homeTeam} vs ${match.awayTeam} (${match.sport})`);
+      console.log(`Generated demo prediction: ${matchTitle} (${match.sport})`);
     } catch (error) {
-      console.error(`Failed to generate demo prediction for ${match.homeTeam} vs ${match.awayTeam}:`, error);
+      console.error(`Failed to generate demo prediction for ${matchTitle}:`, error);
     }
   }
   
