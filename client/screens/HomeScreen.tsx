@@ -13,7 +13,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/contexts/AuthContext";
 import { Spacing } from "@/constants/theme";
-import { fetchFreeTip, fetchPremiumPredictions, generatePredictions } from "@/lib/predictionsApi";
+import { fetchFreeTip, fetchPremiumPredictions } from "@/lib/predictionsApi";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import type { Prediction } from "@/types";
 
@@ -38,19 +38,8 @@ export default function HomeScreen() {
         fetchFreeTip(),
         fetchPremiumPredictions(),
       ]);
-      
-      if (!tip && premium.length === 0) {
-        await generatePredictions();
-        const [newTip, newPremium] = await Promise.all([
-          fetchFreeTip(),
-          fetchPremiumPredictions(),
-        ]);
-        setFreeTip(newTip);
-        setPremiumPredictions(newPremium);
-      } else {
-        setFreeTip(tip);
-        setPremiumPredictions(premium);
-      }
+      setFreeTip(tip);
+      setPremiumPredictions(premium);
     } catch (error) {
       console.error("Error loading predictions:", error);
     } finally {
