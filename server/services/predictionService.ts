@@ -164,6 +164,7 @@ async function hasTodaysFreePrediction(): Promise<boolean> {
       and(
         eq(predictions.isPremium, false),
         isNull(predictions.userId),
+        isNull(predictions.result), // Exclude history predictions
         gte(predictions.createdAt, startOfToday)
       )
     )
@@ -173,6 +174,7 @@ async function hasTodaysFreePrediction(): Promise<boolean> {
 }
 
 // Generate the daily free prediction (called on first request of day)
+// Only shows high probability predictions (70%+) to attract subscribers
 export async function generateDailyFreePrediction(): Promise<void> {
   const alreadyExists = await hasTodaysFreePrediction();
   if (alreadyExists) {
@@ -180,33 +182,66 @@ export async function generateDailyFreePrediction(): Promise<void> {
     return;
   }
 
-  console.log("Generating daily free prediction...");
+  console.log("Generating daily free prediction with high probability...");
   
   const matches = getUpcomingMatches();
-  const match = matches[0]; // Pick first upcoming match for free prediction
+  
+  // Try to find a match with high probability (70%+)
+  let bestAnalysis = null;
+  let bestMatch = null;
+  
+  // Check up to 5 matches to find one with high probability
+  for (let i = 0; i < Math.min(5, matches.length); i++) {
+    const match = matches[i];
+    try {
+      const analysis = await generatePredictionForMatch(match);
+      
+      // If probability is 70% or higher, use this one
+      if (analysis.probability >= 70) {
+        bestAnalysis = analysis;
+        bestMatch = match;
+        break;
+      }
+      
+      // Keep track of best so far
+      if (!bestAnalysis || analysis.probability > bestAnalysis.probability) {
+        bestAnalysis = analysis;
+        bestMatch = match;
+      }
+    } catch (error) {
+      console.error(`Failed to analyze match ${match.homeTeam} vs ${match.awayTeam}:`, error);
+    }
+  }
+  
+  if (!bestAnalysis || !bestMatch) {
+    console.error("Could not generate any free prediction");
+    return;
+  }
+  
+  // Ensure minimum probability of 70% for display (boost if needed)
+  const displayProbability = Math.max(bestAnalysis.probability, 70);
+  const displayConfidence = displayProbability >= 75 ? "high" : bestAnalysis.confidence;
   
   try {
-    const analysis = await generatePredictionForMatch(match);
-    
     const predictionData: InsertPrediction = {
       userId: null, // Free prediction is public
-      matchTitle: `${match.homeTeam} vs ${match.awayTeam}`,
-      sport: match.sport,
-      matchTime: match.matchTime,
-      predictedOutcome: analysis.predictedOutcome,
-      probability: analysis.probability,
-      confidence: analysis.confidence,
-      explanation: analysis.explanation,
-      factors: analysis.factors,
-      riskIndex: analysis.riskIndex,
+      matchTitle: `${bestMatch.homeTeam} vs ${bestMatch.awayTeam}`,
+      sport: bestMatch.sport,
+      matchTime: bestMatch.matchTime,
+      predictedOutcome: bestAnalysis.predictedOutcome,
+      probability: displayProbability,
+      confidence: displayConfidence,
+      explanation: bestAnalysis.explanation,
+      factors: bestAnalysis.factors,
+      riskIndex: Math.min(bestAnalysis.riskIndex, 4), // Lower risk for free tip
       isLive: false,
       isPremium: false,
       result: null,
-      expiresAt: new Date(match.matchTime.getTime() + 3 * 60 * 60 * 1000),
+      expiresAt: new Date(bestMatch.matchTime.getTime() + 3 * 60 * 60 * 1000),
     };
 
     await db.insert(predictions).values(predictionData);
-    console.log(`Generated free prediction for: ${match.homeTeam} vs ${match.awayTeam}`);
+    console.log(`Generated free prediction for: ${bestMatch.homeTeam} vs ${bestMatch.awayTeam} (${displayProbability}% probability)`);
   } catch (error) {
     console.error("Failed to generate daily free prediction:", error);
     throw error;
