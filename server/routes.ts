@@ -9,6 +9,7 @@ import {
   generateDailyPredictions,
   generatePremiumPredictionsForUser,
   generateDemoPredictions,
+  generateYesterdayHistory,
   getFreeTip,
   getPremiumPredictions,
   getLivePredictions,

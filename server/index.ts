@@ -4,6 +4,7 @@ import { runMigrations } from 'stripe-replit-sync';
 import { registerRoutes } from "./routes";
 import { getStripeSync } from "./stripeClient";
 import { WebhookHandlers } from "./webhookHandlers";
+import { generateYesterdayHistory } from "./services/predictionService";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -314,6 +315,11 @@ function setupErrorHandler(app: express.Application) {
     },
     () => {
       log(`express server serving on port ${port}`);
+      
+      // Generate yesterday's history predictions on startup
+      generateYesterdayHistory().catch((err) => {
+        console.error("Error generating yesterday history:", err);
+      });
     },
   );
 })();
