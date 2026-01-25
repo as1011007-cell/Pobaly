@@ -1,0 +1,234 @@
+Project Name: Probaly (working title)
+Platform: iOS & Android (cross-platform)
+App Type: AI-powered sports prediction & analytics app
+Monetization: Annual subscription — $49/year
+Authentication: Email login
+
+1. App Purpose
+
+Build a premium sports analytics app that uses AI and statistical modeling to provide high-probability predictions for upcoming and live sports events.
+
+The app must focus on probability, transparency, and long-term accuracy, not guaranteed outcomes or gambling hype.
+
+2. Core Features
+A. User Authentication
+
+Email-based sign up and login
+
+Password or OTP login
+
+Forgot password flow
+
+Secure session handling
+
+No social login required
+
+B. Free Experience
+
+Free Tip of the Day
+
+One AI-selected high-probability prediction per day
+
+Visible immediately after login
+
+Shows:
+
+Match/Event name
+
+Predicted outcome
+
+Probability percentage
+
+Confidence label (Low / Medium / High)
+
+Short AI explanation (2–3 lines)
+
+Locked premium predictions (blurred or gated)
+
+C. Premium Subscription ($49/year)
+
+Annual subscription only (no monthly)
+
+Unlocks:
+
+All daily predictions
+
+Live match predictions
+
+Advanced filters (High Confidence only)
+
+Sport-specific browsing
+
+Prediction history and results
+
+Payment via:
+
+Apple In-App Purchase (iOS)
+
+Google Play Billing (Android)
+
+3. Sports Coverage
+
+Initial launch sports:
+
+Football (Soccer)
+
+Basketball
+
+Cricket
+
+Tennis
+
+Architecture should allow adding more sports later without major refactor.
+
+4. Prediction System (AI Logic Layer)
+
+The AI system should:
+
+Analyze historical match data
+
+Factor in:
+
+Team/player form
+
+Injuries & suspensions
+
+Head-to-head history
+
+Venue & home/away advantage
+
+Schedule congestion & travel
+
+Market movement trends
+
+Output:
+
+Predicted outcome
+
+Win probability (%)
+
+Confidence rating
+
+Risk index
+
+Human-readable explanation
+
+Predictions must clearly show probability — not guaranteed results.
+
+5. Prediction Display Format
+
+Each prediction card should include:
+
+Match title & time
+
+Sport icon
+
+Predicted outcome
+
+Probability percentage
+
+Confidence badge
+
+Short explanation text
+
+Live status indicator (if applicable)
+
+6. User Interface & UX Guidelines
+
+Clean, calm, data-focused design
+
+No casino or gambling-style visuals
+
+Neutral colors, modern typography
+
+Minimal animations
+
+Fast loading
+
+Easy one-hand use
+
+Navigation tabs:
+
+Home
+
+Live
+
+Sports
+
+History
+
+Profile
+
+7. Notifications (Optional but Recommended)
+
+User-controlled notifications for:
+
+Free Tip of the Day
+
+High-confidence upcoming events
+
+Live probability changes
+
+8. Backend & Architecture
+
+Scalable backend (cloud-based)
+
+Secure user data storage
+
+AI model hosted via API or server
+
+Caching for frequently accessed predictions
+
+Admin dashboard for:
+
+Managing predictions
+
+Viewing AI accuracy
+
+Managing subscriptions
+
+9. Legal & Compliance Positioning
+
+App should be positioned as:
+
+Sports analytics & probability insights
+
+Not a betting or gambling app
+
+No betting links or wager placement
+
+Predictions framed as informational analysis
+
+10. Performance & Quality
+
+App load time under 2 seconds
+
+Prediction updates in near-real-time
+
+High availability during live events
+
+Proper error handling and fallback states
+
+11. Future-Ready (Phase 2 Ready)
+
+Design architecture to support:
+
+AI accuracy dashboard
+
+User favorite teams
+
+Personalized predictions
+
+Web app version
+
+Multi-language support
+
+12. Success Criteria
+
+Smooth onboarding under 60 seconds
+
+Clear value shown within first session
+
+Strong free-to-paid conversion
+
+Transparent, trustworthy user experience
