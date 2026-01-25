@@ -350,7 +350,8 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 56,
     fontWeight: "700",
-    lineHeight: 56,
+    lineHeight: 70,
+    includeFontPadding: true,
   },
   period: {
     color: "rgba(255,255,255,0.8)",

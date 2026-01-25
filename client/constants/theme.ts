@@ -87,17 +87,17 @@ export const BorderRadius = {
 export const Typography = {
   display: {
     fontSize: 32,
-    lineHeight: 40,
+    lineHeight: 44,
     fontWeight: "700" as const,
   },
   h1: {
     fontSize: 32,
-    lineHeight: 40,
+    lineHeight: 44,
     fontWeight: "700" as const,
   },
   h2: {
     fontSize: 28,
-    lineHeight: 36,
+    lineHeight: 40,
     fontWeight: "700" as const,
   },
   h3: {

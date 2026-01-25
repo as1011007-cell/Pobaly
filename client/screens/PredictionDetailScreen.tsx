@@ -247,6 +247,8 @@ const styles = StyleSheet.create({
     fontSize: 48,
     fontWeight: "700",
     fontVariant: ["tabular-nums"],
+    lineHeight: 60,
+    includeFontPadding: true,
   },
   probabilityLabel: {
     color: "rgba(255,255,255,0.7)",

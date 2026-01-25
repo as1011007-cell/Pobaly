@@ -283,6 +283,8 @@ const styles = StyleSheet.create({
   probabilityText: {
     fontWeight: "700",
     fontVariant: ["tabular-nums"],
+    lineHeight: 40,
+    includeFontPadding: true,
   },
   explanation: {
     marginTop: Spacing.md,
