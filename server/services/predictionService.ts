@@ -601,3 +601,81 @@ export async function getSportPredictionCounts(userId?: string) {
   
   return counts;
 }
+
+// Clear expired predictions (matches that have already started)
+export async function clearExpiredPredictions(): Promise<number> {
+  const now = new Date();
+  
+  const result = await db.delete(predictions)
+    .where(
+      and(
+        sql`${predictions.matchTime} < ${now.toISOString()}::timestamp`,
+        isNull(predictions.result)
+      )
+    );
+  
+  console.log(`Cleared expired predictions`);
+  return 0;
+}
+
+// Daily refresh: Clear old predictions and regenerate with fresh data from API
+export async function dailyPredictionRefresh(): Promise<void> {
+  console.log("Starting daily prediction refresh...");
+  
+  try {
+    // 1. Clear expired predictions
+    await clearExpiredPredictions();
+    
+    // 2. Generate yesterday's history
+    await generateYesterdayHistory();
+    
+    // 3. Generate fresh free prediction for today
+    await generateDailyFreePrediction();
+    
+    // 4. Refresh demo predictions with latest games
+    await refreshDemoPredictions();
+    
+    console.log("Daily prediction refresh completed successfully");
+  } catch (error) {
+    console.error("Error during daily prediction refresh:", error);
+  }
+}
+
+// Refresh demo predictions - clear old ones and regenerate
+async function refreshDemoPredictions(): Promise<void> {
+  console.log("Refreshing demo predictions with latest games...");
+  
+  const now = new Date();
+  
+  // Delete demo predictions with expired match times
+  await db.delete(predictions)
+    .where(
+      and(
+        eq(predictions.isPremium, true),
+        isNull(predictions.userId),
+        sql`${predictions.matchTime} < ${now.toISOString()}::timestamp`
+      )
+    );
+  
+  // Generate new demo predictions
+  await generateDemoPredictions();
+}
+
+// Start daily refresh scheduler (runs every 24 hours)
+export function startDailyRefreshScheduler(): void {
+  const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+  
+  console.log("Daily prediction refresh scheduler started");
+  
+  // Run immediately on startup
+  dailyPredictionRefresh().catch(err => {
+    console.error("Initial daily refresh failed:", err);
+  });
+  
+  // Then run every 24 hours
+  setInterval(() => {
+    dailyPredictionRefresh().catch(err => {
+      console.error("Scheduled daily refresh failed:", err);
+    });
+  }, TWENTY_FOUR_HOURS);
+}
