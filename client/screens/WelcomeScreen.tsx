@@ -37,13 +37,13 @@ export default function WelcomeScreen({ navigation }: WelcomeScreenProps) {
 
         <View style={styles.textContainer}>
           <ThemedText type="h1" style={styles.title}>
-            Probaly
+            BetRight
           </ThemedText>
           <ThemedText
             type="body"
             style={[styles.subtitle, { color: theme.textSecondary }]}
           >
-            Sports Intelligence, Probability-Driven
+            AI-Powered Sports Intelligence
           </ThemedText>
           <ThemedText
             type="small"

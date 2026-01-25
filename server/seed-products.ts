@@ -1,17 +1,17 @@
 import { getUncachableStripeClient } from './stripeClient';
 
 async function createProducts() {
-  console.log('Creating Probaly Premium subscription product...');
+  console.log('Creating BetRight Premium subscription product...');
   
   const stripe = await getUncachableStripeClient();
 
   // Check if product already exists
   const existingProducts = await stripe.products.search({ 
-    query: "name:'Probaly Premium'" 
+    query: "name:'BetRight Premium'" 
   });
 
   if (existingProducts.data.length > 0) {
-    console.log('Probaly Premium product already exists:', existingProducts.data[0].id);
+    console.log('BetRight Premium product already exists:', existingProducts.data[0].id);
     
     // Check for existing price
     const prices = await stripe.prices.list({ 
@@ -28,10 +28,10 @@ async function createProducts() {
 
   // Create product
   const product = await stripe.products.create({
-    name: 'Probaly Premium',
+    name: 'BetRight Premium',
     description: 'Annual subscription for unlimited AI-powered sports predictions, live updates, and full prediction history.',
     metadata: {
-      app: 'probaly',
+      app: 'betright',
       tier: 'premium',
     },
   });

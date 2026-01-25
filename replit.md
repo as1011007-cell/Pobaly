@@ -1,7 +1,7 @@
-# Probaly - AI Sports Prediction App
+# BetRight - AI Sports Prediction App
 
 ## Overview
-Probaly is a mobile sports prediction app (iOS/Android) built with React Native and Expo. It provides AI-powered probability insights for sports events with a free daily tip and $49/year premium subscription.
+BetRight is a mobile sports prediction app (iOS/Android) built with React Native and Expo. It provides AI-powered probability insights for sports events with a free daily tip and $49/year premium subscription.
 
 ## Tech Stack
 - **Frontend**: React Native with Expo
@@ -9,6 +9,7 @@ Probaly is a mobile sports prediction app (iOS/Android) built with React Native 
 - **Database**: PostgreSQL with Drizzle ORM
 - **Payments**: Stripe integration via stripe-replit-sync
 - **Authentication**: Email/password with bcrypt
+- **AI**: OpenAI GPT-4o via Replit AI Integrations
 
 ## Project Structure
 ```
@@ -17,20 +18,21 @@ client/           # React Native Expo app
   screens/        # App screens
   contexts/       # React contexts (Auth)
   navigation/     # React Navigation setup
-  constants/      # Theme, colors, mock data
+  constants/      # Theme, colors
   hooks/          # Custom hooks
   lib/            # API client, storage utilities
   types/          # TypeScript types
 
 server/           # Express backend
   index.ts        # Server entry point with Stripe webhook
-  routes.ts       # API routes (auth, checkout, products)
+  routes.ts       # API routes (auth, checkout, products, predictions)
   storage.ts      # Database operations
   stripeClient.ts # Stripe client initialization
   stripeService.ts # Stripe API operations
   webhookHandlers.ts # Stripe webhook processing
   db.ts           # Drizzle database connection
-  seed-products.ts # Script to create Stripe products
+  services/       # Business logic services
+    predictionService.ts # AI prediction generation
 
 shared/           # Shared types and schemas
   schema.ts       # Drizzle database schema
@@ -40,16 +42,27 @@ shared/           # Shared types and schemas
 - 5-tab navigation: Home, Live, Sports, History, Profile
 - Email authentication
 - Premium subscription ($49/year) via Stripe
-- AI-powered sports predictions with confidence levels
-- Live match updates (mock data)
+- AI-powered sports predictions with confidence levels (OpenAI GPT-4o)
+- Live match updates
 - Prediction history tracking
+
+## Brand Colors (BetRight)
+- Primary: Navy Blue #1A237E (from logo horns)
+- Accent: Bold Red #E53935 (from logo bull/shield)
+- Success: Emerald #10B981
+- Warning: Amber #F59E0B
 
 ## Stripe Integration
 The app uses Stripe for premium subscriptions:
-- Product: "Probaly Premium" - $49/year
-- Price ID: `price_1StO2PA1SeF8Id5gjmGMIlh9`
+- Product: "BetRight Premium" - $49/year
 - Webhook: `/api/stripe/webhook` (handled BEFORE express.json middleware)
 - Checkout: `/api/checkout` creates Stripe Checkout sessions
+
+## AI Predictions
+- Uses OpenAI GPT-4o via Replit AI Integrations
+- Predictions generated on-demand via `/api/predictions/generate` endpoint
+- Each prediction includes: probability, confidence, explanation, factors, risk index
+- Billing: OpenAI public API rates deducted from Replit credits
 
 ## API Endpoints
 - `POST /api/auth/register` - Create new user
@@ -58,6 +71,13 @@ The app uses Stripe for premium subscriptions:
 - `POST /api/checkout` - Create Stripe checkout session
 - `GET /api/subscription/:userId` - Get user subscription status
 - `POST /api/customer-portal` - Create Stripe customer portal session
+- `GET /api/predictions/free-tip` - Get free daily prediction
+- `GET /api/predictions/premium` - Get premium predictions
+- `GET /api/predictions/live` - Get live match predictions
+- `GET /api/predictions/history` - Get prediction history
+- `GET /api/predictions/sport/:sport` - Get predictions by sport
+- `GET /api/predictions/:id` - Get prediction by ID
+- `POST /api/predictions/generate` - Generate new AI predictions
 
 ## Database Schema
 Users table with Stripe fields:
@@ -65,18 +85,18 @@ Users table with Stripe fields:
 - stripeCustomerId, stripeSubscriptionId
 - isPremium, subscriptionExpiry, createdAt
 
+Predictions table:
+- id, matchTitle, sport, matchTime
+- predictedOutcome, probability, confidence
+- explanation, factors, riskIndex
+- isLive, isPremium, result
+- createdAt, expiresAt
+
 ## Running the App
 - Backend: `npm run server:dev` (port 5000)
 - Frontend: `npm run expo:dev` (port 8081)
 
-## Design System
-Brand colors (in client/constants/theme.ts):
-- Primary: Deep Blue #1E3A8A
-- Secondary: Emerald #10B981
-- Accent: Amber #F59E0B
-- Neutral: Slate tones
-
 ## Recent Changes
+- January 2026: Rebranded from Probaly to BetRight with new logo and colors
+- January 2026: Added AI-powered predictions using OpenAI GPT-4o
 - January 2026: Added Stripe payment integration
-- Created database schema with user authentication
-- Implemented subscription checkout flow

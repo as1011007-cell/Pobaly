@@ -1,21 +1,24 @@
 import { Platform } from "react-native";
 
-// Probaly Design System Colors
-export const ProbalyColors = {
-  primary: "#1E3A8A", // Deep Blue - trust, intelligence
-  accent: "#3B82F6", // Bright Blue - interactive elements
+// BetRight Design System Colors - based on bull logo branding
+export const BetRightColors = {
+  primary: "#1A237E", // Navy Blue - from logo horns
+  accent: "#E53935", // Bold Red - from logo bull/shield
   success: "#10B981", // Emerald - high confidence, correct predictions
   warning: "#F59E0B", // Amber - medium confidence
-  error: "#EF4444", // Red - live indicator
-  surface: "#F9FAFB", // Light Gray - card backgrounds
-  border: "#E5E7EB", // Light Gray - borders
-  textPrimary: "#111827", // Near Black
-  textSecondary: "#6B7280", // Gray
-  lowConfidence: "#6B7280", // Gray
+  error: "#E53935", // Red - matches brand
+  surface: "#F5F5F5", // Light Gray - card backgrounds
+  border: "#E0E0E0", // Light Gray - borders
+  textPrimary: "#212121", // Dark Charcoal
+  textSecondary: "#757575", // Gray
+  lowConfidence: "#757575", // Gray
   mediumConfidence: "#F59E0B", // Amber
   highConfidence: "#10B981", // Emerald
-  liveIndicator: "#EF4444", // Red
+  liveIndicator: "#E53935", // Red - matches brand
 };
+
+// Legacy alias for compatibility
+export const ProbalyColors = BetRightColors;
 
 const tintColorLight = ProbalyColors.primary;
 const tintColorDark = ProbalyColors.accent;

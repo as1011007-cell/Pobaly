@@ -13,7 +13,7 @@ import { ProbabilityBar } from "@/components/ProbabilityBar";
 import { SportIcon } from "@/components/SportIcon";
 import { LiveBadge } from "@/components/LiveBadge";
 import { useTheme } from "@/hooks/useTheme";
-import { BorderRadius, Spacing, ProbalyColors } from "@/constants/theme";
+import { BorderRadius, Spacing, BetRightColors } from "@/constants/theme";
 import { fetchPredictionById } from "@/lib/predictionsApi";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import type { Prediction } from "@/types";
@@ -91,7 +91,7 @@ export default function PredictionDetailScreen() {
       </View>
 
       <LinearGradient
-        colors={[ProbalyColors.primary, ProbalyColors.accent]}
+        colors={[BetRightColors.primary, BetRightColors.accent]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.probabilityCard}

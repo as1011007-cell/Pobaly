@@ -12,7 +12,7 @@ import { ThemedText } from "@/components/ThemedText";
 import { Button } from "@/components/Button";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/contexts/AuthContext";
-import { BorderRadius, Spacing, ProbalyColors } from "@/constants/theme";
+import { BorderRadius, Spacing, BetRightColors } from "@/constants/theme";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 
 const features = [
@@ -191,7 +191,7 @@ export default function SubscriptionScreen() {
       </View>
 
       <LinearGradient
-        colors={[ProbalyColors.primary, ProbalyColors.accent]}
+        colors={[BetRightColors.primary, BetRightColors.accent]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.priceCard}
