@@ -106,6 +106,16 @@ export default function HomeScreen() {
     </View>
   );
 
+  const renderFooter = () => (
+    <View style={[styles.disclaimerContainer, { backgroundColor: theme.backgroundSecondary }]}>
+      <ThemedText type="small" style={[styles.disclaimerText, { color: theme.textSecondary }]}>
+        For entertainment purposes only. Probaly provides AI-powered probability insights and 
+        does not encourage gambling. Past performance does not guarantee future results. 
+        Must be 18+ to use this app. Please gamble responsibly.
+      </ThemedText>
+    </View>
+  );
+
   const renderPrediction = ({ item, index }: { item: typeof premiumPredictions[0]; index: number }) => (
     <View style={[styles.predictionItem, index % 2 === 0 ? styles.leftItem : styles.rightItem]}>
       <PredictionCard
@@ -156,6 +166,7 @@ export default function HomeScreen() {
       }}
       scrollIndicatorInsets={{ bottom: insets.bottom }}
       ListHeaderComponent={renderHeader}
+      ListFooterComponent={renderFooter}
       data={premiumPredictions}
       renderItem={renderPrediction}
       keyExtractor={(item) => item.id}
@@ -198,5 +209,15 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+  },
+  disclaimerContainer: {
+    marginTop: Spacing.xl,
+    padding: Spacing.md,
+    borderRadius: 8,
+  },
+  disclaimerText: {
+    fontSize: 11,
+    lineHeight: 16,
+    textAlign: "center",
   },
 });
