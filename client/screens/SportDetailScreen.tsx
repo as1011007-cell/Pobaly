@@ -1,5 +1,5 @@
-import React from "react";
-import { View, StyleSheet, FlatList } from "react-native";
+import React, { useEffect, useState, useCallback } from "react";
+import { View, StyleSheet, FlatList, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { RouteProp, useRoute, useNavigation } from "@react-navigation/native";
@@ -7,10 +7,11 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 import { PredictionCard } from "@/components/PredictionCard";
 import { EmptyState } from "@/components/EmptyState";
+import { ThemedText } from "@/components/ThemedText";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/contexts/AuthContext";
 import { Spacing } from "@/constants/theme";
-import { getPredictionsBySport } from "@/lib/mockData";
+import { fetchPredictionsBySport } from "@/lib/predictionsApi";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { Prediction } from "@/types";
 
@@ -25,7 +26,23 @@ export default function SportDetailScreen() {
   const navigation = useNavigation<NavigationProp>();
   const { isPremium } = useAuth();
 
-  const predictions = getPredictionsBySport(route.params.sport);
+  const [loading, setLoading] = useState(true);
+  const [predictions, setPredictions] = useState<Prediction[]>([]);
+
+  const loadPredictions = useCallback(async () => {
+    try {
+      const data = await fetchPredictionsBySport(route.params.sport);
+      setPredictions(data);
+    } catch (error) {
+      console.error("Error loading sport predictions:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [route.params.sport]);
+
+  useEffect(() => {
+    loadPredictions();
+  }, [loadPredictions]);
 
   const handlePredictionPress = (prediction: Prediction) => {
     if (prediction.isPremium && !isPremium) {
@@ -44,6 +61,25 @@ export default function SportDetailScreen() {
       />
     </View>
   );
+
+  if (loading) {
+    return (
+      <View
+        style={[
+          styles.emptyContainer,
+          {
+            backgroundColor: theme.backgroundRoot,
+            paddingTop: headerHeight,
+          },
+        ]}
+      >
+        <ActivityIndicator size="large" color={theme.accent} />
+        <ThemedText type="body" style={{ marginTop: Spacing.lg, color: theme.textSecondary }}>
+          Loading predictions...
+        </ThemedText>
+      </View>
+    );
+  }
 
   if (predictions.length === 0) {
     return (

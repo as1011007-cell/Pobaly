@@ -1,5 +1,5 @@
-import React from "react";
-import { View, StyleSheet, FlatList, RefreshControl } from "react-native";
+import React, { useEffect, useState, useCallback } from "react";
+import { View, StyleSheet, FlatList, RefreshControl, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -8,10 +8,11 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 import { HistoryCard } from "@/components/HistoryCard";
 import { EmptyState } from "@/components/EmptyState";
+import { ThemedText } from "@/components/ThemedText";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/contexts/AuthContext";
 import { Spacing } from "@/constants/theme";
-import { getHistoryPredictions } from "@/lib/mockData";
+import { fetchHistoryPredictions } from "@/lib/predictionsApi";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { Prediction } from "@/types";
 
@@ -25,14 +26,30 @@ export default function HistoryScreen() {
   const { isPremium } = useAuth();
   const navigation = useNavigation<NavigationProp>();
 
-  const [refreshing, setRefreshing] = React.useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [historyPredictions, setHistoryPredictions] = useState<Prediction[]>([]);
 
-  const historyPredictions = getHistoryPredictions();
-
-  const onRefresh = React.useCallback(() => {
-    setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 1000);
+  const loadHistory = useCallback(async () => {
+    try {
+      const predictions = await fetchHistoryPredictions();
+      setHistoryPredictions(predictions);
+    } catch (error) {
+      console.error("Error loading history:", error);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadHistory();
+  }, [loadHistory]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadHistory();
+    setRefreshing(false);
+  }, [loadHistory]);
 
   const handlePredictionPress = (prediction: Prediction) => {
     if (prediction.isPremium && !isPremium) {
@@ -50,6 +67,26 @@ export default function HistoryScreen() {
       />
     </View>
   );
+
+  if (loading) {
+    return (
+      <View
+        style={[
+          styles.emptyContainer,
+          {
+            backgroundColor: theme.backgroundRoot,
+            paddingTop: headerHeight,
+            paddingBottom: tabBarHeight,
+          },
+        ]}
+      >
+        <ActivityIndicator size="large" color={theme.accent} />
+        <ThemedText type="body" style={{ marginTop: Spacing.lg, color: theme.textSecondary }}>
+          Loading history...
+        </ThemedText>
+      </View>
+    );
+  }
 
   if (historyPredictions.length === 0) {
     return (

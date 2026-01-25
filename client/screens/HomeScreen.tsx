@@ -1,5 +1,5 @@
-import React from "react";
-import { View, StyleSheet, FlatList, RefreshControl } from "react-native";
+import React, { useEffect, useState, useCallback } from "react";
+import { View, StyleSheet, FlatList, RefreshControl, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -13,8 +13,9 @@ import { EmptyState } from "@/components/EmptyState";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/contexts/AuthContext";
 import { Spacing } from "@/constants/theme";
-import { getFreeTip, getPremiumPredictions } from "@/lib/mockData";
+import { fetchFreeTip, fetchPremiumPredictions, generatePredictions } from "@/lib/predictionsApi";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
+import type { Prediction } from "@/types";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -26,15 +27,46 @@ export default function HomeScreen() {
   const { isPremium } = useAuth();
   const navigation = useNavigation<NavigationProp>();
 
-  const [refreshing, setRefreshing] = React.useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [freeTip, setFreeTip] = useState<Prediction | null>(null);
+  const [premiumPredictions, setPremiumPredictions] = useState<Prediction[]>([]);
 
-  const freeTip = getFreeTip();
-  const premiumPredictions = getPremiumPredictions();
-
-  const onRefresh = React.useCallback(() => {
-    setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 1000);
+  const loadPredictions = useCallback(async () => {
+    try {
+      const [tip, premium] = await Promise.all([
+        fetchFreeTip(),
+        fetchPremiumPredictions(),
+      ]);
+      
+      if (!tip && premium.length === 0) {
+        await generatePredictions();
+        const [newTip, newPremium] = await Promise.all([
+          fetchFreeTip(),
+          fetchPremiumPredictions(),
+        ]);
+        setFreeTip(newTip);
+        setPremiumPredictions(newPremium);
+      } else {
+        setFreeTip(tip);
+        setPremiumPredictions(premium);
+      }
+    } catch (error) {
+      console.error("Error loading predictions:", error);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadPredictions();
+  }, [loadPredictions]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadPredictions();
+    setRefreshing(false);
+  }, [loadPredictions]);
 
   const handlePredictionPress = (predictionId: string) => {
     navigation.navigate("PredictionDetail", { predictionId });
@@ -101,6 +133,17 @@ export default function HomeScreen() {
       />
     </View>
   );
+
+  if (loading) {
+    return (
+      <View style={[styles.emptyContainer, { backgroundColor: theme.backgroundRoot }]}>
+        <ActivityIndicator size="large" color={theme.accent} />
+        <ThemedText type="body" style={{ marginTop: Spacing.lg, color: theme.textSecondary }}>
+          Loading predictions...
+        </ThemedText>
+      </View>
+    );
+  }
 
   if (!freeTip && premiumPredictions.length === 0) {
     return (

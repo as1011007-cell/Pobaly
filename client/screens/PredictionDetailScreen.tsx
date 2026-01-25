@@ -1,5 +1,5 @@
-import React from "react";
-import { View, StyleSheet, ScrollView } from "react-native";
+import React, { useEffect, useState } from "react";
+import { View, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { RouteProp, useRoute } from "@react-navigation/native";
@@ -14,8 +14,9 @@ import { SportIcon } from "@/components/SportIcon";
 import { LiveBadge } from "@/components/LiveBadge";
 import { useTheme } from "@/hooks/useTheme";
 import { BorderRadius, Spacing, ProbalyColors } from "@/constants/theme";
-import { mockPredictions } from "@/lib/mockData";
+import { fetchPredictionById } from "@/lib/predictionsApi";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
+import type { Prediction } from "@/types";
 
 type PredictionDetailRouteProp = RouteProp<RootStackParamList, "PredictionDetail">;
 
@@ -25,11 +26,37 @@ export default function PredictionDetailScreen() {
   const headerHeight = useHeaderHeight();
   const route = useRoute<PredictionDetailRouteProp>();
 
-  const prediction = mockPredictions.find((p) => p.id === route.params.predictionId);
+  const [loading, setLoading] = useState(true);
+  const [prediction, setPrediction] = useState<Prediction | null>(null);
+
+  useEffect(() => {
+    async function loadPrediction() {
+      try {
+        const data = await fetchPredictionById(route.params.predictionId);
+        setPrediction(data);
+      } catch (error) {
+        console.error("Error loading prediction:", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadPrediction();
+  }, [route.params.predictionId]);
+
+  if (loading) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.backgroundRoot, justifyContent: "center", alignItems: "center" }]}>
+        <ActivityIndicator size="large" color={theme.accent} />
+        <ThemedText type="body" style={{ marginTop: Spacing.lg, color: theme.textSecondary }}>
+          Loading prediction...
+        </ThemedText>
+      </View>
+    );
+  }
 
   if (!prediction) {
     return (
-      <View style={[styles.container, { backgroundColor: theme.backgroundRoot }]}>
+      <View style={[styles.container, { backgroundColor: theme.backgroundRoot, justifyContent: "center", alignItems: "center" }]}>
         <ThemedText>Prediction not found</ThemedText>
       </View>
     );
