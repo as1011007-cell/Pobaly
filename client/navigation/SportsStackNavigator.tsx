@@ -1,24 +1,24 @@
 import React from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
-import ProfileScreen from "@/screens/ProfileScreen";
+import SportsScreen from "@/screens/SportsScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 
-export type ProfileStackParamList = {
-  Profile: undefined;
+export type SportsStackParamList = {
+  Sports: undefined;
 };
 
-const Stack = createNativeStackNavigator<ProfileStackParamList>();
+const Stack = createNativeStackNavigator<SportsStackParamList>();
 
-export default function ProfileStackNavigator() {
+export default function SportsStackNavigator() {
   const screenOptions = useScreenOptions();
 
   return (
     <Stack.Navigator screenOptions={screenOptions}>
       <Stack.Screen
-        name="Profile"
-        component={ProfileScreen}
-        options={{ title: "Profile" }}
+        name="Sports"
+        component={SportsScreen}
+        options={{ title: "Sports" }}
       />
     </Stack.Navigator>
   );

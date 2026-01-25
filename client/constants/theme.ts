@@ -1,30 +1,61 @@
 import { Platform } from "react-native";
 
-const tintColorLight = "#007AFF";
-const tintColorDark = "#0A84FF";
+// Probaly Design System Colors
+export const ProbalyColors = {
+  primary: "#1E3A8A", // Deep Blue - trust, intelligence
+  accent: "#3B82F6", // Bright Blue - interactive elements
+  success: "#10B981", // Emerald - high confidence, correct predictions
+  warning: "#F59E0B", // Amber - medium confidence
+  error: "#EF4444", // Red - live indicator
+  surface: "#F9FAFB", // Light Gray - card backgrounds
+  border: "#E5E7EB", // Light Gray - borders
+  textPrimary: "#111827", // Near Black
+  textSecondary: "#6B7280", // Gray
+  lowConfidence: "#6B7280", // Gray
+  mediumConfidence: "#F59E0B", // Amber
+  highConfidence: "#10B981", // Emerald
+  liveIndicator: "#EF4444", // Red
+};
+
+const tintColorLight = ProbalyColors.primary;
+const tintColorDark = ProbalyColors.accent;
 
 export const Colors = {
   light: {
-    text: "#11181C",
+    text: ProbalyColors.textPrimary,
+    textSecondary: ProbalyColors.textSecondary,
     buttonText: "#FFFFFF",
-    tabIconDefault: "#687076",
+    tabIconDefault: ProbalyColors.textSecondary,
     tabIconSelected: tintColorLight,
-    link: "#007AFF",
-    backgroundRoot: "#FFFFFF", // Elevation 0
-    backgroundDefault: "#F2F2F2", // Elevation 1
-    backgroundSecondary: "#E6E6E6", // Elevation 2
-    backgroundTertiary: "#D9D9D9", // Elevation 3
+    link: ProbalyColors.accent,
+    primary: ProbalyColors.primary,
+    accent: ProbalyColors.accent,
+    success: ProbalyColors.success,
+    warning: ProbalyColors.warning,
+    error: ProbalyColors.error,
+    border: ProbalyColors.border,
+    backgroundRoot: "#FFFFFF",
+    backgroundDefault: ProbalyColors.surface,
+    backgroundSecondary: "#F3F4F6",
+    backgroundTertiary: "#E5E7EB",
   },
   dark: {
-    text: "#ECEDEE",
+    text: "#F9FAFB",
+    textSecondary: "#9CA3AF",
     buttonText: "#FFFFFF",
-    tabIconDefault: "#9BA1A6",
+    tabIconDefault: "#9CA3AF",
     tabIconSelected: tintColorDark,
-    link: "#0A84FF",
-    backgroundRoot: "#1F2123", // Elevation 0
-    backgroundDefault: "#2A2C2E", // Elevation 1
-    backgroundSecondary: "#353739", // Elevation 2
-    backgroundTertiary: "#404244", // Elevation 3
+    link: ProbalyColors.accent,
+    primary: ProbalyColors.accent,
+    accent: "#60A5FA",
+    success: "#34D399",
+    warning: "#FBBF24",
+    error: "#F87171",
+    border: "#374151",
+    backgroundRoot: "#111827",
+    backgroundDefault: "#1F2937",
+    backgroundSecondary: "#374151",
+    backgroundTertiary: "#4B5563",
   },
 };
 
@@ -54,6 +85,11 @@ export const BorderRadius = {
 };
 
 export const Typography = {
+  display: {
+    fontSize: 32,
+    lineHeight: 40,
+    fontWeight: "700" as const,
+  },
   h1: {
     fontSize: 32,
     lineHeight: 40,
@@ -74,6 +110,11 @@ export const Typography = {
     lineHeight: 28,
     fontWeight: "600" as const,
   },
+  heading: {
+    fontSize: 18,
+    lineHeight: 26,
+    fontWeight: "600" as const,
+  },
   body: {
     fontSize: 16,
     lineHeight: 24,
@@ -84,6 +125,16 @@ export const Typography = {
     lineHeight: 20,
     fontWeight: "400" as const,
   },
+  caption: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "400" as const,
+  },
+  label: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "500" as const,
+  },
   link: {
     fontSize: 16,
     lineHeight: 24,
@@ -93,13 +144,9 @@ export const Typography = {
 
 export const Fonts = Platform.select({
   ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
     sans: "system-ui",
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
     serif: "ui-serif",
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
     rounded: "ui-rounded",
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
     mono: "ui-monospace",
   },
   default: {
