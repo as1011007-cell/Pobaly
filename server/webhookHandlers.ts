@@ -26,21 +26,48 @@ export class WebhookHandlers {
       if (event.type === 'customer.subscription.created' || 
           event.type === 'customer.subscription.updated') {
         const subscription = event.data.object;
+        const customerId = subscription.customer;
+        const user = await storage.getUserByStripeCustomerId(customerId);
         
-        if (subscription.status === 'active') {
-          const customerId = subscription.customer;
-          
-          // Find user by Stripe customer ID
-          const user = await storage.getUserByStripeCustomerId(customerId);
-          
-          if (user) {
+        if (user) {
+          if (subscription.status === 'active') {
             console.log(`Subscription activated for user ${user.id}, generating premium predictions...`);
             
             // Generate premium predictions for this user
             await generatePremiumPredictionsForUser(user.id);
             
             console.log(`Premium predictions generated for user ${user.id}`);
+          } else if (['canceled', 'unpaid', 'past_due', 'incomplete_expired'].includes(subscription.status)) {
+            // Subscription is no longer active - remove premium access
+            console.log(`Subscription ${subscription.status} for user ${user.id}, removing premium access...`);
+            
+            await storage.updateUserStripeInfo(user.id, {
+              isPremium: false,
+              stripeSubscriptionId: undefined,
+              subscriptionExpiry: undefined,
+            });
+            
+            console.log(`Premium access removed for user ${user.id}`);
           }
+        }
+      }
+      
+      // Handle subscription deletion (cancelled and period ended)
+      if (event.type === 'customer.subscription.deleted') {
+        const subscription = event.data.object;
+        const customerId = subscription.customer;
+        const user = await storage.getUserByStripeCustomerId(customerId);
+        
+        if (user) {
+          console.log(`Subscription deleted for user ${user.id}, removing premium access...`);
+          
+          await storage.updateUserStripeInfo(user.id, {
+            isPremium: false,
+            stripeSubscriptionId: undefined,
+            subscriptionExpiry: undefined,
+          });
+          
+          console.log(`Premium access removed for user ${user.id}`);
         }
       }
     } catch (error) {
