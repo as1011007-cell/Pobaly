@@ -118,7 +118,7 @@ type TranslationKeys = {
 const translations: Record<Language, TranslationKeys> = {
   en: {
     // Common
-    appName: "BetRight",
+    appName: "Probaly",
     loading: "Loading...",
     error: "Error",
     success: "Success",
@@ -207,7 +207,7 @@ const translations: Record<Language, TranslationKeys> = {
     light: "Light",
     dark: "Dark",
     system: "System",
-    appearanceDescription: "Choose how BetRight looks on your device. System will follow your device settings.",
+    appearanceDescription: "Choose how Probaly looks on your device. System will follow your device settings.",
     
     // Legal
     termsOfService: "Terms of Service",
@@ -227,7 +227,7 @@ const translations: Record<Language, TranslationKeys> = {
   
   es: {
     // Common
-    appName: "BetRight",
+    appName: "Probaly",
     loading: "Cargando...",
     error: "Error",
     success: "Éxito",
@@ -316,7 +316,7 @@ const translations: Record<Language, TranslationKeys> = {
     light: "Claro",
     dark: "Oscuro",
     system: "Sistema",
-    appearanceDescription: "Elige como se ve BetRight en tu dispositivo. Sistema seguira la configuracion de tu dispositivo.",
+    appearanceDescription: "Elige como se ve Probaly en tu dispositivo. Sistema seguira la configuracion de tu dispositivo.",
     
     // Legal
     termsOfService: "Términos de Servicio",
@@ -336,7 +336,7 @@ const translations: Record<Language, TranslationKeys> = {
   
   fr: {
     // Common
-    appName: "BetRight",
+    appName: "Probaly",
     loading: "Chargement...",
     error: "Erreur",
     success: "Succès",
@@ -425,7 +425,7 @@ const translations: Record<Language, TranslationKeys> = {
     light: "Clair",
     dark: "Sombre",
     system: "Systeme",
-    appearanceDescription: "Choisissez l'apparence de BetRight sur votre appareil. Systeme suivra les parametres de votre appareil.",
+    appearanceDescription: "Choisissez l'apparence de Probaly sur votre appareil. Systeme suivra les parametres de votre appareil.",
     
     // Legal
     termsOfService: "Conditions d'Utilisation",

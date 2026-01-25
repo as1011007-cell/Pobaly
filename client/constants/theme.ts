@@ -1,7 +1,7 @@
 import { Platform } from "react-native";
 
-// BetRight Design System Colors - based on bull logo branding
-export const BetRightColors = {
+// Probaly Design System Colors - based on bull logo branding
+export const ProbalyColors = {
   primary: "#1A237E", // Navy Blue - from logo horns
   accent: "#E53935", // Bold Red - from logo bull/shield
   success: "#10B981", // Emerald - high confidence, correct predictions
@@ -18,7 +18,7 @@ export const BetRightColors = {
 };
 
 // Legacy alias for compatibility
-export const ProbalyColors = BetRightColors;
+export const ProbalyColors = ProbalyColors;
 
 const tintColorLight = ProbalyColors.primary;
 const tintColorDark = ProbalyColors.accent;

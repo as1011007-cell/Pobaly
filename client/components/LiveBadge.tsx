@@ -8,7 +8,7 @@ import Animated, {
   Easing,
 } from "react-native-reanimated";
 import { ThemedText } from "@/components/ThemedText";
-import { BorderRadius, Spacing, BetRightColors } from "@/constants/theme";
+import { BorderRadius, Spacing, ProbalyColors } from "@/constants/theme";
 
 export function LiveBadge() {
   const pulse = useSharedValue(1);
@@ -37,7 +37,7 @@ const styles = StyleSheet.create({
   badge: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: BetRightColors.liveIndicator,
+    backgroundColor: ProbalyColors.liveIndicator,
     paddingHorizontal: Spacing.sm,
     paddingVertical: 2,
     borderRadius: BorderRadius.xs,

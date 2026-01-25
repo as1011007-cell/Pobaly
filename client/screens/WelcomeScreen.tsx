@@ -30,14 +30,14 @@ export default function WelcomeScreen({ navigation }: WelcomeScreenProps) {
     >
       <View style={styles.content}>
         <Image
-          source={require("../../assets/images/betright-logo.png")}
+          source={require("../../assets/images/probaly-logo.png")}
           style={styles.heroImage}
           resizeMode="contain"
         />
 
         <View style={styles.textContainer}>
           <ThemedText type="h1" style={styles.title}>
-            BetRight
+            Probaly
           </ThemedText>
           <ThemedText
             type="body"

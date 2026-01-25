@@ -33,7 +33,7 @@ export default function TermsOfServiceScreen() {
           1. Acceptance of Terms
         </ThemedText>
         <ThemedText type="body" style={[styles.paragraph, { color: theme.textSecondary }]}>
-          By accessing or using BetRight, you agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use the app.
+          By accessing or using Probaly, you agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use the app.
         </ThemedText>
       </View>
 
@@ -42,7 +42,7 @@ export default function TermsOfServiceScreen() {
           2. Description of Service
         </ThemedText>
         <ThemedText type="body" style={[styles.paragraph, { color: theme.textSecondary }]}>
-          BetRight provides AI-powered sports prediction insights for informational purposes only. Our predictions are based on data analysis and should not be considered as financial advice or gambling recommendations.
+          Probaly provides AI-powered sports prediction insights for informational purposes only. Our predictions are based on data analysis and should not be considered as financial advice or gambling recommendations.
         </ThemedText>
       </View>
 
@@ -60,7 +60,7 @@ export default function TermsOfServiceScreen() {
           4. Premium Subscription
         </ThemedText>
         <ThemedText type="body" style={[styles.paragraph, { color: theme.textSecondary }]}>
-          BetRight offers a premium subscription at $49/year. Subscriptions automatically renew unless cancelled at least 24 hours before the end of the current period. You can manage your subscription through your account settings.
+          Probaly offers a premium subscription at $49/year. Subscriptions automatically renew unless cancelled at least 24 hours before the end of the current period. You can manage your subscription through your account settings.
         </ThemedText>
       </View>
 
@@ -69,7 +69,7 @@ export default function TermsOfServiceScreen() {
           5. Disclaimer
         </ThemedText>
         <ThemedText type="body" style={[styles.paragraph, { color: theme.textSecondary }]}>
-          BetRight predictions are for entertainment and informational purposes only. We do not guarantee the accuracy of any predictions. Past performance does not guarantee future results. Users should make their own informed decisions.
+          Probaly predictions are for entertainment and informational purposes only. We do not guarantee the accuracy of any predictions. Past performance does not guarantee future results. Users should make their own informed decisions.
         </ThemedText>
       </View>
 
@@ -78,7 +78,7 @@ export default function TermsOfServiceScreen() {
           6. Prohibited Activities
         </ThemedText>
         <ThemedText type="body" style={[styles.paragraph, { color: theme.textSecondary }]}>
-          You may not use BetRight for any illegal purposes, including but not limited to: unauthorized gambling in jurisdictions where it is prohibited, money laundering, or any activity that violates local, state, or federal laws.
+          You may not use Probaly for any illegal purposes, including but not limited to: unauthorized gambling in jurisdictions where it is prohibited, money laundering, or any activity that violates local, state, or federal laws.
         </ThemedText>
       </View>
 
@@ -87,7 +87,7 @@ export default function TermsOfServiceScreen() {
           7. Limitation of Liability
         </ThemedText>
         <ThemedText type="body" style={[styles.paragraph, { color: theme.textSecondary }]}>
-          BetRight shall not be liable for any direct, indirect, incidental, special, or consequential damages resulting from the use or inability to use our service, or from any decisions made based on our predictions.
+          Probaly shall not be liable for any direct, indirect, incidental, special, or consequential damages resulting from the use or inability to use our service, or from any decisions made based on our predictions.
         </ThemedText>
       </View>
 

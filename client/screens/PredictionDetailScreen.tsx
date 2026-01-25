@@ -13,7 +13,7 @@ import { ProbabilityBar } from "@/components/ProbabilityBar";
 import { SportIcon } from "@/components/SportIcon";
 import { LiveBadge } from "@/components/LiveBadge";
 import { useTheme } from "@/hooks/useTheme";
-import { BorderRadius, Spacing, BetRightColors } from "@/constants/theme";
+import { BorderRadius, Spacing, ProbalyColors } from "@/constants/theme";
 import { fetchPredictionById } from "@/lib/predictionsApi";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import type { Prediction } from "@/types";

@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "BetRight",
-    "slug": "betright",
+    "name": "Probaly",
+    "slug": "probaly",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/betright-logo.png",
-    "scheme": "betright",
+    "icon": "./assets/images/probaly-logo.png",
+    "scheme": "probaly",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
@@ -15,7 +15,7 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#1A237E",
-        "foregroundImage": "./assets/images/betright-logo.png"
+        "foregroundImage": "./assets/images/probaly-logo.png"
       },
       "package": "com.betright.app",
       "edgeToEdgeEnabled": true,
@@ -23,13 +23,13 @@
     },
     "web": {
       "output": "single",
-      "favicon": "./assets/images/betright-logo.png"
+      "favicon": "./assets/images/probaly-logo.png"
     },
     "plugins": [
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/betright-logo.png",
+          "image": "./assets/images/probaly-logo.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff",

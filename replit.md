@@ -1,7 +1,7 @@
-# BetRight - AI Sports Prediction App
+# Probaly - AI Sports Prediction App
 
 ## Overview
-BetRight is a mobile sports prediction app (iOS/Android) built with React Native and Expo. It provides AI-powered probability insights for sports events with a free daily tip and $49/year premium subscription.
+Probaly is a mobile sports prediction app (iOS/Android) built with React Native and Expo. It provides AI-powered probability insights for sports events with a free daily tip and $49/year premium subscription.
 
 ## Tech Stack
 - **Frontend**: React Native with Expo
@@ -46,7 +46,7 @@ shared/           # Shared types and schemas
 - Live match updates
 - Prediction history tracking
 
-## Brand Colors (BetRight)
+## Brand Colors (Probaly)
 - Primary: Navy Blue #1A237E (from logo horns)
 - Accent: Bold Red #E53935 (from logo bull/shield)
 - Success: Emerald #10B981
@@ -54,7 +54,7 @@ shared/           # Shared types and schemas
 
 ## Stripe Integration
 The app uses Stripe for premium subscriptions:
-- Product: "BetRight Premium" - $49/year
+- Product: "Probaly Premium" - $49/year
 - Webhook: `/api/stripe/webhook` (handled BEFORE express.json middleware)
 - Checkout: `/api/checkout` creates Stripe Checkout sessions
 
@@ -110,6 +110,6 @@ Predictions table:
 
 ## Recent Changes
 - January 2026: Added user-specific predictions (userId field for personalized premium predictions)
-- January 2026: Rebranded from Probaly to BetRight with new logo and colors
+- January 2026: Rebranded back to Probaly with new logo (keeping navy/red colors)
 - January 2026: Added AI-powered predictions using OpenAI GPT-4o
 - January 2026: Added Stripe payment integration

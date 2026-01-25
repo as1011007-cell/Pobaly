@@ -15,7 +15,7 @@ export function HeaderTitle({ title }: HeaderTitleProps) {
   return (
     <View style={styles.container}>
       <Image
-        source={require("../../assets/images/betright-logo.png")}
+        source={require("../../assets/images/probaly-logo.png")}
         style={styles.icon}
         resizeMode="contain"
       />

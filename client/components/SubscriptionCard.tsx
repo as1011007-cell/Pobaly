@@ -7,7 +7,7 @@ import { format } from "date-fns";
 import { ThemedText } from "@/components/ThemedText";
 import { Button } from "@/components/Button";
 import { useTheme } from "@/hooks/useTheme";
-import { BorderRadius, Spacing, BetRightColors } from "@/constants/theme";
+import { BorderRadius, Spacing, ProbalyColors } from "@/constants/theme";
 
 interface SubscriptionCardProps {
   isPremium: boolean;
@@ -25,7 +25,7 @@ export function SubscriptionCard({
   if (isPremium) {
     return (
       <LinearGradient
-        colors={[BetRightColors.primary, BetRightColors.accent]}
+        colors={[ProbalyColors.primary, ProbalyColors.accent]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.container}
