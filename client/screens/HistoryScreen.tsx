@@ -23,7 +23,7 @@ export default function HistoryScreen() {
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
   const { theme } = useTheme();
-  const { isPremium } = useAuth();
+  const { user, isPremium } = useAuth();
   const navigation = useNavigation<NavigationProp>();
 
   const [refreshing, setRefreshing] = useState(false);
@@ -32,14 +32,14 @@ export default function HistoryScreen() {
 
   const loadHistory = useCallback(async () => {
     try {
-      const predictions = await fetchHistoryPredictions();
+      const predictions = await fetchHistoryPredictions(user?.id);
       setHistoryPredictions(predictions);
     } catch (error) {
       console.error("Error loading history:", error);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     loadHistory();

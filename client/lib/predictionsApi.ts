@@ -50,9 +50,13 @@ export async function fetchFreeTip(): Promise<Prediction | null> {
   }
 }
 
-export async function fetchPremiumPredictions(): Promise<Prediction[]> {
+export async function fetchPremiumPredictions(userId?: string): Promise<Prediction[]> {
   try {
-    const response = await fetch(new URL("/api/predictions/premium", apiUrl).toString());
+    const url = new URL("/api/predictions/premium", apiUrl);
+    if (userId) {
+      url.searchParams.set("userId", userId);
+    }
+    const response = await fetch(url.toString());
     const data = await response.json();
     return (data.predictions || []).map(mapApiPrediction);
   } catch (error) {
@@ -61,9 +65,13 @@ export async function fetchPremiumPredictions(): Promise<Prediction[]> {
   }
 }
 
-export async function fetchLivePredictions(): Promise<Prediction[]> {
+export async function fetchLivePredictions(userId?: string): Promise<Prediction[]> {
   try {
-    const response = await fetch(new URL("/api/predictions/live", apiUrl).toString());
+    const url = new URL("/api/predictions/live", apiUrl);
+    if (userId) {
+      url.searchParams.set("userId", userId);
+    }
+    const response = await fetch(url.toString());
     const data = await response.json();
     return (data.predictions || []).map(mapApiPrediction);
   } catch (error) {
@@ -72,9 +80,13 @@ export async function fetchLivePredictions(): Promise<Prediction[]> {
   }
 }
 
-export async function fetchHistoryPredictions(): Promise<Prediction[]> {
+export async function fetchHistoryPredictions(userId?: string): Promise<Prediction[]> {
   try {
-    const response = await fetch(new URL("/api/predictions/history", apiUrl).toString());
+    const url = new URL("/api/predictions/history", apiUrl);
+    if (userId) {
+      url.searchParams.set("userId", userId);
+    }
+    const response = await fetch(url.toString());
     const data = await response.json();
     return (data.predictions || []).map(mapApiPrediction);
   } catch (error) {
@@ -83,9 +95,13 @@ export async function fetchHistoryPredictions(): Promise<Prediction[]> {
   }
 }
 
-export async function fetchPredictionsBySport(sport: string): Promise<Prediction[]> {
+export async function fetchPredictionsBySport(sport: string, userId?: string): Promise<Prediction[]> {
   try {
-    const response = await fetch(new URL(`/api/predictions/sport/${sport}`, apiUrl).toString());
+    const url = new URL(`/api/predictions/sport/${sport}`, apiUrl);
+    if (userId) {
+      url.searchParams.set("userId", userId);
+    }
+    const response = await fetch(url.toString());
     const data = await response.json();
     return (data.predictions || []).map(mapApiPrediction);
   } catch (error) {
@@ -114,6 +130,21 @@ export async function generatePredictions(): Promise<boolean> {
     return data.success || false;
   } catch (error) {
     console.error("Error generating predictions:", error);
+    return false;
+  }
+}
+
+export async function generatePremiumPredictionsForUser(userId: string): Promise<boolean> {
+  try {
+    const response = await fetch(new URL("/api/predictions/generate-premium", apiUrl).toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId }),
+    });
+    const data = await response.json();
+    return data.success || false;
+  } catch (error) {
+    console.error("Error generating premium predictions:", error);
     return false;
   }
 }

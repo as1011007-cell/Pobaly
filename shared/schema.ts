@@ -29,6 +29,7 @@ export type User = typeof users.$inferSelect;
 // Predictions table for AI-generated sports predictions
 export const predictions = pgTable("predictions", {
   id: serial("id").primaryKey(),
+  userId: varchar("user_id"), // null for free predictions (public), set for premium (user-specific)
   matchTitle: text("match_title").notNull(),
   sport: text("sport").notNull(), // football, basketball, cricket, tennis
   matchTime: timestamp("match_time").notNull(),

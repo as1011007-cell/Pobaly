@@ -24,7 +24,7 @@ export default function HomeScreen() {
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
   const { theme } = useTheme();
-  const { isPremium } = useAuth();
+  const { user, isPremium } = useAuth();
   const navigation = useNavigation<NavigationProp>();
 
   const [refreshing, setRefreshing] = useState(false);
@@ -36,7 +36,7 @@ export default function HomeScreen() {
     try {
       const [tip, premium] = await Promise.all([
         fetchFreeTip(),
-        fetchPremiumPredictions(),
+        fetchPremiumPredictions(user?.id),
       ]);
       setFreeTip(tip);
       setPremiumPredictions(premium);
@@ -45,7 +45,7 @@ export default function HomeScreen() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     loadPredictions();

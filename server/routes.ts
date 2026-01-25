@@ -7,6 +7,7 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import {
   generateDailyPredictions,
+  generatePremiumPredictionsForUser,
   getFreeTip,
   getPremiumPredictions,
   getLivePredictions,
@@ -257,20 +258,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get premium predictions
-  app.get("/api/predictions/premium", async (_req: Request, res: Response) => {
+  // Get premium predictions (requires userId)
+  app.get("/api/predictions/premium", async (req: Request, res: Response) => {
     try {
-      const predictions = await getPremiumPredictions();
+      const userId = req.query.userId as string;
+      const predictions = await getPremiumPredictions(userId);
       res.json({ predictions });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
   });
 
-  // Get live predictions
-  app.get("/api/predictions/live", async (_req: Request, res: Response) => {
+  // Generate premium predictions for a user (called after subscription)
+  app.post("/api/predictions/generate-premium", async (req: Request, res: Response) => {
     try {
-      const predictions = await getLivePredictions();
+      const { userId } = req.body;
+      if (!userId) {
+        return res.status(400).json({ error: "userId is required" });
+      }
+      await generatePremiumPredictionsForUser(userId);
+      res.json({ success: true, message: "Premium predictions generated for user" });
+    } catch (error: any) {
+      console.error("Error generating premium predictions:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get live predictions
+  app.get("/api/predictions/live", async (req: Request, res: Response) => {
+    try {
+      const userId = req.query.userId as string;
+      const predictions = await getLivePredictions(userId);
       res.json({ predictions });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -278,9 +296,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get history (correct predictions only)
-  app.get("/api/predictions/history", async (_req: Request, res: Response) => {
+  app.get("/api/predictions/history", async (req: Request, res: Response) => {
     try {
-      const predictions = await getHistoryPredictions();
+      const userId = req.query.userId as string;
+      const predictions = await getHistoryPredictions(userId);
       res.json({ predictions });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -291,7 +310,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/predictions/sport/:sport", async (req: Request, res: Response) => {
     try {
       const { sport } = req.params;
-      const predictions = await getPredictionsBySport(sport);
+      const userId = req.query.userId as string;
+      const predictions = await getPredictionsBySport(sport, userId);
       res.json({ predictions });
     } catch (error: any) {
       res.status(500).json({ error: error.message });

@@ -23,7 +23,7 @@ export default function LiveScreen() {
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
   const { theme } = useTheme();
-  const { isPremium } = useAuth();
+  const { user, isPremium } = useAuth();
   const navigation = useNavigation<NavigationProp>();
 
   const [refreshing, setRefreshing] = useState(false);
@@ -32,14 +32,14 @@ export default function LiveScreen() {
 
   const loadLive = useCallback(async () => {
     try {
-      const predictions = await fetchLivePredictions();
+      const predictions = await fetchLivePredictions(user?.id);
       setLivePredictions(predictions);
     } catch (error) {
       console.error("Error loading live predictions:", error);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     loadLive();
