@@ -430,3 +430,17 @@ export async function getActivePredictions() {
     )
     .orderBy(predictions.matchTime);
 }
+
+// Get prediction counts for each sport
+export async function getSportPredictionCounts(userId?: string) {
+  const now = new Date();
+  const sports = ["football", "basketball", "tennis", "baseball", "hockey", "cricket", "mma", "golf"];
+  const counts: Record<string, number> = {};
+  
+  for (const sport of sports) {
+    const sportPredictions = await getPredictionsBySport(sport, userId);
+    counts[sport] = sportPredictions.length;
+  }
+  
+  return counts;
+}

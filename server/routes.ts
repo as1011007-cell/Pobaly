@@ -15,6 +15,7 @@ import {
   getPredictionsBySport,
   getPredictionById,
   markPredictionResult,
+  getSportPredictionCounts,
 } from "./services/predictionService";
 
 const registerSchema = z.object({
@@ -313,6 +314,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.query.userId as string;
       const predictions = await getPredictionsBySport(sport, userId);
       res.json({ predictions });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get prediction counts by sport
+  app.get("/api/predictions/counts", async (req: Request, res: Response) => {
+    try {
+      const userId = req.query.userId as string;
+      const counts = await getSportPredictionCounts(userId);
+      res.json({ counts });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

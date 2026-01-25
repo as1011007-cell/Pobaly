@@ -1,10 +1,14 @@
 import { Prediction, SportCategory } from "@/types";
 
 export const sportCategories: SportCategory[] = [
-  { id: "football", name: "Football", icon: "dribbble", predictionCount: 12 },
-  { id: "basketball", name: "Basketball", icon: "circle", predictionCount: 8 },
-  { id: "cricket", name: "Cricket", icon: "target", predictionCount: 6 },
+  { id: "football", name: "Football", icon: "circle", predictionCount: 6 },
+  { id: "basketball", name: "Basketball", icon: "target", predictionCount: 6 },
   { id: "tennis", name: "Tennis", icon: "activity", predictionCount: 5 },
+  { id: "baseball", name: "Baseball", icon: "disc", predictionCount: 5 },
+  { id: "hockey", name: "Hockey", icon: "hexagon", predictionCount: 5 },
+  { id: "cricket", name: "Cricket", icon: "sun", predictionCount: 5 },
+  { id: "mma", name: "MMA", icon: "zap", predictionCount: 5 },
+  { id: "golf", name: "Golf", icon: "flag", predictionCount: 5 },
 ];
 
 const now = new Date();

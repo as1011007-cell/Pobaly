@@ -1,15 +1,17 @@
-import React from "react";
-import { View, StyleSheet, FlatList } from "react-native";
+import React, { useEffect, useState, useCallback } from "react";
+import { View, StyleSheet, FlatList, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 import { SportCategoryCard } from "@/components/SportCategoryCard";
 import { useTheme } from "@/hooks/useTheme";
+import { useAuth } from "@/contexts/AuthContext";
 import { Spacing } from "@/constants/theme";
-import { sportCategories } from "@/lib/mockData";
+import { sportCategories as baseSportCategories } from "@/lib/mockData";
+import { fetchSportPredictionCounts } from "@/lib/predictionsApi";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { SportCategory } from "@/types";
 
@@ -21,6 +23,31 @@ export default function SportsScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const { theme } = useTheme();
   const navigation = useNavigation<NavigationProp>();
+  const { user } = useAuth();
+  
+  const [sportCategories, setSportCategories] = useState<SportCategory[]>(baseSportCategories);
+  const [loading, setLoading] = useState(true);
+
+  const loadCounts = useCallback(async () => {
+    try {
+      const counts = await fetchSportPredictionCounts(user?.id);
+      const updatedCategories = baseSportCategories.map(cat => ({
+        ...cat,
+        predictionCount: counts[cat.id] || 0,
+      }));
+      setSportCategories(updatedCategories);
+    } catch (error) {
+      console.error("Error loading sport counts:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadCounts();
+    }, [loadCounts])
+  );
 
   const handleCategoryPress = (category: SportCategory) => {
     navigation.navigate("SportDetail", { sport: category.id });
@@ -34,6 +61,14 @@ export default function SportsScreen() {
       />
     </View>
   );
+
+  if (loading) {
+    return (
+      <View style={[styles.loadingContainer, { backgroundColor: theme.backgroundRoot, paddingTop: headerHeight }]}>
+        <ActivityIndicator size="large" color={theme.primary} />
+      </View>
+    );
+  }
 
   return (
     <FlatList
@@ -55,6 +90,11 @@ export default function SportsScreen() {
 }
 
 const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
   row: {
     justifyContent: "space-between",
     marginBottom: Spacing.md,

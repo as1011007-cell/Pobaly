@@ -47,10 +47,18 @@ export function SportCategoryCard({ category, onPress }: SportCategoryCardProps)
         return "circle";
       case "basketball":
         return "target";
-      case "cricket":
-        return "disc";
       case "tennis":
         return "activity";
+      case "baseball":
+        return "disc";
+      case "hockey":
+        return "hexagon";
+      case "cricket":
+        return "sun";
+      case "mma":
+        return "zap";
+      case "golf":
+        return "flag";
       default:
         return "circle";
     }

@@ -148,3 +148,18 @@ export async function generatePremiumPredictionsForUser(userId: string): Promise
     return false;
   }
 }
+
+export async function fetchSportPredictionCounts(userId?: string): Promise<Record<string, number>> {
+  try {
+    const url = new URL("/api/predictions/counts", apiUrl);
+    if (userId) {
+      url.searchParams.set("userId", userId);
+    }
+    const response = await fetch(url.toString());
+    const data = await response.json();
+    return data.counts || {};
+  } catch (error) {
+    console.error("Error fetching sport prediction counts:", error);
+    return {};
+  }
+}
