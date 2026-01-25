@@ -5,6 +5,16 @@ import { stripeService } from "./stripeService";
 import { getStripePublishableKey } from "./stripeClient";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
+import {
+  generateDailyPredictions,
+  getFreeTip,
+  getPremiumPredictions,
+  getLivePredictions,
+  getHistoryPredictions,
+  getPredictionsBySport,
+  getPredictionById,
+  markPredictionResult,
+} from "./services/predictionService";
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -219,6 +229,101 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
 
       res.json({ url: session.url });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============ Predictions Routes ============
+
+  // Generate new predictions (admin endpoint)
+  app.post("/api/predictions/generate", async (_req: Request, res: Response) => {
+    try {
+      await generateDailyPredictions();
+      res.json({ success: true, message: "Predictions generated successfully" });
+    } catch (error: any) {
+      console.error("Error generating predictions:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get free tip of the day
+  app.get("/api/predictions/free-tip", async (_req: Request, res: Response) => {
+    try {
+      const freeTip = await getFreeTip();
+      res.json({ prediction: freeTip });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get premium predictions
+  app.get("/api/predictions/premium", async (_req: Request, res: Response) => {
+    try {
+      const predictions = await getPremiumPredictions();
+      res.json({ predictions });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get live predictions
+  app.get("/api/predictions/live", async (_req: Request, res: Response) => {
+    try {
+      const predictions = await getLivePredictions();
+      res.json({ predictions });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get history (correct predictions only)
+  app.get("/api/predictions/history", async (_req: Request, res: Response) => {
+    try {
+      const predictions = await getHistoryPredictions();
+      res.json({ predictions });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get predictions by sport
+  app.get("/api/predictions/sport/:sport", async (req: Request, res: Response) => {
+    try {
+      const { sport } = req.params;
+      const predictions = await getPredictionsBySport(sport);
+      res.json({ predictions });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get single prediction by ID
+  app.get("/api/predictions/:id", async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const prediction = await getPredictionById(id);
+      if (!prediction) {
+        return res.status(404).json({ error: "Prediction not found" });
+      }
+      res.json({ prediction });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Mark prediction result (admin endpoint)
+  app.post("/api/predictions/:id/result", async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { result } = req.body;
+      
+      if (result !== "correct" && result !== "incorrect") {
+        return res.status(400).json({ error: "Result must be 'correct' or 'incorrect'" });
+      }
+
+      await markPredictionResult(id, result);
+      res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
