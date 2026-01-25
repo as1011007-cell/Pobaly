@@ -10,6 +10,7 @@ import SubscriptionScreen from "@/screens/SubscriptionScreen";
 import TermsOfServiceScreen from "@/screens/TermsOfServiceScreen";
 import PrivacyPolicyScreen from "@/screens/PrivacyPolicyScreen";
 import LanguageSelectScreen from "@/screens/LanguageSelectScreen";
+import AppearanceScreen from "@/screens/AppearanceScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/hooks/useTheme";
@@ -25,6 +26,7 @@ export type RootStackParamList = {
   TermsOfService: undefined;
   PrivacyPolicy: undefined;
   LanguageSelect: undefined;
+  Appearance: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -93,6 +95,11 @@ export default function RootStackNavigator() {
             name="LanguageSelect"
             component={LanguageSelectScreen}
             options={{ title: t.language }}
+          />
+          <Stack.Screen
+            name="Appearance"
+            component={AppearanceScreen}
+            options={{ title: t.appearance }}
           />
         </>
       ) : (

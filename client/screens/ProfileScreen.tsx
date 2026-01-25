@@ -25,7 +25,7 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
-  const { theme } = useTheme();
+  const { theme, themeMode } = useTheme();
   const { user, isPremium, signOut, refreshUser } = useAuth();
   const navigation = useNavigation<NavigationProp>();
   const { language, t } = useLanguage();
@@ -169,9 +169,9 @@ export default function ProfileScreen() {
           <SettingsRow
             icon="moon"
             title={t.appearance}
-            value={t.system}
+            value={themeMode === "system" ? t.system : themeMode === "dark" ? t.dark : t.light}
             hasChevron
-            onPress={() => {}}
+            onPress={() => navigation.navigate("Appearance")}
           />
         </View>
       </View>

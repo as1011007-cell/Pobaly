@@ -94,7 +94,10 @@ type TranslationKeys = {
   appearance: string;
   darkMode: string;
   lightMode: string;
+  light: string;
+  dark: string;
   system: string;
+  appearanceDescription: string;
   
   // Legal
   termsOfService: string;
@@ -201,7 +204,10 @@ const translations: Record<Language, TranslationKeys> = {
     appearance: "Appearance",
     darkMode: "Dark",
     lightMode: "Light",
+    light: "Light",
+    dark: "Dark",
     system: "System",
+    appearanceDescription: "Choose how BetRight looks on your device. System will follow your device settings.",
     
     // Legal
     termsOfService: "Terms of Service",
@@ -307,7 +313,10 @@ const translations: Record<Language, TranslationKeys> = {
     appearance: "Apariencia",
     darkMode: "Oscuro",
     lightMode: "Claro",
+    light: "Claro",
+    dark: "Oscuro",
     system: "Sistema",
+    appearanceDescription: "Elige como se ve BetRight en tu dispositivo. Sistema seguira la configuracion de tu dispositivo.",
     
     // Legal
     termsOfService: "Términos de Servicio",
@@ -413,7 +422,10 @@ const translations: Record<Language, TranslationKeys> = {
     appearance: "Apparence",
     darkMode: "Sombre",
     lightMode: "Clair",
-    system: "Système",
+    light: "Clair",
+    dark: "Sombre",
+    system: "Systeme",
+    appearanceDescription: "Choisissez l'apparence de BetRight sur votre appareil. Systeme suivra les parametres de votre appareil.",
     
     // Legal
     termsOfService: "Conditions d'Utilisation",
