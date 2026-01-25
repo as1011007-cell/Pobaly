@@ -89,14 +89,21 @@ Predictions table:
 - id, matchTitle, sport, matchTime
 - predictedOutcome, probability, confidence
 - explanation, factors, riskIndex
-- isLive, isPremium, result
+- isLive, isPremium, result, userId
 - createdAt, expiresAt
+
+## Prediction System
+- **Free Daily Tip**: One free prediction generated automatically each day (public, userId=null)
+- **Premium Predictions**: Generated when a user subscribes (user-specific, userId set)
+- Webhook handler triggers prediction generation on subscription activation
+- All prediction endpoints support userId filtering for personalized results
 
 ## Running the App
 - Backend: `npm run server:dev` (port 5000)
 - Frontend: `npm run expo:dev` (port 8081)
 
 ## Recent Changes
+- January 2026: Added user-specific predictions (userId field for personalized premium predictions)
 - January 2026: Rebranded from Probaly to BetRight with new logo and colors
 - January 2026: Added AI-powered predictions using OpenAI GPT-4o
 - January 2026: Added Stripe payment integration
