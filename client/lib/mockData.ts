@@ -156,7 +156,7 @@ export const getLivePredictions = (): Prediction[] => {
 };
 
 export const getHistoryPredictions = (): Prediction[] => {
-  return mockPredictions.filter((p) => p.result !== undefined);
+  return mockPredictions.filter((p) => p.result === "correct");
 };
 
 export const getPredictionsBySport = (sport: string): Prediction[] => {
