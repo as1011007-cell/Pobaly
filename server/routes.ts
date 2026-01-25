@@ -8,6 +8,7 @@ import bcrypt from "bcryptjs";
 import {
   generateDailyPredictions,
   generatePremiumPredictionsForUser,
+  generateDemoPredictions,
   getFreeTip,
   getPremiumPredictions,
   getLivePredictions,
@@ -245,6 +246,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, message: "Predictions generated successfully" });
     } catch (error: any) {
       console.error("Error generating predictions:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Generate demo predictions for all sports (admin endpoint)
+  app.post("/api/predictions/generate-demo", async (_req: Request, res: Response) => {
+    try {
+      await generateDemoPredictions();
+      res.json({ success: true, message: "Demo predictions generated successfully" });
+    } catch (error: any) {
+      console.error("Error generating demo predictions:", error);
       res.status(500).json({ error: error.message });
     }
   });

@@ -77,18 +77,24 @@ export function PredictionCard({
       ]}
     >
       {isLocked && (
-        <BlurView
-          intensity={20}
-          tint={isDark ? "dark" : "light"}
-          style={styles.lockedOverlay}
-        >
-          <View style={styles.lockIconContainer}>
-            <Feather name="lock" size={24} color={theme.primary} />
-            <ThemedText type="small" style={{ color: theme.primary, marginTop: Spacing.xs }}>
-              Premium
+        <>
+          <BlurView
+            intensity={80}
+            tint={isDark ? "dark" : "light"}
+            style={styles.lockedOverlay}
+          />
+          <View style={styles.lockContainer}>
+            <View style={[styles.lockIconBox, { backgroundColor: theme.primary }]}>
+              <Feather name="lock" size={20} color="#FFFFFF" />
+            </View>
+            <ThemedText type="body" style={[styles.lockText, { color: theme.text }]}>
+              Premium Only
+            </ThemedText>
+            <ThemedText type="small" style={{ color: theme.textSecondary, textAlign: "center" }}>
+              Subscribe to unlock this prediction
             </ThemedText>
           </View>
-        </BlurView>
+        </>
       )}
 
       <View style={styles.header}>
@@ -211,13 +217,27 @@ const styles = StyleSheet.create({
   },
   lockedOverlay: {
     ...StyleSheet.absoluteFillObject,
-    justifyContent: "center",
-    alignItems: "center",
     zIndex: 10,
     borderRadius: BorderRadius.lg,
   },
-  lockIconContainer: {
+  lockContainer: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "center",
     alignItems: "center",
+    zIndex: 11,
+    padding: Spacing.lg,
+  },
+  lockIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: Spacing.sm,
+  },
+  lockText: {
+    fontWeight: "600",
+    marginBottom: Spacing.xs,
   },
   header: {
     flexDirection: "row",

@@ -275,6 +275,60 @@ export async function generateDailyPredictions(): Promise<void> {
   await generateDailyFreePrediction();
 }
 
+// Generate demo predictions for all sports (visible but locked for non-subscribers)
+export async function generateDemoPredictions(): Promise<void> {
+  console.log("Generating demo predictions for all sports...");
+  
+  // Check if demo predictions already exist
+  const existing = await db.select()
+    .from(predictions)
+    .where(
+      and(
+        eq(predictions.isPremium, true),
+        isNull(predictions.userId)
+      )
+    )
+    .limit(1);
+  
+  if (existing.length > 0) {
+    console.log("Demo predictions already exist, skipping generation");
+    return;
+  }
+  
+  const matches = getUpcomingMatches();
+  
+  // Generate predictions for all matches as demo (premium but public)
+  for (const match of matches) {
+    try {
+      const analysis = await generatePredictionForMatch(match);
+      
+      const predictionData: InsertPrediction = {
+        userId: null, // Demo prediction is public but locked
+        matchTitle: `${match.homeTeam} vs ${match.awayTeam}`,
+        sport: match.sport,
+        matchTime: match.matchTime,
+        predictedOutcome: analysis.predictedOutcome,
+        probability: analysis.probability,
+        confidence: analysis.confidence,
+        explanation: analysis.explanation,
+        factors: analysis.factors,
+        riskIndex: analysis.riskIndex,
+        isLive: false,
+        isPremium: true, // Premium so they appear locked
+        result: null,
+        expiresAt: new Date(match.matchTime.getTime() + 3 * 60 * 60 * 1000),
+      };
+
+      await db.insert(predictions).values(predictionData);
+      console.log(`Generated demo prediction: ${match.homeTeam} vs ${match.awayTeam} (${match.sport})`);
+    } catch (error) {
+      console.error(`Failed to generate demo prediction for ${match.homeTeam} vs ${match.awayTeam}:`, error);
+    }
+  }
+  
+  console.log("Demo predictions generation complete");
+}
+
 export async function getFreeTip() {
   // First, ensure today's free prediction exists
   await generateDailyFreePrediction();
@@ -371,25 +425,9 @@ export async function getHistoryPredictions(userId?: string) {
 export async function getPredictionsBySport(sport: string, userId?: string) {
   const now = new Date();
   
-  if (!userId) {
-    // Return only free predictions for the sport
-    return db.select()
-      .from(predictions)
-      .where(
-        and(
-          eq(predictions.sport, sport),
-          eq(predictions.isPremium, false),
-          isNull(predictions.userId),
-          gte(predictions.matchTime, now),
-          isNull(predictions.result),
-          eq(predictions.isLive, false)
-        )
-      )
-      .orderBy(predictions.matchTime);
-  }
-  
-  // Return user's predictions + free predictions for the sport
-  return db.select()
+  // Get all predictions for this sport (both free and premium demo ones)
+  // Premium predictions are shown but locked/blurred for non-subscribers
+  const sportPredictions = await db.select()
     .from(predictions)
     .where(
       and(
@@ -397,10 +435,15 @@ export async function getPredictionsBySport(sport: string, userId?: string) {
         gte(predictions.matchTime, now),
         isNull(predictions.result),
         eq(predictions.isLive, false),
-        sql`(${predictions.userId} = ${userId} OR ${predictions.userId} IS NULL)`
+        // Show demo predictions (userId is null) + user's own predictions if logged in
+        userId 
+          ? sql`(${predictions.userId} = ${userId} OR ${predictions.userId} IS NULL)`
+          : isNull(predictions.userId)
       )
     )
     .orderBy(predictions.matchTime);
+  
+  return sportPredictions;
 }
 
 export async function getPredictionById(id: number) {
