@@ -464,18 +464,32 @@ export async function getFreeTip() {
   return freeTip || null;
 }
 
-export async function getPremiumPredictions(userId?: string) {
-  if (!userId) {
-    return [];
+export async function getPremiumPredictions(userId?: string, isPremiumUser?: boolean) {
+  const now = new Date();
+  
+  // For premium users, return their personal predictions
+  if (userId && isPremiumUser) {
+    return db.select()
+      .from(predictions)
+      .where(
+        and(
+          eq(predictions.isPremium, true),
+          eq(predictions.userId, userId),
+          eq(predictions.isLive, false),
+          gte(predictions.matchTime, now),
+          isNull(predictions.result)
+        )
+      )
+      .orderBy(predictions.matchTime);
   }
   
-  const now = new Date();
+  // For non-premium users (or no user), return demo predictions (locked display)
   return db.select()
     .from(predictions)
     .where(
       and(
         eq(predictions.isPremium, true),
-        eq(predictions.userId, userId),
+        isNull(predictions.userId), // Demo predictions have null userId
         eq(predictions.isLive, false),
         gte(predictions.matchTime, now),
         isNull(predictions.result)

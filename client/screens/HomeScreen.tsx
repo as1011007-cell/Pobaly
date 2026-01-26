@@ -36,7 +36,7 @@ export default function HomeScreen() {
     try {
       const [tip, premium] = await Promise.all([
         fetchFreeTip(),
-        fetchPremiumPredictions(user?.id),
+        fetchPremiumPredictions(user?.id, isPremium),
       ]);
       setFreeTip(tip);
       setPremiumPredictions(premium);
@@ -45,7 +45,7 @@ export default function HomeScreen() {
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [user?.id, isPremium]);
 
   useEffect(() => {
     loadPredictions();

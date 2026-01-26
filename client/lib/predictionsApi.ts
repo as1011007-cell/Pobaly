@@ -50,12 +50,13 @@ export async function fetchFreeTip(): Promise<Prediction | null> {
   }
 }
 
-export async function fetchPremiumPredictions(userId?: string): Promise<Prediction[]> {
+export async function fetchPremiumPredictions(userId?: string, isPremium?: boolean): Promise<Prediction[]> {
   try {
     const url = new URL("/api/predictions/premium", apiUrl);
     if (userId) {
       url.searchParams.set("userId", userId);
     }
+    url.searchParams.set("isPremium", isPremium ? "true" : "false");
     const response = await fetch(url.toString());
     const data = await response.json();
     return (data.predictions || []).map(mapApiPrediction);

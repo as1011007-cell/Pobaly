@@ -293,7 +293,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/predictions/premium", async (req: Request, res: Response) => {
     try {
       const userId = req.query.userId as string;
-      const predictions = await getPremiumPredictions(userId);
+      const isPremiumUser = req.query.isPremium === "true";
+      const predictions = await getPremiumPredictions(userId, isPremiumUser);
       res.json({ predictions });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
