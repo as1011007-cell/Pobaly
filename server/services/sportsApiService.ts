@@ -60,8 +60,8 @@ export async function getUpcomingMatchesFromApi(): Promise<SportsMatch[]> {
   const apiKey = process.env.ODDS_API_KEY;
   
   if (!apiKey) {
-    console.log('ODDS_API_KEY not set, returning fallback matches');
-    return getFallbackMatches();
+    console.log('ODDS_API_KEY not set, cannot fetch real matches');
+    return [];
   }
 
   const allMatches: SportsMatch[] = [];
@@ -104,14 +104,14 @@ export async function getUpcomingMatchesFromApi(): Promise<SportsMatch[]> {
     }
   }
 
-  if (allMatches.length === 0) {
-    console.log('No games found from API, using fallback matches');
-    return getFallbackMatches();
-  }
-
   allMatches.sort((a, b) => a.matchTime.getTime() - b.matchTime.getTime());
 
-  console.log(`Fetched ${allMatches.length} real upcoming matches from sports API`);
+  if (allMatches.length === 0) {
+    console.log('No real games found from sports API');
+  } else {
+    console.log(`Fetched ${allMatches.length} real upcoming matches from sports API`);
+  }
+  
   return allMatches;
 }
 
