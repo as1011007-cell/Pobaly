@@ -467,17 +467,18 @@ export async function getFreeTip() {
 export async function getPremiumPredictions(userId?: string, isPremiumUser?: boolean) {
   const now = new Date();
   
-  // For premium users, return their personal predictions
+  // For premium users, return demo predictions (real games) + their personal predictions
+  // These will be shown unlocked on the frontend
   if (userId && isPremiumUser) {
     return db.select()
       .from(predictions)
       .where(
         and(
           eq(predictions.isPremium, true),
-          eq(predictions.userId, userId),
           eq(predictions.isLive, false),
           gte(predictions.matchTime, now),
-          isNull(predictions.result)
+          isNull(predictions.result),
+          sql`(${predictions.userId} = ${userId} OR ${predictions.userId} IS NULL)`
         )
       )
       .orderBy(predictions.matchTime);
@@ -553,9 +554,10 @@ export async function getHistoryPredictions(userId?: string) {
 export async function getPredictionsBySport(sport: string, userId?: string, isPremiumUser?: boolean) {
   const now = new Date();
   
-  // For premium users, only show their personal predictions (not demo predictions)
+  // For premium users, show demo predictions (real games) - they'll be unlocked on frontend
+  // Plus any user-specific predictions
   if (userId && isPremiumUser) {
-    const userPredictions = await db.select()
+    const allPredictions = await db.select()
       .from(predictions)
       .where(
         and(
@@ -563,11 +565,11 @@ export async function getPredictionsBySport(sport: string, userId?: string, isPr
           gte(predictions.matchTime, now),
           isNull(predictions.result),
           eq(predictions.isLive, false),
-          eq(predictions.userId, userId)
+          sql`(${predictions.userId} = ${userId} OR ${predictions.userId} IS NULL)`
         )
       )
       .orderBy(predictions.matchTime);
-    return userPredictions;
+    return allPredictions;
   }
   
   // For non-premium users, show demo predictions (locked) for display
@@ -617,7 +619,6 @@ export async function getActivePredictions() {
 
 // Get prediction counts for each sport
 export async function getSportPredictionCounts(userId?: string, isPremiumUser?: boolean) {
-  const now = new Date();
   const sports = ["football", "basketball", "tennis", "baseball", "hockey", "cricket", "mma", "golf"];
   const counts: Record<string, number> = {};
   
