@@ -154,13 +154,26 @@ export async function generateDailyFreePrediction(): Promise<void> {
   
   const matches = await getUpcomingMatches();
   
-  // Try to find a match with high probability (70%+)
+  // Get all existing match titles to avoid duplicates
+  const existingPredictions = await db.select({ matchTitle: predictions.matchTitle })
+    .from(predictions)
+    .where(isNull(predictions.result));
+  const existingTitles = new Set(existingPredictions.map(p => p.matchTitle));
+  
+  // Try to find a match with high probability (70%+) that doesn't already exist
   let bestAnalysis = null;
   let bestMatch = null;
   
-  // Check up to 5 matches to find one with high probability
-  for (let i = 0; i < Math.min(5, matches.length); i++) {
+  // Check up to 10 matches to find one with high probability that's not a duplicate
+  for (let i = 0; i < Math.min(10, matches.length); i++) {
     const match = matches[i];
+    const matchTitle = `${match.homeTeam} vs ${match.awayTeam}`;
+    
+    // Skip if this match already has a prediction
+    if (existingTitles.has(matchTitle)) {
+      continue;
+    }
+    
     try {
       const analysis = await generatePredictionForMatch(match);
       
@@ -242,10 +255,22 @@ export async function generatePremiumPredictionsForUser(userId: string): Promise
   
   const matches = await getUpcomingMatches();
   
+  // Get existing match titles to avoid duplicates
+  const existingPredictions = await db.select({ matchTitle: predictions.matchTitle })
+    .from(predictions)
+    .where(eq(predictions.userId, userId));
+  const existingTitles = new Set(existingPredictions.map(p => p.matchTitle));
+  
   // Generate predictions for all matches (skip first one which is free)
   // Premium predictions focus on high-probability picks with sportsbook consensus
   for (let i = 1; i < matches.length; i++) {
     const match = matches[i];
+    const matchTitle = `${match.homeTeam} vs ${match.awayTeam}`;
+    
+    // Skip if this match already has a prediction for this user
+    if (existingTitles.has(matchTitle)) {
+      continue;
+    }
     
     try {
       const analysis = await generatePredictionForMatch(match);
