@@ -343,7 +343,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { sport } = req.params;
       const userId = req.query.userId as string;
-      const predictions = await getPredictionsBySport(sport, userId);
+      const isPremiumUser = req.query.isPremium === "true";
+      const predictions = await getPredictionsBySport(sport, userId, isPremiumUser);
       res.json({ predictions });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -354,7 +355,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/predictions/counts", async (req: Request, res: Response) => {
     try {
       const userId = req.query.userId as string;
-      const counts = await getSportPredictionCounts(userId);
+      const isPremiumUser = req.query.isPremium === "true";
+      const counts = await getSportPredictionCounts(userId, isPremiumUser);
       res.json({ counts });
     } catch (error: any) {
       res.status(500).json({ error: error.message });

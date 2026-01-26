@@ -96,12 +96,13 @@ export async function fetchHistoryPredictions(userId?: string): Promise<Predicti
   }
 }
 
-export async function fetchPredictionsBySport(sport: string, userId?: string): Promise<Prediction[]> {
+export async function fetchPredictionsBySport(sport: string, userId?: string, isPremium?: boolean): Promise<Prediction[]> {
   try {
     const url = new URL(`/api/predictions/sport/${sport}`, apiUrl);
     if (userId) {
       url.searchParams.set("userId", userId);
     }
+    url.searchParams.set("isPremium", isPremium ? "true" : "false");
     const response = await fetch(url.toString());
     const data = await response.json();
     return (data.predictions || []).map(mapApiPrediction);
@@ -150,12 +151,13 @@ export async function generatePremiumPredictionsForUser(userId: string): Promise
   }
 }
 
-export async function fetchSportPredictionCounts(userId?: string): Promise<Record<string, number>> {
+export async function fetchSportPredictionCounts(userId?: string, isPremium?: boolean): Promise<Record<string, number>> {
   try {
     const url = new URL("/api/predictions/counts", apiUrl);
     if (userId) {
       url.searchParams.set("userId", userId);
     }
+    url.searchParams.set("isPremium", isPremium ? "true" : "false");
     const response = await fetch(url.toString());
     const data = await response.json();
     return data.counts || {};

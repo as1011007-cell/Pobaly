@@ -550,11 +550,27 @@ export async function getHistoryPredictions(userId?: string) {
     .orderBy(desc(predictions.matchTime));
 }
 
-export async function getPredictionsBySport(sport: string, userId?: string) {
+export async function getPredictionsBySport(sport: string, userId?: string, isPremiumUser?: boolean) {
   const now = new Date();
   
-  // Get all predictions for this sport (both free and premium demo ones)
-  // Premium predictions are shown but locked/blurred for non-subscribers
+  // For premium users, only show their personal predictions (not demo predictions)
+  if (userId && isPremiumUser) {
+    const userPredictions = await db.select()
+      .from(predictions)
+      .where(
+        and(
+          eq(predictions.sport, sport),
+          gte(predictions.matchTime, now),
+          isNull(predictions.result),
+          eq(predictions.isLive, false),
+          eq(predictions.userId, userId)
+        )
+      )
+      .orderBy(predictions.matchTime);
+    return userPredictions;
+  }
+  
+  // For non-premium users, show demo predictions (locked) for display
   const sportPredictions = await db.select()
     .from(predictions)
     .where(
@@ -563,10 +579,7 @@ export async function getPredictionsBySport(sport: string, userId?: string) {
         gte(predictions.matchTime, now),
         isNull(predictions.result),
         eq(predictions.isLive, false),
-        // Show demo predictions (userId is null) + user's own predictions if logged in
-        userId 
-          ? sql`(${predictions.userId} = ${userId} OR ${predictions.userId} IS NULL)`
-          : isNull(predictions.userId)
+        isNull(predictions.userId) // Only demo predictions
       )
     )
     .orderBy(predictions.matchTime);
@@ -603,13 +616,13 @@ export async function getActivePredictions() {
 }
 
 // Get prediction counts for each sport
-export async function getSportPredictionCounts(userId?: string) {
+export async function getSportPredictionCounts(userId?: string, isPremiumUser?: boolean) {
   const now = new Date();
   const sports = ["football", "basketball", "tennis", "baseball", "hockey", "cricket", "mma", "golf"];
   const counts: Record<string, number> = {};
   
   for (const sport of sports) {
-    const sportPredictions = await getPredictionsBySport(sport, userId);
+    const sportPredictions = await getPredictionsBySport(sport, userId, isPremiumUser);
     counts[sport] = sportPredictions.length;
   }
   

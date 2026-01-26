@@ -31,14 +31,14 @@ export default function SportDetailScreen() {
 
   const loadPredictions = useCallback(async () => {
     try {
-      const data = await fetchPredictionsBySport(route.params.sport, user?.id);
+      const data = await fetchPredictionsBySport(route.params.sport, user?.id, isPremium);
       setPredictions(data);
     } catch (error) {
       console.error("Error loading sport predictions:", error);
     } finally {
       setLoading(false);
     }
-  }, [route.params.sport, user?.id]);
+  }, [route.params.sport, user?.id, isPremium]);
 
   useEffect(() => {
     loadPredictions();

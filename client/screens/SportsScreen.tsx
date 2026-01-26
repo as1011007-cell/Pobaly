@@ -23,14 +23,14 @@ export default function SportsScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const { theme } = useTheme();
   const navigation = useNavigation<NavigationProp>();
-  const { user } = useAuth();
+  const { user, isPremium } = useAuth();
   
   const [sportCategories, setSportCategories] = useState<SportCategory[]>(baseSportCategories);
   const [loading, setLoading] = useState(true);
 
   const loadCounts = useCallback(async () => {
     try {
-      const counts = await fetchSportPredictionCounts(user?.id);
+      const counts = await fetchSportPredictionCounts(user?.id, isPremium);
       const updatedCategories = baseSportCategories.map(cat => ({
         ...cat,
         predictionCount: counts[cat.id] || 0,
@@ -41,7 +41,7 @@ export default function SportsScreen() {
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [user?.id, isPremium]);
 
   useFocusEffect(
     useCallback(() => {
