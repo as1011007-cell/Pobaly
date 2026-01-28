@@ -156,3 +156,27 @@ export const insertReferralSchema = createInsertSchema(referrals).omit({
 
 export type Referral = typeof referrals.$inferSelect;
 export type InsertReferral = z.infer<typeof insertReferralSchema>;
+
+// Payout requests table for approval workflow
+export const payoutRequests = pgTable("payout_requests", {
+  id: serial("id").primaryKey(),
+  affiliateId: integer("affiliate_id").notNull().references(() => affiliates.id),
+  amount: integer("amount").notNull(), // in cents
+  status: text("status").notNull().default("pending"), // pending, approved, rejected, paid
+  stripeTransferId: text("stripe_transfer_id"),
+  requestedAt: timestamp("requested_at").defaultNow(),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewedBy: varchar("reviewed_by"),
+  rejectionReason: text("rejection_reason"),
+  paidAt: timestamp("paid_at"),
+});
+
+export const insertPayoutRequestSchema = createInsertSchema(payoutRequests).omit({
+  id: true,
+  requestedAt: true,
+  reviewedAt: true,
+  paidAt: true,
+});
+
+export type PayoutRequest = typeof payoutRequests.$inferSelect;
+export type InsertPayoutRequest = z.infer<typeof insertPayoutRequestSchema>;

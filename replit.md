@@ -118,6 +118,32 @@ Predictions table:
 - Consensus percentage shows agreement across all books (e.g., "75%+ agree")
 - Premium users see clean sportsbook odds view without extra statistics
 
+## Affiliate Program
+- **Commission**: 40% of subscription revenue
+- **Referral Codes**: Format PRO + 5 random alphanumeric characters (e.g., PROX9K2A)
+- **Clearance Period**: 14 business days (excludes weekends) before commissions become available
+- **Minimum Payout**: $10
+- **Payout Method**: Stripe Connect (affiliates connect their bank accounts)
+- **Manual Approval**: Payout requests require admin approval before Stripe processes the transfer
+
+### Affiliate API Endpoints
+- `POST /api/affiliate/register` - Register as affiliate
+- `GET /api/affiliate/dashboard/:userId` - Get affiliate stats and referrals
+- `POST /api/affiliate/connect-stripe` - Start Stripe Connect onboarding
+- `POST /api/affiliate/request-payout` - Submit payout request for approval
+- `GET /api/affiliate/payout-requests/:userId` - Get user's payout requests
+- `GET /api/affiliate/validate/:code` - Validate affiliate code
+
+### Admin Payout Endpoints
+- `GET /api/affiliate/admin/payout-requests?status=pending` - List payout requests by status
+- `POST /api/affiliate/admin/approve-payout/:requestId` - Approve and process payout
+- `POST /api/affiliate/admin/reject-payout/:requestId` - Reject payout request
+
+### Database Tables
+- `affiliates`: Stores affiliate info, referral codes, Stripe Connect accounts, earnings
+- `referrals`: Tracks individual referrals with commission amounts and status
+- `payout_requests`: Tracks payout requests with approval workflow status
+
 ## Running the App
 - Backend: `npm run server:dev` (port 5000)
 - Frontend: `npm run expo:dev` (port 8081)
@@ -131,6 +157,7 @@ Predictions table:
 - Age Rating: 17+ (Frequent/Intense Simulated Gambling)
 
 ## Recent Changes
+- January 2026: Added affiliate program with 40% commission, 14 business day clearance, manual payout approval
 - January 2026: Added App Store compliance (gambling disclaimer, restore purchases, legal pages)
 - January 2026: Added user-specific predictions (userId field for personalized premium predictions)
 - January 2026: Rebranded back to Probaly with new logo (keeping navy/red colors)

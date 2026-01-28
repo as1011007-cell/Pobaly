@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { db } from "./db";
-import { affiliates, referrals, users } from "../shared/schema";
+import { affiliates, referrals, users, payoutRequests } from "../shared/schema";
 import { eq, desc, and } from "drizzle-orm";
 import { getUncachableStripeClient } from "./stripeClient";
 
@@ -247,7 +247,6 @@ router.get("/connect-status/:userId", async (req: Request, res: Response) => {
 router.post("/request-payout", async (req: Request, res: Response) => {
   try {
     const { userId } = req.body;
-    const stripe = await getUncachableStripeClient();
 
     const [affiliate] = await db.select()
       .from(affiliates)
@@ -259,6 +258,21 @@ router.post("/request-payout", async (req: Request, res: Response) => {
 
     if (!affiliate.stripeConnectAccountId || !affiliate.stripeConnectOnboarded) {
       return res.status(400).json({ error: "Please complete Stripe Connect setup first" });
+    }
+
+    const existingRequest = await db.select()
+      .from(payoutRequests)
+      .where(
+        and(
+          eq(payoutRequests.affiliateId, affiliate.id),
+          eq(payoutRequests.status, "pending")
+        )
+      );
+
+    if (existingRequest.length > 0) {
+      return res.status(400).json({ 
+        error: "You already have a pending payout request. Please wait for it to be reviewed."
+      });
     }
 
     const now = new Date();
@@ -289,41 +303,19 @@ router.post("/request-payout", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Minimum payout is $10. Cleared earnings: $" + (clearedAmount / 100).toFixed(2) });
     }
 
-    const transfer = await stripe.transfers.create({
-      amount: clearedAmount,
-      currency: "usd",
-      destination: affiliate.stripeConnectAccountId,
-      metadata: {
-        affiliateId: affiliate.id.toString(),
-        type: "affiliate_payout",
-      },
-    });
-
-    const pendingAmount = affiliateReferrals
-      .filter((ref) => !clearedReferrals.includes(ref))
-      .reduce((sum, ref) => sum + (ref.commissionAmount || 0), 0);
-
-    await db.update(affiliates)
-      .set({
-        pendingEarnings: pendingAmount,
-        paidEarnings: (affiliate.paidEarnings || 0) + clearedAmount,
+    const [payoutRequest] = await db.insert(payoutRequests)
+      .values({
+        affiliateId: affiliate.id,
+        amount: clearedAmount,
+        status: "pending",
       })
-      .where(eq(affiliates.id, affiliate.id));
-
-    for (const ref of clearedReferrals) {
-      await db.update(referrals)
-        .set({
-          status: "paid",
-          paidAt: new Date(),
-        })
-        .where(eq(referrals.id, ref.id));
-    }
+      .returning();
 
     res.json({
       success: true,
       amount: clearedAmount / 100,
-      transferId: transfer.id,
-      message: `Paid $${(clearedAmount / 100).toFixed(2)} for ${clearedReferrals.length} cleared referrals`,
+      requestId: payoutRequest.id,
+      message: `Payout request for $${(clearedAmount / 100).toFixed(2)} submitted for approval`,
     });
   } catch (error) {
     console.error("Payout error:", error);
@@ -347,6 +339,188 @@ router.get("/validate/:code", async (req: Request, res: Response) => {
   } catch (error) {
     console.error("Validate affiliate error:", error);
     res.status(500).json({ error: "Failed to validate code" });
+  }
+});
+
+router.get("/admin/payout-requests", async (req: Request, res: Response) => {
+  try {
+    const statusParam = req.query.status;
+    const status = (typeof statusParam === "string" ? statusParam : "pending");
+    
+    const requests = await db.select({
+      id: payoutRequests.id,
+      amount: payoutRequests.amount,
+      status: payoutRequests.status,
+      requestedAt: payoutRequests.requestedAt,
+      reviewedAt: payoutRequests.reviewedAt,
+      rejectionReason: payoutRequests.rejectionReason,
+      affiliateId: payoutRequests.affiliateId,
+      affiliateCode: affiliates.affiliateCode,
+      stripeConnectAccountId: affiliates.stripeConnectAccountId,
+      userId: affiliates.userId,
+    })
+      .from(payoutRequests)
+      .innerJoin(affiliates, eq(payoutRequests.affiliateId, affiliates.id))
+      .where(eq(payoutRequests.status, status))
+      .orderBy(desc(payoutRequests.requestedAt));
+
+    res.json({ requests });
+  } catch (error) {
+    console.error("List payout requests error:", error);
+    res.status(500).json({ error: "Failed to list payout requests" });
+  }
+});
+
+router.post("/admin/approve-payout/:requestId", async (req: Request, res: Response) => {
+  try {
+    const requestId = parseInt(req.params.requestId);
+    const stripe = await getUncachableStripeClient();
+
+    const [payoutRequest] = await db.select()
+      .from(payoutRequests)
+      .where(eq(payoutRequests.id, requestId));
+
+    if (!payoutRequest) {
+      return res.status(404).json({ error: "Payout request not found" });
+    }
+
+    if (payoutRequest.status !== "pending") {
+      return res.status(400).json({ error: "Payout request already processed" });
+    }
+
+    const [affiliate] = await db.select()
+      .from(affiliates)
+      .where(eq(affiliates.id, payoutRequest.affiliateId));
+
+    if (!affiliate || !affiliate.stripeConnectAccountId) {
+      return res.status(400).json({ error: "Affiliate not properly set up for payouts" });
+    }
+
+    const transfer = await stripe.transfers.create({
+      amount: payoutRequest.amount,
+      currency: "usd",
+      destination: affiliate.stripeConnectAccountId,
+      metadata: {
+        affiliateId: affiliate.id.toString(),
+        payoutRequestId: requestId.toString(),
+        type: "affiliate_payout",
+      },
+    });
+
+    await db.update(payoutRequests)
+      .set({
+        status: "paid",
+        stripeTransferId: transfer.id,
+        reviewedAt: new Date(),
+        paidAt: new Date(),
+      })
+      .where(eq(payoutRequests.id, requestId));
+
+    const affiliateReferrals = await db.select()
+      .from(referrals)
+      .where(
+        and(
+          eq(referrals.affiliateId, affiliate.id),
+          eq(referrals.status, "pending")
+        )
+      );
+
+    const now = new Date();
+    const clearedReferrals = affiliateReferrals.filter((ref) => {
+      const createdAt = ref.createdAt || new Date();
+      const clearanceDate = addBusinessDays(new Date(createdAt), 14);
+      return now >= clearanceDate;
+    });
+
+    for (const ref of clearedReferrals) {
+      await db.update(referrals)
+        .set({
+          status: "paid",
+          paidAt: new Date(),
+        })
+        .where(eq(referrals.id, ref.id));
+    }
+
+    const remainingPending = affiliateReferrals
+      .filter((ref) => !clearedReferrals.find(cr => cr.id === ref.id))
+      .reduce((sum, ref) => sum + (ref.commissionAmount || 0), 0);
+
+    await db.update(affiliates)
+      .set({
+        pendingEarnings: remainingPending,
+        paidEarnings: (affiliate.paidEarnings || 0) + payoutRequest.amount,
+      })
+      .where(eq(affiliates.id, affiliate.id));
+
+    res.json({
+      success: true,
+      transferId: transfer.id,
+      amount: payoutRequest.amount / 100,
+      message: `Payout of $${(payoutRequest.amount / 100).toFixed(2)} approved and processed`,
+    });
+  } catch (error: any) {
+    console.error("Approve payout error:", error);
+    res.status(500).json({ error: "Failed to approve payout", details: error?.message });
+  }
+});
+
+router.post("/admin/reject-payout/:requestId", async (req: Request, res: Response) => {
+  try {
+    const requestIdParam = req.params.requestId as string;
+    const requestId = parseInt(requestIdParam);
+    const { reason } = req.body;
+
+    const [payoutRequest] = await db.select()
+      .from(payoutRequests)
+      .where(eq(payoutRequests.id, requestId));
+
+    if (!payoutRequest) {
+      return res.status(404).json({ error: "Payout request not found" });
+    }
+
+    if (payoutRequest.status !== "pending") {
+      return res.status(400).json({ error: "Payout request already processed" });
+    }
+
+    await db.update(payoutRequests)
+      .set({
+        status: "rejected",
+        reviewedAt: new Date(),
+        rejectionReason: reason || "Request rejected by admin",
+      })
+      .where(eq(payoutRequests.id, requestId));
+
+    res.json({
+      success: true,
+      message: "Payout request rejected",
+    });
+  } catch (error) {
+    console.error("Reject payout error:", error);
+    res.status(500).json({ error: "Failed to reject payout" });
+  }
+});
+
+router.get("/payout-requests/:userId", async (req: Request, res: Response) => {
+  try {
+    const userId = req.params.userId as string;
+
+    const [affiliate] = await db.select()
+      .from(affiliates)
+      .where(eq(affiliates.userId, userId));
+
+    if (!affiliate) {
+      return res.status(404).json({ error: "Not registered as affiliate" });
+    }
+
+    const requests = await db.select()
+      .from(payoutRequests)
+      .where(eq(payoutRequests.affiliateId, affiliate.id))
+      .orderBy(desc(payoutRequests.requestedAt));
+
+    res.json({ requests });
+  } catch (error) {
+    console.error("Get payout requests error:", error);
+    res.status(500).json({ error: "Failed to get payout requests" });
   }
 });
 
