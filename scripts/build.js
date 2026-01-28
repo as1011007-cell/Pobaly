@@ -495,6 +495,43 @@ function updateManifests(manifests, timestamp, baseUrl, assetsByHash) {
   console.log("Manifests updated");
 }
 
+async function buildWebVersion(domain) {
+  console.log("Building web version...");
+  
+  return new Promise((resolve, reject) => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_DOMAIN: domain,
+    };
+    
+    const webBuild = spawn("npx", ["expo", "export", "--platform", "web"], {
+      stdio: ["ignore", "pipe", "pipe"],
+      env,
+    });
+    
+    webBuild.stdout.on("data", (data) => {
+      const output = data.toString().trim();
+      if (output) console.log(`[Web Build] ${output}`);
+    });
+    
+    webBuild.stderr.on("data", (data) => {
+      const output = data.toString().trim();
+      if (output) console.error(`[Web Build] ${output}`);
+    });
+    
+    webBuild.on("close", (code) => {
+      if (code === 0) {
+        console.log("Web build completed");
+        resolve();
+      } else {
+        reject(new Error(`Web build failed with code ${code}`));
+      }
+    });
+    
+    webBuild.on("error", reject);
+  });
+}
+
 async function main() {
   console.log("Building static Expo Go deployment...");
 
@@ -503,6 +540,9 @@ async function main() {
   const domain = getDeploymentDomain();
   const baseUrl = `https://${domain}`;
   const timestamp = `${Date.now()}-${process.pid}`;
+
+  // Build web version first (outputs to dist/)
+  await buildWebVersion(domain);
 
   prepareDirectories(timestamp);
   clearMetroCache();
