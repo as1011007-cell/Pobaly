@@ -14,6 +14,7 @@ export const users = pgTable("users", {
   stripeSubscriptionId: text("stripe_subscription_id"),
   isPremium: boolean("is_premium").default(false),
   subscriptionExpiry: timestamp("subscription_expiry"),
+  referredByCode: varchar("referred_by_code", { length: 20 }), // Affiliate code that referred this user
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -105,3 +106,53 @@ export const insertUserPreferencesSchema = createInsertSchema(userPreferences).o
 
 export type UserPreferences = typeof userPreferences.$inferSelect;
 export type InsertUserPreferences = z.infer<typeof insertUserPreferencesSchema>;
+
+// Affiliates table for tracking affiliate partners
+export const affiliates = pgTable("affiliates", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().unique().references(() => users.id),
+  affiliateCode: varchar("affiliate_code", { length: 20 }).notNull().unique(),
+  stripeConnectAccountId: text("stripe_connect_account_id"),
+  stripeConnectOnboarded: boolean("stripe_connect_onboarded").default(false),
+  commissionRate: integer("commission_rate").default(40), // 40% default
+  totalEarnings: integer("total_earnings").default(0), // in cents
+  pendingEarnings: integer("pending_earnings").default(0), // in cents
+  paidEarnings: integer("paid_earnings").default(0), // in cents
+  totalReferrals: integer("total_referrals").default(0),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertAffiliateSchema = createInsertSchema(affiliates).omit({
+  id: true,
+  createdAt: true,
+  totalEarnings: true,
+  pendingEarnings: true,
+  paidEarnings: true,
+  totalReferrals: true,
+});
+
+export type Affiliate = typeof affiliates.$inferSelect;
+export type InsertAffiliate = z.infer<typeof insertAffiliateSchema>;
+
+// Referrals table for tracking successful referrals
+export const referrals = pgTable("referrals", {
+  id: serial("id").primaryKey(),
+  affiliateId: integer("affiliate_id").notNull().references(() => affiliates.id),
+  referredUserId: varchar("referred_user_id").notNull().references(() => users.id),
+  subscriptionId: text("subscription_id"),
+  subscriptionAmount: integer("subscription_amount"), // in cents
+  commissionAmount: integer("commission_amount"), // in cents
+  status: text("status").notNull().default("pending"), // pending, paid, cancelled
+  paidAt: timestamp("paid_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertReferralSchema = createInsertSchema(referrals).omit({
+  id: true,
+  createdAt: true,
+  paidAt: true,
+});
+
+export type Referral = typeof referrals.$inferSelect;
+export type InsertReferral = z.infer<typeof insertReferralSchema>;
