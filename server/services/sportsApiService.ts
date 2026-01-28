@@ -15,13 +15,37 @@ interface SportsMatch {
   league?: string;
 }
 
-const SPORTS_MAP: Record<string, { apiKey: string; sportName: string; league: string }> = {
-  football: { apiKey: 'soccer_epl', sportName: 'football', league: 'Premier League' },
-  basketball: { apiKey: 'basketball_nba', sportName: 'basketball', league: 'NBA' },
-  tennis: { apiKey: 'tennis_atp_french_open', sportName: 'tennis', league: 'ATP Tour' },
-  baseball: { apiKey: 'baseball_mlb', sportName: 'baseball', league: 'MLB' },
-  hockey: { apiKey: 'icehockey_nhl', sportName: 'hockey', league: 'NHL' },
-  mma: { apiKey: 'mma_mixed_martial_arts', sportName: 'mma', league: 'UFC' },
+const SPORTS_MAP: Record<string, { apiKey: string; sportName: string; league: string }[]> = {
+  football: [
+    { apiKey: 'soccer_epl', sportName: 'football', league: 'Premier League' },
+  ],
+  basketball: [
+    { apiKey: 'basketball_nba', sportName: 'basketball', league: 'NBA' },
+    { apiKey: 'basketball_euroleague', sportName: 'basketball', league: 'EuroLeague' },
+  ],
+  tennis: [
+    { apiKey: 'tennis_atp_australian_open', sportName: 'tennis', league: 'Australian Open' },
+    { apiKey: 'tennis_wta_australian_open', sportName: 'tennis', league: 'WTA Australian Open' },
+  ],
+  baseball: [
+    { apiKey: 'baseball_mlb', sportName: 'baseball', league: 'MLB' },
+    { apiKey: 'baseball_npb', sportName: 'baseball', league: 'NPB Japan' },
+  ],
+  hockey: [
+    { apiKey: 'icehockey_nhl', sportName: 'hockey', league: 'NHL' },
+  ],
+  mma: [
+    { apiKey: 'mma_mixed_martial_arts', sportName: 'mma', league: 'UFC' },
+  ],
+  cricket: [
+    { apiKey: 'cricket_test_match', sportName: 'cricket', league: 'Test Match' },
+    { apiKey: 'cricket_ipl', sportName: 'cricket', league: 'IPL' },
+    { apiKey: 'cricket_big_bash', sportName: 'cricket', league: 'Big Bash' },
+  ],
+  golf: [
+    { apiKey: 'golf_pga_championship', sportName: 'golf', league: 'PGA Tour' },
+    { apiKey: 'golf_masters_tournament', sportName: 'golf', league: 'Masters' },
+  ],
 };
 
 const ADDITIONAL_FOOTBALL_LEAGUES = [
@@ -68,20 +92,22 @@ export async function getUpcomingMatchesFromApi(): Promise<SportsMatch[]> {
   const now = new Date();
   const maxFutureTime = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-  for (const [sportName, config] of Object.entries(SPORTS_MAP)) {
-    const games = await fetchGamesFromApi(config.apiKey);
-    
-    for (const game of games.slice(0, 6)) {
-      const matchTime = new Date(game.commence_time);
+  for (const [sportName, configs] of Object.entries(SPORTS_MAP)) {
+    for (const config of configs) {
+      const games = await fetchGamesFromApi(config.apiKey);
       
-      if (matchTime > now && matchTime < maxFutureTime) {
-        allMatches.push({
-          homeTeam: game.home_team,
-          awayTeam: game.away_team,
-          sport: config.sportName,
-          matchTime: matchTime,
-          league: config.league,
-        });
+      for (const game of games.slice(0, 4)) {
+        const matchTime = new Date(game.commence_time);
+        
+        if (matchTime > now && matchTime < maxFutureTime) {
+          allMatches.push({
+            homeTeam: game.home_team,
+            awayTeam: game.away_team,
+            sport: config.sportName,
+            matchTime: matchTime,
+            league: config.league,
+          });
+        }
       }
     }
   }
