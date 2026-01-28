@@ -129,15 +129,18 @@ export default function AffiliateScreen() {
         userId: user.id,
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        if (data.url) {
-          await WebBrowser.openBrowserAsync(data.url);
-          await fetchAffiliateData();
-        }
+      const data = await response.json();
+      
+      if (response.ok && data.url) {
+        await WebBrowser.openBrowserAsync(data.url);
+        await fetchAffiliateData();
+      } else {
+        console.error("Stripe Connect failed:", data.error, data.details);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
     } catch (error) {
       console.error("Failed to connect Stripe:", error);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setIsConnecting(false);
     }

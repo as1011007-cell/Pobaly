@@ -118,6 +118,11 @@ router.get("/dashboard/:userId", async (req: Request, res: Response) => {
 router.post("/connect-stripe", async (req: Request, res: Response) => {
   try {
     const { userId } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({ error: "User ID required" });
+    }
+
     const stripe = await getUncachableStripeClient();
 
     const [affiliate] = await db.select()
@@ -131,26 +136,29 @@ router.post("/connect-stripe", async (req: Request, res: Response) => {
     let accountId = affiliate.stripeConnectAccountId;
 
     if (!accountId) {
+      console.log("Creating new Stripe Connect account for affiliate:", affiliate.id);
       const account = await stripe.accounts.create({
         type: "express",
-        capabilities: {
-          transfers: { requested: true },
-        },
         metadata: {
           affiliateId: affiliate.id.toString(),
           userId: userId,
         },
       });
       accountId = account.id;
+      console.log("Created Stripe Connect account:", accountId);
 
       await db.update(affiliates)
         .set({ stripeConnectAccountId: accountId })
         .where(eq(affiliates.id, affiliate.id));
     }
 
-    const baseUrl = process.env.EXPO_PUBLIC_DOMAIN 
-      ? `https://${process.env.EXPO_PUBLIC_DOMAIN}` 
-      : "https://probaly.app";
+    const baseUrl = process.env.REPL_SLUG && process.env.REPL_OWNER
+      ? `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`
+      : process.env.EXPO_PUBLIC_DOMAIN 
+        ? `https://${process.env.EXPO_PUBLIC_DOMAIN.replace(':5000', '')}`
+        : "https://probaly.app";
+
+    console.log("Creating account link with baseUrl:", baseUrl);
 
     const accountLink = await stripe.accountLinks.create({
       account: accountId,
@@ -159,10 +167,15 @@ router.post("/connect-stripe", async (req: Request, res: Response) => {
       type: "account_onboarding",
     });
 
+    console.log("Account link created:", accountLink.url);
     res.json({ url: accountLink.url });
-  } catch (error) {
-    console.error("Stripe Connect error:", error);
-    res.status(500).json({ error: "Failed to create Stripe Connect link" });
+  } catch (error: any) {
+    console.error("Stripe Connect error:", error?.message || error);
+    console.error("Full error:", JSON.stringify(error, null, 2));
+    res.status(500).json({ 
+      error: "Failed to create Stripe Connect link",
+      details: error?.message || "Unknown error"
+    });
   }
 });
 
