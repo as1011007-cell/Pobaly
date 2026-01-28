@@ -267,7 +267,8 @@ async function downloadBundlesAndManifests(timestamp) {
         return `  - ${names[index]}: ${result.reason?.message || result.reason}`;
       });
 
-      exitWithError(`Download failed:\n${errorMessages.join("\n")}`);
+      // Log warning but continue - web build is the priority
+      console.warn(`Mobile build warnings (web build will continue):\n${errorMessages.join("\n")}`);
     }
 
     const iosManifest =
@@ -275,40 +276,47 @@ async function downloadBundlesAndManifests(timestamp) {
     const androidManifest =
       results[3].status === "fulfilled" ? results[3].value : null;
 
-    console.log("All downloads completed successfully");
+    if (iosManifest || androidManifest) {
+      console.log("Mobile downloads completed");
+    } else {
+      console.log("Mobile builds skipped, web build is available");
+    }
     return { ios: iosManifest, android: androidManifest };
   } catch (error) {
-    exitWithError(`Unexpected download error: ${error.message}`);
+    console.warn(`Mobile build error (continuing with web): ${error.message}`);
+    return { ios: null, android: null };
   }
 }
 
 function extractAssets(timestamp) {
+  const iosBundlePath = path.join(
+    "static-build",
+    timestamp,
+    "_expo",
+    "static",
+    "js",
+    "ios",
+    "bundle.js",
+  );
+  const androidBundlePath = path.join(
+    "static-build",
+    timestamp,
+    "_expo",
+    "static",
+    "js",
+    "android",
+    "bundle.js",
+  );
+  
   const bundles = {
-    ios: fs.readFileSync(
-      path.join(
-        "static-build",
-        timestamp,
-        "_expo",
-        "static",
-        "js",
-        "ios",
-        "bundle.js",
-      ),
-      "utf-8",
-    ),
-    android: fs.readFileSync(
-      path.join(
-        "static-build",
-        timestamp,
-        "_expo",
-        "static",
-        "js",
-        "android",
-        "bundle.js",
-      ),
-      "utf-8",
-    ),
+    ios: fs.existsSync(iosBundlePath) ? fs.readFileSync(iosBundlePath, "utf-8") : null,
+    android: fs.existsSync(androidBundlePath) ? fs.readFileSync(androidBundlePath, "utf-8") : null,
   };
+  
+  if (!bundles.ios && !bundles.android) {
+    console.log("No mobile bundles to extract assets from");
+    return [];
+  }
 
   const assetsMap = new Map();
   const assetPattern =
@@ -345,8 +353,8 @@ function extractAssets(timestamp) {
     }
   };
 
-  extractFromBundle(bundles.ios, "ios");
-  extractFromBundle(bundles.android, "android");
+  if (bundles.ios) extractFromBundle(bundles.ios, "ios");
+  if (bundles.android) extractFromBundle(bundles.android, "android");
 
   return Array.from(assetsMap.values());
 }
@@ -426,6 +434,12 @@ function updateBundleUrls(timestamp, baseUrl) {
       platform,
       "bundle.js",
     );
+    
+    if (!fs.existsSync(bundlePath)) {
+      console.log(`Skipping ${platform} bundle URL update (not found)`);
+      return;
+    }
+    
     let bundle = fs.readFileSync(bundlePath, "utf-8");
 
     bundle = bundle.replace(
@@ -454,9 +468,20 @@ function updateBundleUrls(timestamp, baseUrl) {
 }
 
 function updateManifests(manifests, timestamp, baseUrl, assetsByHash) {
+  if (!manifests.ios && !manifests.android) {
+    console.log("No mobile manifests to update (web-only build)");
+    return;
+  }
+  
   const updateForPlatform = (platform, manifest) => {
+    if (!manifest) {
+      console.log(`Skipping ${platform} manifest update (not available)`);
+      return;
+    }
+    
     if (!manifest.launchAsset || !manifest.extra) {
-      exitWithError(`Malformed manifest for ${platform}`);
+      console.warn(`Malformed manifest for ${platform}, skipping`);
+      return;
     }
 
     manifest.launchAsset.url = `${baseUrl}/${timestamp}/_expo/static/js/${platform}/bundle.js`;
