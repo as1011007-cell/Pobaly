@@ -27,6 +27,8 @@ import { apiRequest, getApiUrl } from "@/lib/query-client";
 interface AffiliateStats {
   totalEarnings: number;
   pendingEarnings: number;
+  clearedEarnings: number;
+  processingEarnings: number;
   paidEarnings: number;
   totalReferrals: number;
   commissionRate: number;
@@ -104,7 +106,7 @@ export default function AffiliateScreen() {
 
     try {
       const baseUrl = getApiUrl();
-      const response = await apiRequest("POST", new URL("/api/affiliate/register", baseUrl), {
+      const response = await apiRequest("POST", new URL("/api/affiliate/register", baseUrl).toString(), {
         userId: user.id,
       });
 
@@ -125,7 +127,7 @@ export default function AffiliateScreen() {
 
     try {
       const baseUrl = getApiUrl();
-      const response = await apiRequest("POST", new URL("/api/affiliate/connect-stripe", baseUrl), {
+      const response = await apiRequest("POST", new URL("/api/affiliate/connect-stripe", baseUrl).toString(), {
         userId: user.id,
       });
 
@@ -152,7 +154,7 @@ export default function AffiliateScreen() {
 
     try {
       const baseUrl = getApiUrl();
-      const response = await apiRequest("POST", new URL("/api/affiliate/request-payout", baseUrl), {
+      const response = await apiRequest("POST", new URL("/api/affiliate/request-payout", baseUrl).toString(), {
         userId: user.id,
       });
 
@@ -219,7 +221,7 @@ export default function AffiliateScreen() {
           </ThemedText>
         </View>
 
-        <View style={[styles.benefitsCard, { backgroundColor: theme.backgroundElevated }]}>
+        <View style={[styles.benefitsCard, { backgroundColor: theme.backgroundDefault }]}>
           <ThemedText style={styles.benefitsTitle}>Benefits</ThemedText>
           <View style={styles.benefitRow}>
             <Feather name="dollar-sign" size={20} color={theme.success} />
@@ -240,11 +242,12 @@ export default function AffiliateScreen() {
         </View>
 
         <Button
-          title={isRegistering ? "Registering..." : "Join Affiliate Program"}
           onPress={handleRegister}
           disabled={isRegistering}
           style={styles.registerButton}
-        />
+        >
+          {isRegistering ? "Registering..." : "Join Affiliate Program"}
+        </Button>
       </ScrollView>
     );
   }
@@ -263,21 +266,21 @@ export default function AffiliateScreen() {
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />
       }
     >
-      <View style={[styles.statsGrid, { backgroundColor: theme.backgroundElevated }]}>
+      <View style={[styles.statsGrid, { backgroundColor: theme.backgroundDefault }]}>
         <View style={styles.statItem}>
           <ThemedText style={[styles.statValue, { color: theme.success }]}>
-            ${affiliateData?.stats.totalEarnings.toFixed(2)}
+            ${affiliateData?.stats.clearedEarnings?.toFixed(2) || "0.00"}
           </ThemedText>
           <ThemedText style={[styles.statLabel, { color: theme.textSecondary }]}>
-            Total Earnings
+            Ready to Pay
           </ThemedText>
         </View>
         <View style={styles.statItem}>
           <ThemedText style={[styles.statValue, { color: theme.warning }]}>
-            ${affiliateData?.stats.pendingEarnings.toFixed(2)}
+            ${affiliateData?.stats.processingEarnings?.toFixed(2) || "0.00"}
           </ThemedText>
           <ThemedText style={[styles.statLabel, { color: theme.textSecondary }]}>
-            Pending
+            Processing
           </ThemedText>
         </View>
         <View style={styles.statItem}>
@@ -290,15 +293,19 @@ export default function AffiliateScreen() {
         </View>
         <View style={styles.statItem}>
           <ThemedText style={[styles.statValue, { color: theme.accent }]}>
-            {affiliateData?.stats.commissionRate}%
+            ${affiliateData?.stats.paidEarnings?.toFixed(2) || "0.00"}
           </ThemedText>
           <ThemedText style={[styles.statLabel, { color: theme.textSecondary }]}>
-            Commission
+            Paid Out
           </ThemedText>
         </View>
       </View>
 
-      <View style={[styles.linkCard, { backgroundColor: theme.backgroundElevated }]}>
+      <ThemedText style={[styles.clearanceNote, { color: theme.textSecondary }]}>
+        Commissions are available for payout 14 business days after payment clears
+      </ThemedText>
+
+      <View style={[styles.linkCard, { backgroundColor: theme.backgroundDefault }]}>
         <ThemedText style={styles.sectionTitle}>Your Referral Link</ThemedText>
         <View style={[styles.linkContainer, { backgroundColor: theme.backgroundRoot }]}>
           <ThemedText style={[styles.linkText, { color: theme.textSecondary }]} numberOfLines={1}>
@@ -325,7 +332,7 @@ export default function AffiliateScreen() {
         </View>
       </View>
 
-      <View style={[styles.payoutCard, { backgroundColor: theme.backgroundElevated }]}>
+      <View style={[styles.payoutCard, { backgroundColor: theme.backgroundDefault }]}>
         <ThemedText style={styles.sectionTitle}>Payouts</ThemedText>
         {affiliateData?.affiliate.stripeConnectOnboarded ? (
           <>
@@ -333,14 +340,15 @@ export default function AffiliateScreen() {
               Bank account connected. Minimum payout: $10
             </ThemedText>
             <Button
-              title={isRequestingPayout ? "Processing..." : "Request Payout"}
               onPress={handleRequestPayout}
               disabled={
                 isRequestingPayout ||
-                (affiliateData?.stats.pendingEarnings || 0) < 10
+                (affiliateData?.stats.clearedEarnings || 0) < 10
               }
               style={styles.payoutButton}
-            />
+            >
+              {isRequestingPayout ? "Processing..." : "Request Payout"}
+            </Button>
           </>
         ) : (
           <>
@@ -348,17 +356,18 @@ export default function AffiliateScreen() {
               Connect your bank account to receive payouts
             </ThemedText>
             <Button
-              title={isConnecting ? "Connecting..." : "Connect Bank Account"}
               onPress={handleConnectStripe}
               disabled={isConnecting}
               style={styles.payoutButton}
-            />
+            >
+              {isConnecting ? "Connecting..." : "Connect Bank Account"}
+            </Button>
           </>
         )}
       </View>
 
       {affiliateData && affiliateData.referrals.length > 0 ? (
-        <View style={[styles.referralsCard, { backgroundColor: theme.backgroundElevated }]}>
+        <View style={[styles.referralsCard, { backgroundColor: theme.backgroundDefault }]}>
           <ThemedText style={styles.sectionTitle}>Recent Referrals</ThemedText>
           {affiliateData.referrals.slice(0, 10).map((referral) => (
             <View
@@ -479,6 +488,12 @@ const styles = StyleSheet.create({
   statLabel: {
     fontSize: 12,
     marginTop: Spacing.xs,
+  },
+  clearanceNote: {
+    fontSize: 12,
+    textAlign: "center",
+    marginBottom: Spacing.lg,
+    fontStyle: "italic",
   },
   linkCard: {
     padding: Spacing.lg,

@@ -15,6 +15,19 @@ function generateAffiliateCode(): string {
   return code;
 }
 
+function addBusinessDays(date: Date, days: number): Date {
+  const result = new Date(date);
+  let addedDays = 0;
+  while (addedDays < days) {
+    result.setDate(result.getDate() + 1);
+    const dayOfWeek = result.getDay();
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      addedDays++;
+    }
+  }
+  return result;
+}
+
 router.post("/register", async (req: Request, res: Response) => {
   try {
     const { userId } = req.body;
@@ -91,6 +104,22 @@ router.get("/dashboard/:userId", async (req: Request, res: Response) => {
       .orderBy(desc(referrals.createdAt))
       .limit(50);
 
+    const now = new Date();
+    const pendingReferrals = affiliateReferrals.filter(ref => ref.status === "pending");
+    
+    let clearedEarnings = 0;
+    let processingEarnings = 0;
+    
+    for (const ref of pendingReferrals) {
+      const createdAt = ref.createdAt || new Date();
+      const clearanceDate = addBusinessDays(new Date(createdAt), 14);
+      if (now >= clearanceDate) {
+        clearedEarnings += ref.commissionAmount || 0;
+      } else {
+        processingEarnings += ref.commissionAmount || 0;
+      }
+    }
+
     const baseUrl = process.env.EXPO_PUBLIC_DOMAIN 
       ? `https://${process.env.EXPO_PUBLIC_DOMAIN}` 
       : "https://probaly.app";
@@ -104,6 +133,8 @@ router.get("/dashboard/:userId", async (req: Request, res: Response) => {
       stats: {
         totalEarnings: (affiliate.totalEarnings || 0) / 100,
         pendingEarnings: (affiliate.pendingEarnings || 0) / 100,
+        clearedEarnings: clearedEarnings / 100,
+        processingEarnings: processingEarnings / 100,
         paidEarnings: (affiliate.paidEarnings || 0) / 100,
         totalReferrals: affiliate.totalReferrals || 0,
         commissionRate: affiliate.commissionRate || 40,
@@ -230,13 +261,36 @@ router.post("/request-payout", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Please complete Stripe Connect setup first" });
     }
 
-    const pendingAmount = affiliate.pendingEarnings || 0;
-    if (pendingAmount < 1000) {
-      return res.status(400).json({ error: "Minimum payout is $10" });
+    const now = new Date();
+    const affiliateReferrals = await db.select()
+      .from(referrals)
+      .where(
+        and(
+          eq(referrals.affiliateId, affiliate.id),
+          eq(referrals.status, "pending")
+        )
+      );
+
+    const clearedReferrals = affiliateReferrals.filter((ref) => {
+      const createdAt = ref.createdAt || new Date();
+      const clearanceDate = addBusinessDays(new Date(createdAt), 14);
+      return now >= clearanceDate;
+    });
+
+    if (clearedReferrals.length === 0) {
+      return res.status(400).json({ 
+        error: "No cleared earnings available. Commissions are available for payout 14 business days after the payment clears."
+      });
+    }
+
+    const clearedAmount = clearedReferrals.reduce((sum, ref) => sum + (ref.commissionAmount || 0), 0);
+    
+    if (clearedAmount < 1000) {
+      return res.status(400).json({ error: "Minimum payout is $10. Cleared earnings: $" + (clearedAmount / 100).toFixed(2) });
     }
 
     const transfer = await stripe.transfers.create({
-      amount: pendingAmount,
+      amount: clearedAmount,
       currency: "usd",
       destination: affiliate.stripeConnectAccountId,
       metadata: {
@@ -245,29 +299,31 @@ router.post("/request-payout", async (req: Request, res: Response) => {
       },
     });
 
+    const pendingAmount = affiliateReferrals
+      .filter((ref) => !clearedReferrals.includes(ref))
+      .reduce((sum, ref) => sum + (ref.commissionAmount || 0), 0);
+
     await db.update(affiliates)
       .set({
-        pendingEarnings: 0,
-        paidEarnings: (affiliate.paidEarnings || 0) + pendingAmount,
+        pendingEarnings: pendingAmount,
+        paidEarnings: (affiliate.paidEarnings || 0) + clearedAmount,
       })
       .where(eq(affiliates.id, affiliate.id));
 
-    await db.update(referrals)
-      .set({
-        status: "paid",
-        paidAt: new Date(),
-      })
-      .where(
-        and(
-          eq(referrals.affiliateId, affiliate.id),
-          eq(referrals.status, "pending")
-        )
-      );
+    for (const ref of clearedReferrals) {
+      await db.update(referrals)
+        .set({
+          status: "paid",
+          paidAt: new Date(),
+        })
+        .where(eq(referrals.id, ref.id));
+    }
 
     res.json({
       success: true,
-      amount: pendingAmount / 100,
+      amount: clearedAmount / 100,
       transferId: transfer.id,
+      message: `Paid $${(clearedAmount / 100).toFixed(2)} for ${clearedReferrals.length} cleared referrals`,
     });
   } catch (error) {
     console.error("Payout error:", error);
