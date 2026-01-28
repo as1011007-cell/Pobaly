@@ -127,18 +127,25 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleSignOut = () => {
-    Alert.alert(t.signOut, t.signOutConfirm, [
-      { text: t.cancel, style: "cancel" },
-      {
-        text: t.signOut,
-        style: "destructive",
-        onPress: async () => {
-          await signOut();
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  const handleSignOut = async () => {
+    if (Platform.OS === "web") {
+      // Use confirm on web since Alert.alert doesn't work
+      if (window.confirm(t.signOutConfirm)) {
+        await signOut();
+      }
+    } else {
+      Alert.alert(t.signOut, t.signOutConfirm, [
+        { text: t.cancel, style: "cancel" },
+        {
+          text: t.signOut,
+          style: "destructive",
+          onPress: async () => {
+            await signOut();
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          },
         },
-      },
-    ]);
+      ]);
+    }
   };
 
   const handleNotificationToggle = async (value: boolean) => {
