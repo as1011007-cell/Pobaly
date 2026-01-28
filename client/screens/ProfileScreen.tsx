@@ -395,6 +395,21 @@ export default function ProfileScreen() {
 
       <View style={styles.section}>
         <ThemedText type="small" style={[styles.sectionTitle, { color: theme.textSecondary }]}>
+          EARN MONEY
+        </ThemedText>
+        <View style={[styles.settingsCard, { backgroundColor: theme.backgroundDefault }]}>
+          <SettingsRow
+            icon="users"
+            title="Affiliate Program"
+            subtitle="Earn 40% commission"
+            hasChevron
+            onPress={() => navigation.navigate("Affiliate")}
+          />
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <ThemedText type="small" style={[styles.sectionTitle, { color: theme.textSecondary }]}>
           {t.legal.toUpperCase()}
         </ThemedText>
         <View style={[styles.settingsCard, { backgroundColor: theme.backgroundDefault }]}>

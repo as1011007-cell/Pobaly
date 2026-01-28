@@ -25,6 +25,7 @@ const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
   name: z.string().min(1),
+  referralCode: z.string().optional(),
 });
 
 const loginSchema = z.object({
@@ -36,7 +37,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Auth routes
   app.post("/api/auth/register", async (req: Request, res: Response) => {
     try {
-      const { email, password, name } = registerSchema.parse(req.body);
+      const { email, password, name, referralCode } = registerSchema.parse(req.body);
       
       const existingUser = await storage.getUserByEmail(email);
       if (existingUser) {
@@ -48,7 +49,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         email,
         password: hashedPassword,
         name,
-      });
+      }, referralCode);
 
       return res.json({
         user: {
