@@ -67,6 +67,7 @@ export default function AffiliateScreen() {
   const [affiliateData, setAffiliateData] = useState<AffiliateData | null>(null);
   const [isAffiliate, setIsAffiliate] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchAffiliateData = useCallback(async () => {
     if (!user?.id) return;
@@ -103,6 +104,7 @@ export default function AffiliateScreen() {
   const handleRegister = async () => {
     if (!user?.id) return;
     setIsRegistering(true);
+    setError(null);
 
     try {
       const baseUrl = getApiUrl();
@@ -113,9 +115,19 @@ export default function AffiliateScreen() {
       if (response.ok) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         await fetchAffiliateData();
+      } else {
+        const data = await response.json();
+        if (data.error === "User not found") {
+          setError("Please sign out and sign back in, then try again.");
+        } else {
+          setError(data.error || "Failed to join affiliate program");
+        }
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
     } catch (error) {
       console.error("Failed to register as affiliate:", error);
+      setError("Failed to join affiliate program. Please try again.");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setIsRegistering(false);
     }
@@ -248,6 +260,13 @@ export default function AffiliateScreen() {
         >
           {isRegistering ? "Registering..." : "Join Affiliate Program"}
         </Button>
+
+        {error ? (
+          <View style={[styles.errorContainer, { backgroundColor: theme.error + "20" }]}>
+            <Feather name="alert-circle" size={18} color={theme.error} />
+            <ThemedText style={[styles.errorText, { color: theme.error }]}>{error}</ThemedText>
+          </View>
+        ) : null}
       </ScrollView>
     );
   }
