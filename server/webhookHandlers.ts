@@ -1,6 +1,9 @@
 import { getStripeSync } from './stripeClient';
 import { generatePremiumPredictionsForUser } from './services/predictionService';
 import { storage } from './storage';
+import { db } from './db';
+import { affiliates, referrals, users } from '../shared/schema';
+import { eq } from 'drizzle-orm';
 
 export class WebhookHandlers {
   static async processWebhook(payload: Buffer, signature: string): Promise<void> {
@@ -37,6 +40,11 @@ export class WebhookHandlers {
             await generatePremiumPredictionsForUser(user.id);
             
             console.log(`Premium predictions generated for user ${user.id}`);
+            
+            // Process affiliate referral commission
+            if (event.type === 'customer.subscription.created') {
+              await this.processAffiliateReferral(user.id, subscription);
+            }
           } else if (['canceled', 'unpaid', 'past_due', 'incomplete_expired'].includes(subscription.status)) {
             // Subscription is no longer active - remove premium access
             console.log(`Subscription ${subscription.status} for user ${user.id}, removing premium access...`);
@@ -73,6 +81,65 @@ export class WebhookHandlers {
     } catch (error) {
       console.error('Error processing subscription webhook for predictions:', error);
       // Don't throw - the main webhook processing already succeeded
+    }
+  }
+  
+  static async processAffiliateReferral(userId: string, subscription: any): Promise<void> {
+    try {
+      // Get user to check if they were referred
+      const [user] = await db.select().from(users).where(eq(users.id, userId));
+      
+      if (!user || !user.referredByCode) {
+        return;
+      }
+      
+      // Find the affiliate who referred this user
+      const [affiliate] = await db.select()
+        .from(affiliates)
+        .where(eq(affiliates.affiliateCode, user.referredByCode));
+      
+      if (!affiliate || !affiliate.isActive) {
+        console.log(`Affiliate not found or inactive for code: ${user.referredByCode}`);
+        return;
+      }
+      
+      // Check if referral already exists for this subscription
+      const existingReferral = await db.select()
+        .from(referrals)
+        .where(eq(referrals.subscriptionId, subscription.id));
+      
+      if (existingReferral.length > 0) {
+        console.log(`Referral already exists for subscription: ${subscription.id}`);
+        return;
+      }
+      
+      // Get subscription amount (monthly or annual)
+      const subscriptionAmount = subscription.items?.data?.[0]?.price?.unit_amount || 4900;
+      const commissionRate = affiliate.commissionRate || 40;
+      const commissionAmount = Math.floor(subscriptionAmount * (commissionRate / 100));
+      
+      // Create referral record
+      await db.insert(referrals).values({
+        affiliateId: affiliate.id,
+        referredUserId: userId,
+        subscriptionId: subscription.id,
+        subscriptionAmount: subscriptionAmount,
+        commissionAmount: commissionAmount,
+        status: "pending",
+      });
+      
+      // Update affiliate earnings
+      await db.update(affiliates)
+        .set({
+          totalEarnings: (affiliate.totalEarnings || 0) + commissionAmount,
+          pendingEarnings: (affiliate.pendingEarnings || 0) + commissionAmount,
+          totalReferrals: (affiliate.totalReferrals || 0) + 1,
+        })
+        .where(eq(affiliates.id, affiliate.id));
+      
+      console.log(`Affiliate referral processed: ${affiliate.affiliateCode} earned $${(commissionAmount / 100).toFixed(2)} (40% of $${(subscriptionAmount / 100).toFixed(2)})`);
+    } catch (error) {
+      console.error('Error processing affiliate referral:', error);
     }
   }
 }
