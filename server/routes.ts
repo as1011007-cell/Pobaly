@@ -5,6 +5,7 @@ import { stripeService } from "./stripeService";
 import { getStripePublishableKey } from "./stripeClient";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
+import affiliateRoutes from "./affiliateRoutes";
 import {
   generateDailyPredictions,
   generatePremiumPredictionsForUser,
@@ -468,6 +469,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: error.message });
     }
   });
+
+  app.use("/api/affiliate", affiliateRoutes);
 
   const httpServer = createServer(app);
   return httpServer;
