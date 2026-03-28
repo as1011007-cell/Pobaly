@@ -4,16 +4,18 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
  * Gets the base URL for the Express API server (e.g., "http://localhost:3000")
  * @returns {string} The API base URL
  */
-export function getApiUrl(): string {
-  let host = process.env.EXPO_PUBLIC_DOMAIN;
+// Production fallback — used when EXPO_PUBLIC_DOMAIN is not injected at build time
+const PRODUCTION_API_URL = "https://probaly.net";
 
-  if (!host) {
-    throw new Error("EXPO_PUBLIC_DOMAIN is not set");
+export function getApiUrl(): string {
+  const host = process.env.EXPO_PUBLIC_DOMAIN;
+
+  if (host) {
+    return new URL(`https://${host}`).href;
   }
 
-  let url = new URL(`https://${host}`);
-
-  return url.href;
+  // Fallback to production domain for native builds (TestFlight / App Store)
+  return PRODUCTION_API_URL;
 }
 
 async function throwIfResNotOk(res: Response) {
