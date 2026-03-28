@@ -258,6 +258,19 @@ function configureExpoAndLanding(app: express.Application) {
   app.get("/privacypolicy", servePrivacyPolicy);
   app.get("/privacy-policy", servePrivacyPolicy);
 
+  // Terms & Conditions page (supports multiple URL variants)
+  const serveTerms = (_req: Request, res: Response) => {
+    const termsPath = path.resolve(process.cwd(), "server", "templates", "terms.html");
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.sendFile(termsPath);
+  };
+  app.get("/term", serveTerms);
+  app.get("/terms", serveTerms);
+  app.get("/termsofservice", serveTerms);
+  app.get("/terms-of-service", serveTerms);
+  app.get("/termsandconditions", serveTerms);
+  app.get("/terms-and-conditions", serveTerms);
+
   if (webBuildExists) {
     // Serve the web app from dist folder
     app.use(express.static(distPath));
