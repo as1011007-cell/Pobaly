@@ -23,6 +23,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/contexts/AuthContext";
 import { BorderRadius, Spacing } from "@/constants/theme";
 import { useSubscription } from "@/lib/revenuecat";
+import { useFocusEffect } from "@react-navigation/native";
 
 const features = [
   { icon: "unlock", title: "All Daily Predictions", description: "Access every AI prediction" },
@@ -67,7 +68,7 @@ export default function SubscriptionScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
-  const { isPremium } = useAuth();
+  const { isPremium, refreshUser } = useAuth();
   const [selectedPlan, setSelectedPlan] = useState<PlanType>("annual");
   const [confirmVisible, setConfirmVisible] = useState(false);
 
@@ -103,6 +104,8 @@ export default function SubscriptionScreen() {
     try {
       await purchase(selectedPackage);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      // Refresh user to sync premium status after purchase
+      await refreshUser();
     } catch (error: any) {
       if (error?.userCancelled) return;
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);

@@ -66,7 +66,7 @@ export default function ProfileScreen() {
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
   const { theme, themeMode } = useTheme();
-  const { user, isPremium, signOut } = useAuth();
+  const { user, isPremium, signOut, refreshUser } = useAuth();
   const navigation = useNavigation<NavigationProp>();
   const { language, t } = useLanguage();
 
@@ -105,6 +105,8 @@ export default function ProfileScreen() {
     try {
       await purchase(selectedPackage);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      // Refresh user to sync premium status after purchase
+      await refreshUser();
     } catch (error: any) {
       if (error?.userCancelled) return;
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
