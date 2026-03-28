@@ -25,24 +25,31 @@ async function seedTestUser() {
   try {
     const TEST_EMAIL = "test@probaly.app";
     const TEST_PASSWORD = "testpass123";
+    // Premium expiry set 10 years from now so test account never expires
+    const PREMIUM_EXPIRY = new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000);
 
-    // Check if test user already exists
     const existing = await db.select().from(users).where(eq(users.email, TEST_EMAIL)).limit(1);
 
     if (existing.length === 0) {
-      // Hash password and create test user
       const hashedPassword = await bcrypt.hash(TEST_PASSWORD, 10);
       await db.insert(users).values({
         email: TEST_EMAIL,
         password: hashedPassword,
-        name: "Test User",
-        isPremium: false,
+        name: "Probaly Tester",
+        isPremium: true,
+        subscriptionExpiry: PREMIUM_EXPIRY,
       });
-      log(`✓ Test user created: ${TEST_EMAIL}`);
+      log(`✓ Test user created with premium: ${TEST_EMAIL}`);
+    } else {
+      // Always ensure the test user has premium access
+      await db
+        .update(users)
+        .set({ isPremium: true, subscriptionExpiry: PREMIUM_EXPIRY, name: "Probaly Tester" })
+        .where(eq(users.email, TEST_EMAIL));
+      log(`✓ Test user premium access refreshed: ${TEST_EMAIL}`);
     }
   } catch (error) {
-    // Silently fail if test user creation fails (DB might not be ready yet)
-    // It will be created on next startup
+    // Silently fail if test user update fails
   }
 }
 
