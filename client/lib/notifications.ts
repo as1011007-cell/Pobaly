@@ -49,8 +49,8 @@ export async function sendTestNotification() {
   try {
     await Notifications.scheduleNotificationAsync({
       content: {
-        title: "Test Notification",
-        body: "This is a test notification from Probaly",
+        title: "Welcome to Probaly",
+        body: "Get the best sports analysis from Probaly",
         badge: 1,
       },
       trigger: { seconds: 2 }, // Send in 2 seconds
