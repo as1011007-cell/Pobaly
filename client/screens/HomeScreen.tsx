@@ -92,7 +92,7 @@ export default function HomeScreen() {
             Get access to all predictions
           </ThemedText>
           <ThemedText type="small" style={{ color: theme.textSecondary, marginBottom: Spacing.md }}>
-            Unlock premium predictions, live updates, and full history for $49/year
+            Unlock premium predictions, live updates, and full history from $49.99/month
           </ThemedText>
           <ThemedText
             type="small"

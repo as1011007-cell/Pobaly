@@ -45,7 +45,7 @@ const OFFERING_IDENTIFIER = "default";
 const OFFERING_DISPLAY_NAME = "Default Offering";
 
 const MONTHLY_PRICES = [
-  { amount_micros: 49000000, currency: "USD" }, // $49/month
+  { amount_micros: 49990000, currency: "USD" }, // $49.99/month
 ];
 const YEARLY_PRICES = [
   { amount_micros: 149000000, currency: "USD" }, // $149/year

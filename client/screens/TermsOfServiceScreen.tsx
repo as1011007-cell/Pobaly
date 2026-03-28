@@ -60,7 +60,7 @@ export default function TermsOfServiceScreen() {
           4. Premium Subscription
         </ThemedText>
         <ThemedText type="body" style={[styles.paragraph, { color: theme.textSecondary }]}>
-          Probaly offers a premium subscription at $49/year. Subscriptions automatically renew unless cancelled at least 24 hours before the end of the current period. You can manage your subscription through your account settings.
+          Probaly offers premium subscriptions at $49.99/month or $149/year. Subscriptions automatically renew unless cancelled at least 24 hours before the end of the current period. You can manage your subscription through your account settings.
         </ThemedText>
       </View>
 

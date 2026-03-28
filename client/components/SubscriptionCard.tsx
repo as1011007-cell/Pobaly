@@ -68,10 +68,10 @@ export function SubscriptionCard({
       </ThemedText>
       <View style={styles.priceRow}>
         <ThemedText type="h2" style={{ color: theme.primary }}>
-          $49
+          $49.99
         </ThemedText>
         <ThemedText type="small" style={{ color: theme.textSecondary }}>
-          /year
+          /month
         </ThemedText>
       </View>
       <Button onPress={onUpgrade} style={{ marginTop: Spacing.lg }}>

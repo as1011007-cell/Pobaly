@@ -86,7 +86,7 @@ export default function ProfileScreen() {
   const [confirmVisible, setConfirmVisible] = useState(false);
 
   const selectedPackage = selectedPlan === "monthly" ? monthlyPackage : annualPackage;
-  const monthlyPrice = monthlyPackage?.product.priceString ?? "$49.00";
+  const monthlyPrice = monthlyPackage?.product.priceString ?? "$49.99";
   const annualPrice = annualPackage?.product.priceString ?? "$149.00";
 
   const handleSelectPlan = (plan: PlanType) => {

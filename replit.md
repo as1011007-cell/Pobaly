@@ -41,7 +41,7 @@ shared/           # Shared types and schemas
 ## Key Features
 - 5-tab navigation: Home, Live, Sports, History, Profile
 - Email authentication
-- Premium subscription via RevenueCat (Apple/Google native in-app purchases, $49/month or $149/year)
+- Premium subscription via RevenueCat (Apple/Google native in-app purchases, $49.99/month or $149/year)
 - AI-powered sports predictions with confidence levels (OpenAI GPT-4o)
 - Live match updates
 - Prediction history tracking
@@ -56,7 +56,7 @@ shared/           # Shared types and schemas
 The app uses Stripe for premium subscriptions:
 - **Mode**: Live (uses STRIPE_SECRET_KEY and STRIPE_PUBLISHABLE_KEY environment secrets)
 - Product: "Probaly Premium" (prod_Tr6EClKeYSwbhx)
-  - Monthly: $49/month (original $99/month - 50% off) - price_1StZauCow6jut3nLmIWUckQ7
+  - Monthly: $49.99/month (original $99/month - 50% off) - price_1StZauCow6jut3nLmIWUckQ7
   - Annual: $149/year (original $399/year - 63% off) - price_1StZavCow6jut3nLwXuIAtSx
 - Webhook: `/api/stripe/webhook` (handled BEFORE express.json middleware)
 - Checkout: `/api/checkout` creates Stripe Checkout sessions
