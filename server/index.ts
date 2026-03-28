@@ -249,6 +249,15 @@ function configureExpoAndLanding(app: express.Application) {
     res.sendFile(contactPath);
   });
 
+  // Privacy policy page (supports both /privacypolicy and /privacy-policy)
+  const servePrivacyPolicy = (_req: Request, res: Response) => {
+    const policyPath = path.resolve(process.cwd(), "server", "templates", "privacy-policy.html");
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.sendFile(policyPath);
+  };
+  app.get("/privacypolicy", servePrivacyPolicy);
+  app.get("/privacy-policy", servePrivacyPolicy);
+
   if (webBuildExists) {
     // Serve the web app from dist folder
     app.use(express.static(distPath));
