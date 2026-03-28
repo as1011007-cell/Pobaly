@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   StyleSheet,
@@ -8,6 +8,7 @@ import {
   Pressable,
   Modal,
   Platform,
+  Animated,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -33,12 +34,40 @@ const features = [
 
 type PlanType = "monthly" | "annual";
 
+function PriceSkeleton({ width = 80 }: { width?: number }) {
+  const { theme } = useTheme();
+  const opacity = useRef(new Animated.Value(0.3)).current;
+
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 1, duration: 600, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0.3, duration: 600, useNativeDriver: true }),
+      ])
+    );
+    anim.start();
+    return () => anim.stop();
+  }, []);
+
+  return (
+    <Animated.View
+      style={{
+        width,
+        height: 28,
+        borderRadius: 6,
+        backgroundColor: theme.border,
+        opacity,
+      }}
+    />
+  );
+}
+
 export default function SubscriptionScreen() {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
-  const { user, isPremium } = useAuth();
+  const { isPremium } = useAuth();
   const [selectedPlan, setSelectedPlan] = useState<PlanType>("annual");
   const [confirmVisible, setConfirmVisible] = useState(false);
 
@@ -54,11 +83,8 @@ export default function SubscriptionScreen() {
   } = useSubscription();
 
   const selectedPackage = selectedPlan === "monthly" ? monthlyPackage : annualPackage;
-
-  const monthlyPrice = monthlyPackage?.product.priceString ?? "$49.00";
-  const annualPrice = annualPackage?.product.priceString ?? "$149.00";
-  const monthlyOriginal = "$99.00";
-  const annualOriginal = "$399.00";
+  const monthlyPrice = monthlyPackage?.product.priceString;
+  const annualPrice = annualPackage?.product.priceString;
 
   const handleSelectPlan = (plan: PlanType) => {
     setSelectedPlan(plan);
@@ -66,7 +92,8 @@ export default function SubscriptionScreen() {
   };
 
   const handleSubscribe = () => {
-    if (!selectedPackage) return;
+    if (!selectedPackage || isPurchasing) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setConfirmVisible(true);
   };
 
@@ -84,6 +111,7 @@ export default function SubscriptionScreen() {
   };
 
   const handleRestorePurchases = async () => {
+    if (isRestoring) return;
     try {
       await restore();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -98,19 +126,14 @@ export default function SubscriptionScreen() {
       <View
         style={[
           styles.container,
-          {
-            backgroundColor: theme.backgroundRoot,
-            paddingTop: headerHeight + Spacing["3xl"],
-          },
+          { backgroundColor: theme.backgroundRoot, paddingTop: headerHeight + Spacing["3xl"] },
         ]}
       >
         <View style={styles.successContent}>
           <View style={[styles.successIcon, { backgroundColor: `${theme.success}15` }]}>
             <Feather name="check-circle" size={48} color={theme.success} />
           </View>
-          <ThemedText type="h3" style={styles.successTitle}>
-            You're already Premium!
-          </ThemedText>
+          <ThemedText type="h3" style={styles.successTitle}>You're already Premium!</ThemedText>
           <ThemedText type="body" style={{ color: theme.textSecondary, textAlign: "center" }}>
             You have full access to all predictions and features.
           </ThemedText>
@@ -136,9 +159,7 @@ export default function SubscriptionScreen() {
             style={styles.headerImage}
             resizeMode="contain"
           />
-          <ThemedText type="h2" style={styles.title}>
-            Unlock All Predictions
-          </ThemedText>
+          <ThemedText type="h2" style={styles.title}>Unlock All Predictions</ThemedText>
           <ThemedText type="body" style={{ color: theme.textSecondary, textAlign: "center" }}>
             Get unlimited access to AI-powered sports predictions
           </ThemedText>
@@ -148,19 +169,11 @@ export default function SubscriptionScreen() {
           {features.map((feature, index) => (
             <View key={index} style={styles.featureRow}>
               <View style={[styles.featureIcon, { backgroundColor: `${theme.primary}15` }]}>
-                <Feather
-                  name={feature.icon as keyof typeof Feather.glyphMap}
-                  size={20}
-                  color={theme.primary}
-                />
+                <Feather name={feature.icon as keyof typeof Feather.glyphMap} size={20} color={theme.primary} />
               </View>
               <View style={styles.featureContent}>
-                <ThemedText type="body" style={{ fontWeight: "600" }}>
-                  {feature.title}
-                </ThemedText>
-                <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                  {feature.description}
-                </ThemedText>
+                <ThemedText type="body" style={{ fontWeight: "600" }}>{feature.title}</ThemedText>
+                <ThemedText type="small" style={{ color: theme.textSecondary }}>{feature.description}</ThemedText>
               </View>
               <Feather name="check" size={20} color={theme.success} />
             </View>
@@ -168,14 +181,17 @@ export default function SubscriptionScreen() {
         </View>
 
         <View style={styles.plansContainer}>
+          {/* Monthly Plan */}
           <Pressable
             onPress={() => handleSelectPlan("monthly")}
+            disabled={isLoading || isPurchasing}
             style={[
               styles.planCard,
               {
                 backgroundColor: theme.backgroundDefault,
                 borderColor: selectedPlan === "monthly" ? theme.primary : theme.border,
                 borderWidth: selectedPlan === "monthly" ? 2 : 1,
+                opacity: isLoading ? 0.7 : 1,
               },
             ]}
           >
@@ -186,29 +202,32 @@ export default function SubscriptionScreen() {
               </View>
             </View>
             <View style={styles.planPriceRow}>
-              <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>
-                {monthlyOriginal}
-              </ThemedText>
-              <ThemedText type="h2" style={{ color: theme.text }}>
-                {isLoading ? "..." : monthlyPrice}
-              </ThemedText>
+              <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>$99.00</ThemedText>
+              {isLoading ? (
+                <PriceSkeleton width={90} />
+              ) : (
+                <ThemedText type="h2" style={{ color: theme.text }}>{monthlyPrice}</ThemedText>
+              )}
               <ThemedText type="small" style={{ color: theme.textSecondary }}>/month</ThemedText>
             </View>
-            {selectedPlan === "monthly" && (
+            {selectedPlan === "monthly" && !isLoading && (
               <View style={[styles.selectedIndicator, { backgroundColor: theme.primary }]}>
                 <Feather name="check" size={14} color="#FFFFFF" />
               </View>
             )}
           </Pressable>
 
+          {/* Annual Plan */}
           <Pressable
             onPress={() => handleSelectPlan("annual")}
+            disabled={isLoading || isPurchasing}
             style={[
               styles.planCard,
               {
                 backgroundColor: theme.backgroundDefault,
                 borderColor: selectedPlan === "annual" ? theme.primary : theme.border,
                 borderWidth: selectedPlan === "annual" ? 2 : 1,
+                opacity: isLoading ? 0.7 : 1,
               },
             ]}
           >
@@ -222,15 +241,15 @@ export default function SubscriptionScreen() {
               </View>
             </View>
             <View style={styles.planPriceRow}>
-              <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>
-                {annualOriginal}
-              </ThemedText>
-              <ThemedText type="h2" style={{ color: theme.text }}>
-                {isLoading ? "..." : annualPrice}
-              </ThemedText>
+              <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>$399.00</ThemedText>
+              {isLoading ? (
+                <PriceSkeleton width={100} />
+              ) : (
+                <ThemedText type="h2" style={{ color: theme.text }}>{annualPrice}</ThemedText>
+              )}
               <ThemedText type="small" style={{ color: theme.textSecondary }}>/year</ThemedText>
             </View>
-            {selectedPlan === "annual" && (
+            {selectedPlan === "annual" && !isLoading && (
               <View style={[styles.selectedIndicator, { backgroundColor: theme.primary }]}>
                 <Feather name="check" size={14} color="#FFFFFF" />
               </View>
@@ -238,6 +257,7 @@ export default function SubscriptionScreen() {
           </Pressable>
         </View>
 
+        {/* Subscribe Button */}
         <Button
           onPress={handleSubscribe}
           disabled={isPurchasing || isLoading || !selectedPackage}
@@ -245,28 +265,41 @@ export default function SubscriptionScreen() {
           testID="button-subscribe"
         >
           {isPurchasing ? (
-            <ActivityIndicator color="#FFFFFF" size="small" />
+            <View style={styles.buttonContent}>
+              <ActivityIndicator color="#FFFFFF" size="small" style={{ marginRight: Spacing.sm }} />
+              <ThemedText style={{ color: "#FFF", fontWeight: "700" }}>Processing...</ThemedText>
+            </View>
+          ) : isLoading ? (
+            <View style={styles.buttonContent}>
+              <ActivityIndicator color="#FFFFFF" size="small" style={{ marginRight: Spacing.sm }} />
+              <ThemedText style={{ color: "#FFF", fontWeight: "700" }}>Loading prices...</ThemedText>
+            </View>
           ) : (
             `Start ${selectedPlan === "annual" ? "Annual" : "Monthly"} Subscription`
           )}
         </Button>
 
         <View style={styles.footer}>
-          <ThemedText
-            type="small"
-            style={{ color: theme.textSecondary, textAlign: "center", lineHeight: 20 }}
-          >
-            Cancel anytime. Subscriptions are managed by {Platform.OS === "ios" ? "the App Store" : Platform.OS === "android" ? "Google Play" : "Apple / Google"}. By subscribing, you agree to our Terms of Service and Privacy Policy.
+          <ThemedText type="small" style={{ color: theme.textSecondary, textAlign: "center", lineHeight: 20 }}>
+            Cancel anytime. Subscriptions are managed by{" "}
+            {Platform.OS === "ios" ? "the App Store" : Platform.OS === "android" ? "Google Play" : "Apple / Google"}.
+            By subscribing, you agree to our Terms of Service and Privacy Policy.
           </ThemedText>
           <View style={styles.footerLinks}>
             <Pressable
               onPress={handleRestorePurchases}
-              disabled={isRestoring}
+              disabled={isRestoring || isPurchasing}
               testID="button-restore"
+              style={styles.footerLinkBtn}
             >
-              <ThemedText type="small" style={{ color: theme.accent }}>
-                {isRestoring ? "Restoring..." : "Restore Purchase"}
-              </ThemedText>
+              {isRestoring ? (
+                <View style={styles.restoreRow}>
+                  <ActivityIndicator size="small" color={theme.accent} style={{ marginRight: 4 }} />
+                  <ThemedText type="small" style={{ color: theme.accent }}>Restoring...</ThemedText>
+                </View>
+              ) : (
+                <ThemedText type="small" style={{ color: theme.accent }}>Restore Purchase</ThemedText>
+              )}
             </Pressable>
             <ThemedText type="small" style={{ color: theme.textSecondary }}>{" "}•{" "}</ThemedText>
             <Pressable onPress={() => navigation.navigate("TermsOfService")} testID="link-terms">
@@ -295,7 +328,7 @@ export default function SubscriptionScreen() {
                 ? `Subscribe for ${annualPrice}/year`
                 : `Subscribe for ${monthlyPrice}/month`}
               {"\n"}
-              Billed by {Platform.OS === "ios" ? "Apple" : "Google"}.
+              Billed by {Platform.OS === "ios" ? "Apple" : Platform.OS === "android" ? "Google" : "Apple / Google"}.
             </ThemedText>
             <View style={styles.modalButtons}>
               <Pressable
@@ -310,14 +343,27 @@ export default function SubscriptionScreen() {
                 style={[styles.modalBtn, { backgroundColor: theme.primary }]}
                 testID="button-confirm-purchase"
               >
-                <ThemedText type="body" style={{ color: "#FFF", fontWeight: "700" }}>
-                  Subscribe
-                </ThemedText>
+                <ThemedText type="body" style={{ color: "#FFF", fontWeight: "700" }}>Subscribe</ThemedText>
               </Pressable>
             </View>
           </View>
         </View>
       </Modal>
+
+      {/* Full-screen purchasing overlay */}
+      {isPurchasing && (
+        <View style={styles.purchasingOverlay}>
+          <View style={[styles.purchasingCard, { backgroundColor: theme.backgroundDefault }]}>
+            <ActivityIndicator size="large" color={theme.primary} />
+            <ThemedText type="body" style={{ marginTop: Spacing.md, fontWeight: "600" }}>
+              Processing payment...
+            </ThemedText>
+            <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: Spacing.xs, textAlign: "center" }}>
+              Please wait while {Platform.OS === "ios" ? "Apple" : "Google"} processes your purchase.
+            </ThemedText>
+          </View>
+        </View>
+      )}
     </>
   );
 }
@@ -329,35 +375,24 @@ const styles = StyleSheet.create({
   title: { textAlign: "center", marginBottom: Spacing.sm },
   featuresSection: { marginBottom: Spacing["2xl"] },
   featureRow: { flexDirection: "row", alignItems: "center", marginBottom: Spacing.lg },
-  featureIcon: {
-    width: 44, height: 44, borderRadius: 12,
-    alignItems: "center", justifyContent: "center", marginRight: Spacing.md,
-  },
+  featureIcon: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center", marginRight: Spacing.md },
   featureContent: { flex: 1 },
   plansContainer: { marginBottom: Spacing.xl, gap: Spacing.md },
   planCard: { borderRadius: BorderRadius.lg, padding: Spacing.lg, position: "relative" },
-  planHeader: {
-    flexDirection: "row", alignItems: "center",
-    justifyContent: "space-between", marginBottom: Spacing.sm,
-  },
-  planPriceRow: { flexDirection: "row", alignItems: "baseline", gap: Spacing.sm },
+  planHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: Spacing.sm },
+  planPriceRow: { flexDirection: "row", alignItems: "center", gap: Spacing.sm, minHeight: 36 },
   originalPrice: { fontSize: 16, textDecorationLine: "line-through" },
   savingsBadge: { paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs, borderRadius: BorderRadius.full },
   savingsText: { fontSize: 11, fontWeight: "700" },
-  bestValueBadge: {
-    position: "absolute", top: -10, right: Spacing.lg,
-    backgroundColor: "#E53935",
-    paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs, borderRadius: BorderRadius.full,
-  },
+  bestValueBadge: { position: "absolute", top: -10, right: Spacing.lg, backgroundColor: "#E53935", paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs, borderRadius: BorderRadius.full },
   bestValueText: { color: "#FFFFFF", fontSize: 10, fontWeight: "700", letterSpacing: 0.5 },
-  selectedIndicator: {
-    position: "absolute", top: Spacing.md, right: Spacing.md,
-    width: 24, height: 24, borderRadius: 12,
-    alignItems: "center", justifyContent: "center",
-  },
+  selectedIndicator: { position: "absolute", top: Spacing.md, right: Spacing.md, width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   subscribeButton: { marginBottom: Spacing.xl },
+  buttonContent: { flexDirection: "row", alignItems: "center", justifyContent: "center" },
   footer: { alignItems: "center" },
-  footerLinks: { flexDirection: "row", marginTop: Spacing.md },
+  footerLinks: { flexDirection: "row", marginTop: Spacing.md, alignItems: "center", flexWrap: "wrap", justifyContent: "center" },
+  footerLinkBtn: { paddingVertical: 2 },
+  restoreRow: { flexDirection: "row", alignItems: "center" },
   successContent: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: Spacing.xl },
   successIcon: { width: 100, height: 100, borderRadius: 50, alignItems: "center", justifyContent: "center", marginBottom: Spacing.xl },
   successTitle: { textAlign: "center", marginBottom: Spacing.md },
@@ -365,4 +400,6 @@ const styles = StyleSheet.create({
   modalCard: { width: "85%", borderRadius: BorderRadius.xl, padding: Spacing.xl },
   modalButtons: { flexDirection: "row", gap: Spacing.md },
   modalBtn: { flex: 1, paddingVertical: Spacing.md, borderRadius: BorderRadius.lg, alignItems: "center" },
+  purchasingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center", zIndex: 999 },
+  purchasingCard: { borderRadius: BorderRadius.xl, padding: Spacing["2xl"], alignItems: "center", width: "75%" },
 });

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   View,
   StyleSheet,
@@ -7,6 +7,7 @@ import {
   Pressable,
   Platform,
   Modal,
+  Animated,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -31,6 +32,34 @@ import { useSubscription } from "@/lib/revenuecat";
 
 type PlanType = "monthly" | "annual";
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
+function PriceSkeleton({ width = 80 }: { width?: number }) {
+  const { theme } = useTheme();
+  const opacity = useRef(new Animated.Value(0.3)).current;
+
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 1, duration: 600, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0.3, duration: 600, useNativeDriver: true }),
+      ])
+    );
+    anim.start();
+    return () => anim.stop();
+  }, []);
+
+  return (
+    <Animated.View
+      style={{
+        width,
+        height: 24,
+        borderRadius: 6,
+        backgroundColor: theme.border,
+        opacity,
+      }}
+    />
+  );
+}
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
@@ -189,87 +218,101 @@ export default function ProfileScreen() {
                 CHOOSE YOUR PLAN
               </ThemedText>
 
-              {rcLoading ? (
-                <ActivityIndicator size="small" color={theme.primary} style={{ marginVertical: Spacing.xl }} />
-              ) : (
-                <>
-                  <View style={styles.plansContainer}>
-                    <Pressable
-                      onPress={() => handleSelectPlan("monthly")}
-                      style={[
-                        styles.planCard,
-                        {
-                          backgroundColor: theme.backgroundDefault,
-                          borderColor: selectedPlan === "monthly" ? theme.primary : theme.border,
-                          borderWidth: selectedPlan === "monthly" ? 2 : 1,
-                        },
-                      ]}
-                    >
-                      <View style={styles.planHeader}>
-                        <ThemedText type="body" style={{ fontWeight: "700" }}>Monthly</ThemedText>
-                        <View style={[styles.savingsBadge, { backgroundColor: `${theme.success}15` }]}>
-                          <ThemedText style={[styles.savingsText, { color: theme.success }]}>Save 50%</ThemedText>
-                        </View>
-                      </View>
-                      <View style={styles.planPriceRow}>
-                        <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>$99</ThemedText>
-                        <ThemedText type="h3" style={{ color: theme.text }}>{monthlyPrice}</ThemedText>
-                        <ThemedText type="small" style={{ color: theme.textSecondary }}>/month</ThemedText>
-                      </View>
-                      {selectedPlan === "monthly" && (
-                        <View style={[styles.selectedIndicator, { backgroundColor: theme.primary }]}>
-                          <Feather name="check" size={14} color="#FFFFFF" />
-                        </View>
-                      )}
-                    </Pressable>
-
-                    <Pressable
-                      onPress={() => handleSelectPlan("annual")}
-                      style={[
-                        styles.planCard,
-                        {
-                          backgroundColor: theme.backgroundDefault,
-                          borderColor: selectedPlan === "annual" ? theme.primary : theme.border,
-                          borderWidth: selectedPlan === "annual" ? 2 : 1,
-                        },
-                      ]}
-                    >
-                      <View style={[styles.bestValueBadge, { backgroundColor: theme.accent }]}>
-                        <ThemedText style={styles.bestValueText}>BEST VALUE</ThemedText>
-                      </View>
-                      <View style={styles.planHeader}>
-                        <ThemedText type="body" style={{ fontWeight: "700" }}>Yearly</ThemedText>
-                        <View style={[styles.savingsBadge, { backgroundColor: `${theme.success}15` }]}>
-                          <ThemedText style={[styles.savingsText, { color: theme.success }]}>Save 63%</ThemedText>
-                        </View>
-                      </View>
-                      <View style={styles.planPriceRow}>
-                        <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>$399</ThemedText>
-                        <ThemedText type="h3" style={{ color: theme.text }}>{annualPrice}</ThemedText>
-                        <ThemedText type="small" style={{ color: theme.textSecondary }}>/year</ThemedText>
-                      </View>
-                      {selectedPlan === "annual" && (
-                        <View style={[styles.selectedIndicator, { backgroundColor: theme.primary }]}>
-                          <Feather name="check" size={14} color="#FFFFFF" />
-                        </View>
-                      )}
-                    </Pressable>
+              <View style={styles.plansContainer}>
+                <Pressable
+                  onPress={() => handleSelectPlan("monthly")}
+                  disabled={rcLoading || isPurchasing}
+                  style={[
+                    styles.planCard,
+                    {
+                      backgroundColor: theme.backgroundDefault,
+                      borderColor: selectedPlan === "monthly" ? theme.primary : theme.border,
+                      borderWidth: selectedPlan === "monthly" ? 2 : 1,
+                      opacity: rcLoading ? 0.7 : 1,
+                    },
+                  ]}
+                >
+                  <View style={styles.planHeader}>
+                    <ThemedText type="body" style={{ fontWeight: "700" }}>Monthly</ThemedText>
+                    <View style={[styles.savingsBadge, { backgroundColor: `${theme.success}15` }]}>
+                      <ThemedText style={[styles.savingsText, { color: theme.success }]}>Save 50%</ThemedText>
+                    </View>
                   </View>
-
-                  <Button
-                    onPress={handleSubscribe}
-                    disabled={isPurchasing || rcLoading || !selectedPackage}
-                    style={styles.subscribeButton}
-                    testID="button-subscribe"
-                  >
-                    {isPurchasing ? (
-                      <ActivityIndicator color="#FFFFFF" size="small" />
+                  <View style={styles.planPriceRow}>
+                    <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>$99</ThemedText>
+                    {rcLoading ? (
+                      <PriceSkeleton width={72} />
                     ) : (
-                      `Start ${selectedPlan === "annual" ? "Annual" : "Monthly"} Subscription`
+                      <ThemedText type="h3" style={{ color: theme.text }}>{monthlyPrice}</ThemedText>
                     )}
-                  </Button>
-                </>
-              )}
+                    <ThemedText type="small" style={{ color: theme.textSecondary }}>/month</ThemedText>
+                  </View>
+                  {selectedPlan === "monthly" && !rcLoading && (
+                    <View style={[styles.selectedIndicator, { backgroundColor: theme.primary }]}>
+                      <Feather name="check" size={14} color="#FFFFFF" />
+                    </View>
+                  )}
+                </Pressable>
+
+                <Pressable
+                  onPress={() => handleSelectPlan("annual")}
+                  disabled={rcLoading || isPurchasing}
+                  style={[
+                    styles.planCard,
+                    {
+                      backgroundColor: theme.backgroundDefault,
+                      borderColor: selectedPlan === "annual" ? theme.primary : theme.border,
+                      borderWidth: selectedPlan === "annual" ? 2 : 1,
+                      opacity: rcLoading ? 0.7 : 1,
+                    },
+                  ]}
+                >
+                  <View style={[styles.bestValueBadge, { backgroundColor: theme.accent }]}>
+                    <ThemedText style={styles.bestValueText}>BEST VALUE</ThemedText>
+                  </View>
+                  <View style={styles.planHeader}>
+                    <ThemedText type="body" style={{ fontWeight: "700" }}>Yearly</ThemedText>
+                    <View style={[styles.savingsBadge, { backgroundColor: `${theme.success}15` }]}>
+                      <ThemedText style={[styles.savingsText, { color: theme.success }]}>Save 63%</ThemedText>
+                    </View>
+                  </View>
+                  <View style={styles.planPriceRow}>
+                    <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>$399</ThemedText>
+                    {rcLoading ? (
+                      <PriceSkeleton width={80} />
+                    ) : (
+                      <ThemedText type="h3" style={{ color: theme.text }}>{annualPrice}</ThemedText>
+                    )}
+                    <ThemedText type="small" style={{ color: theme.textSecondary }}>/year</ThemedText>
+                  </View>
+                  {selectedPlan === "annual" && !rcLoading && (
+                    <View style={[styles.selectedIndicator, { backgroundColor: theme.primary }]}>
+                      <Feather name="check" size={14} color="#FFFFFF" />
+                    </View>
+                  )}
+                </Pressable>
+              </View>
+
+              <Button
+                onPress={handleSubscribe}
+                disabled={isPurchasing || rcLoading || !selectedPackage}
+                style={styles.subscribeButton}
+                testID="button-subscribe"
+              >
+                {isPurchasing ? (
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <ActivityIndicator color="#FFFFFF" size="small" style={{ marginRight: Spacing.sm }} />
+                    <ThemedText style={{ color: "#FFF", fontWeight: "700" }}>Processing...</ThemedText>
+                  </View>
+                ) : rcLoading ? (
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <ActivityIndicator color="#FFFFFF" size="small" style={{ marginRight: Spacing.sm }} />
+                    <ThemedText style={{ color: "#FFF", fontWeight: "700" }}>Loading prices...</ThemedText>
+                  </View>
+                ) : (
+                  `Start ${selectedPlan === "annual" ? "Annual" : "Monthly"} Subscription`
+                )}
+              </Button>
             </>
           )}
         </View>
@@ -405,6 +448,21 @@ export default function ProfileScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Full-screen purchasing overlay */}
+      {isPurchasing && (
+        <View style={styles.purchasingOverlay}>
+          <View style={[styles.purchasingCard, { backgroundColor: theme.backgroundDefault }]}>
+            <ActivityIndicator size="large" color={theme.primary} />
+            <ThemedText type="body" style={{ marginTop: Spacing.md, fontWeight: "600" }}>
+              Processing payment...
+            </ThemedText>
+            <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: Spacing.xs, textAlign: "center" }}>
+              Please wait while {Platform.OS === "ios" ? "Apple" : "Google"} processes your purchase.
+            </ThemedText>
+          </View>
+        </View>
+      )}
     </>
   );
 }
@@ -423,7 +481,7 @@ const styles = StyleSheet.create({
   plansContainer: { gap: Spacing.md, marginBottom: Spacing.lg },
   planCard: { borderRadius: BorderRadius.md, padding: Spacing.lg, position: "relative", overflow: "hidden" },
   planHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: Spacing.sm },
-  planPriceRow: { flexDirection: "row", alignItems: "baseline", gap: Spacing.xs },
+  planPriceRow: { flexDirection: "row", alignItems: "center", gap: Spacing.xs, minHeight: 32 },
   originalPrice: { fontSize: 14, textDecorationLine: "line-through" },
   savingsBadge: { paddingHorizontal: Spacing.sm, paddingVertical: 2, borderRadius: BorderRadius.full },
   savingsText: { fontSize: 11, fontWeight: "700" },
@@ -435,4 +493,6 @@ const styles = StyleSheet.create({
   modalCard: { width: "85%", borderRadius: BorderRadius.xl, padding: Spacing.xl },
   modalButtons: { flexDirection: "row", gap: Spacing.md },
   modalBtn: { flex: 1, paddingVertical: Spacing.md, borderRadius: BorderRadius.lg, alignItems: "center" },
+  purchasingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center", zIndex: 999 },
+  purchasingCard: { borderRadius: BorderRadius.xl, padding: Spacing["2xl"], alignItems: "center", width: "75%" },
 });
