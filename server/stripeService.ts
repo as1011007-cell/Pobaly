@@ -58,24 +58,6 @@ export class StripeService {
     return subscriptions.data[0] || null;
   }
 
-  async createSubscriptionWithPaymentIntent(customerId: string, priceId: string) {
-    const stripe = await getUncachableStripeClient();
-    const subscription = await stripe.subscriptions.create({
-      customer: customerId,
-      items: [{ price: priceId }],
-      payment_behavior: 'default_incomplete',
-      payment_settings: { save_default_payment_method: 'on_subscription' },
-      expand: ['latest_invoice.payment_intent'],
-    });
-
-    const invoice = subscription.latest_invoice as any;
-    const paymentIntent = invoice?.payment_intent as any;
-
-    return {
-      subscriptionId: subscription.id,
-      clientSecret: paymentIntent?.client_secret as string,
-    };
-  }
 }
 
 export const stripeService = new StripeService();
