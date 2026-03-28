@@ -1,5 +1,5 @@
 import React, { useEffect } from "react";
-import { StyleSheet } from "react-native";
+import { StyleSheet, Platform } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -20,8 +20,10 @@ import { setupNotificationHandlers } from "@/lib/notifications";
 // Initialize RevenueCat at startup
 initializeRevenueCat();
 
-// Setup notification handlers
-setupNotificationHandlers();
+// Setup notification handlers (native platforms only)
+if (Platform.OS !== "web") {
+  setupNotificationHandlers();
+}
 
 export default function App() {
   return (

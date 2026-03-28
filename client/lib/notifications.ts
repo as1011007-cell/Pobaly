@@ -1,7 +1,14 @@
-import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 
+// Only import on native platforms
+let Notifications: typeof import("expo-notifications") | null = null;
+
+if (Platform.OS !== "web") {
+  Notifications = require("expo-notifications");
+}
+
 export async function requestNotificationPermissions() {
+  if (!Notifications) return false;
   try {
     const { status } = await Notifications.requestPermissionsAsync({
       ios: {
@@ -18,7 +25,9 @@ export async function requestNotificationPermissions() {
   }
 }
 
-export function setupNotificationHandlers(onNotification?: (notification: Notifications.Notification) => void) {
+export function setupNotificationHandlers(onNotification?: (notification: any) => void) {
+  if (!Notifications) return () => {};
+
   // Set notification handler
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
@@ -46,6 +55,7 @@ export function setupNotificationHandlers(onNotification?: (notification: Notifi
 }
 
 export async function sendTestNotification() {
+  if (!Notifications) return;
   try {
     await Notifications.scheduleNotificationAsync({
       content: {
