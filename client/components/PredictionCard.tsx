@@ -6,7 +6,6 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
-import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import { format } from "date-fns";
 
@@ -79,12 +78,7 @@ export function PredictionCard({
     >
       {isLocked && (
         <>
-          <View style={[styles.lockedOverlay, { backgroundColor: isDark ? "rgba(17,24,39,0.7)" : "rgba(255,255,255,0.7)" }]} />
-          <BlurView
-            intensity={80}
-            tint={isDark ? "dark" : "light"}
-            style={styles.lockedOverlay}
-          />
+          <View style={[styles.lockedOverlay, { backgroundColor: isDark ? "#111827" : "#FFFFFF" }]} />
           <View style={styles.lockContainer}>
             <View style={[styles.lockIconBox, { backgroundColor: theme.primary }]}>
               <Feather name="lock" size={20} color="#FFFFFF" />
