@@ -1,11 +1,11 @@
 {
-  "id": "06b1ca7f-7743-489d-a1ef-93a33894815a",
-  "createdAt": "2026-03-28T22:55:33.232Z",
-  "runtimeVersion": "exposdk:54.0.0",
+  "id": "3a760117-6907-4043-84cb-21dc696e8b6f",
+  "createdAt": "2026-03-28T23:00:22.603Z",
+  "runtimeVersion": "1.0.0",
   "launchAsset": {
-    "key": "bundle-1774738533232-10550",
+    "key": "bundle-1774738822603-11152",
     "contentType": "application/javascript",
-    "url": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/1774738533232-10550/_expo/static/js/android/bundle.js"
+    "url": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/1774738822603-11152/_expo/static/js/android/bundle.js"
   },
   "assets": [],
   "metadata": {},
@@ -15,21 +15,52 @@
       "name": "Probaly",
       "slug": "probaly",
       "version": "1.0.0",
+      "runtimeVersion": {
+        "policy": "appVersion"
+      },
       "orientation": "portrait",
-      "icon": "./assets/images/probaly-logo.png",
+      "icon": "./assets/images/app-icon-1024.png",
       "scheme": "probaly",
       "userInterfaceStyle": "automatic",
       "newArchEnabled": true,
+      "updates": {
+        "fallbackToCacheTimeout": 0
+      },
+      "assetBundlePatterns": [
+        "**/*"
+      ],
       "ios": {
         "supportsTablet": true,
         "bundleIdentifier": "com.probaly.app",
         "buildNumber": "1",
+        "icon": "./assets/images/app-icon-1024.png",
+        "config": {
+          "usesNonExemptEncryption": false
+        },
         "infoPlist": {
-          "NSCameraUsageDescription": "This app does not use the camera.",
-          "NSPhotoLibraryUsageDescription": "This app does not access photos.",
-          "NSLocationWhenInUseUsageDescription": "This app does not use location.",
+          "NSCameraUsageDescription": "Probaly does not use the camera.",
+          "NSPhotoLibraryUsageDescription": "Probaly does not access your photo library.",
+          "NSLocationWhenInUseUsageDescription": "Probaly does not use your location.",
+          "NSMicrophoneUsageDescription": "Probaly does not use the microphone.",
           "ITSAppUsesNonExemptEncryption": false,
-          "UIUserInterfaceStyle": "Automatic"
+          "UIUserInterfaceStyle": "Automatic",
+          "NSCalendarsUsageDescription": "Probaly does not access your calendar.",
+          "NSContactsUsageDescription": "Probaly does not access your contacts."
+        },
+        "privacyManifests": {
+          "NSPrivacyAccessedAPITypes": [
+            {
+              "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
+              "NSPrivacyAccessedAPITypeReasons": [
+                "CA92.1"
+              ]
+            }
+          ],
+          "NSPrivacyCollectedDataTypes": [],
+          "NSPrivacyTracking": false
+        },
+        "entitlements": {
+          "aps-environment": "production"
         }
       },
       "android": {
@@ -40,23 +71,59 @@
           "foregroundImageUrl": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/assets/./assets/images/android-icon-foreground.png",
           "monochromeImageUrl": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/assets/./assets/images/android-icon-monochrome.png"
         },
+        "icon": "./assets/images/app-icon-1024.png",
         "package": "com.probaly.app",
         "versionCode": 1,
+        "compileSdkVersion": 35,
+        "targetSdkVersion": 35,
+        "minSdkVersion": 24,
         "edgeToEdgeEnabled": true,
         "predictiveBackGestureEnabled": false,
         "permissions": [
-          "android.permission.POST_NOTIFICATIONS"
-        ]
+          "android.permission.POST_NOTIFICATIONS",
+          "android.permission.INTERNET",
+          "android.permission.ACCESS_NETWORK_STATE",
+          "android.permission.RECEIVE_BOOT_COMPLETED",
+          "android.permission.VIBRATE"
+        ],
+        "blockedPermissions": [
+          "android.permission.RECORD_AUDIO",
+          "android.permission.CAMERA",
+          "android.permission.READ_CONTACTS",
+          "android.permission.WRITE_CONTACTS",
+          "android.permission.READ_CALENDAR",
+          "android.permission.WRITE_CALENDAR",
+          "android.permission.ACCESS_FINE_LOCATION",
+          "android.permission.ACCESS_COARSE_LOCATION",
+          "android.permission.READ_EXTERNAL_STORAGE",
+          "android.permission.WRITE_EXTERNAL_STORAGE"
+        ],
+        "intentFilters": [
+          {
+            "action": "VIEW",
+            "autoVerify": true,
+            "data": [
+              {
+                "scheme": "probaly"
+              }
+            ],
+            "category": [
+              "BROWSABLE",
+              "DEFAULT"
+            ]
+          }
+        ],
+        "iconUrl": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/assets/./assets/images/app-icon-1024.png"
       },
       "web": {
         "output": "single",
-        "favicon": "./assets/images/probaly-logo.png"
+        "favicon": "./assets/images/app-icon-1024.png"
       },
       "plugins": [
         [
           "expo-splash-screen",
           {
-            "image": "./assets/images/probaly-logo.png",
+            "image": "./assets/images/app-icon-1024.png",
             "imageWidth": 200,
             "resizeMode": "contain",
             "backgroundColor": "#ffffff",
@@ -69,7 +136,7 @@
         [
           "expo-notifications",
           {
-            "icon": "./assets/images/probaly-logo.png",
+            "icon": "./assets/images/app-icon-1024.png",
             "color": "#1A237E",
             "sounds": []
           }
@@ -108,7 +175,7 @@
       "androidStatusBar": {
         "backgroundColor": "#ffffff"
       },
-      "iconUrl": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/assets/./assets/images/probaly-logo.png",
+      "iconUrl": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/assets/./assets/images/app-icon-1024.png",
       "hostUri": "16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/android"
     },
     "expoGo": {

@@ -1,10 +1,11 @@
 import React, { useEffect } from "react";
 import { StyleSheet } from "react-native";
-import { NavigationContainer } from "@react-navigation/native";
+import { NavigationContainer, LinkingOptions } from "@react-navigation/native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
+import { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "@/lib/query-client";
@@ -16,6 +17,19 @@ import { LanguageProvider } from "@/contexts/LanguageContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { SubscriptionProvider, initializeRevenueCat } from "@/lib/revenuecat";
 import { setupNotificationHandlers } from "@/lib/notifications";
+
+// Deep link configuration — handles probaly:// URLs (e.g., affiliate referrals)
+const linking: LinkingOptions<RootStackParamList> = {
+  prefixes: ["probaly://", "https://probaly.net"],
+  config: {
+    screens: {
+      Main: "",
+      Affiliate: "affiliate",
+      Subscription: "upgrade",
+      Auth: "auth",
+    },
+  },
+};
 
 // Initialize RevenueCat at startup
 initializeRevenueCat();
@@ -37,7 +51,7 @@ export default function App() {
                 <GestureHandlerRootView style={styles.root}>
                   <KeyboardProvider>
                     <SubscriptionProvider>
-                      <NavigationContainer>
+                      <NavigationContainer linking={linking}>
                         <RootStackNavigator />
                       </NavigationContainer>
                     </SubscriptionProvider>
