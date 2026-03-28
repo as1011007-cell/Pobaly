@@ -79,6 +79,7 @@ export function PredictionCard({
     >
       {isLocked && (
         <>
+          <View style={[styles.lockedOverlay, { backgroundColor: isDark ? "rgba(17,24,39,0.7)" : "rgba(255,255,255,0.7)" }]} />
           <BlurView
             intensity={80}
             tint={isDark ? "dark" : "light"}
