@@ -7,7 +7,7 @@
       "policy": "appVersion"
     },
     "orientation": "portrait",
-    "icon": "./assets/images/app-icon-1024.png",
+    "icon": "./assets/images/probaly-logo.png",
     "scheme": "probaly",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -21,7 +21,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.probaly.app",
       "buildNumber": "1",
-      "icon": "./assets/images/app-icon-1024.png",
+      "icon": "./assets/images/probaly-logo.png",
       "config": {
         "usesNonExemptEncryption": false
       },
@@ -57,7 +57,7 @@
         "backgroundColor": "#1A237E",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "icon": "./assets/images/app-icon-1024.png",
+      "icon": "./assets/images/probaly-logo.png",
       "package": "com.probaly.app",
       "versionCode": 1,
       "compileSdkVersion": 35,
@@ -102,18 +102,18 @@
     },
     "web": {
       "output": "single",
-      "favicon": "./assets/images/app-icon-1024.png"
+      "favicon": "./assets/images/probaly-logo.png"
     },
     "plugins": [
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/app-icon-1024.png",
+          "image": "./assets/images/probaly-logo.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
+          "backgroundColor": "#1A237E",
           "dark": {
-            "backgroundColor": "#111827"
+            "backgroundColor": "#1A237E"
           }
         }
       ],
@@ -121,7 +121,7 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/images/app-icon-1024.png",
+          "icon": "./assets/images/probaly-logo.png",
           "color": "#1A237E",
           "sounds": []
         }
