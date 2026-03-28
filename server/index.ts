@@ -7,6 +7,10 @@ import { WebhookHandlers } from "./webhookHandlers";
 import { startDailyRefreshScheduler } from "./services/predictionService";
 import * as fs from "fs";
 import * as path from "path";
+import * as bcrypt from "bcryptjs";
+import { db } from "./db";
+import { users } from "../shared/schema";
+import { eq } from "drizzle-orm";
 
 const app = express();
 const log = console.log;
@@ -14,6 +18,31 @@ const log = console.log;
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
+  }
+}
+
+async function seedTestUser() {
+  try {
+    const TEST_EMAIL = "test@probaly.app";
+    const TEST_PASSWORD = "testpass123";
+
+    // Check if test user already exists
+    const existing = await db.select().from(users).where(eq(users.email, TEST_EMAIL)).limit(1);
+
+    if (existing.length === 0) {
+      // Hash password and create test user
+      const hashedPassword = await bcrypt.hash(TEST_PASSWORD, 10);
+      await db.insert(users).values({
+        email: TEST_EMAIL,
+        password: hashedPassword,
+        name: "Test User",
+        isPremium: false,
+      });
+      log(`✓ Test user created: ${TEST_EMAIL}`);
+    }
+  } catch (error) {
+    // Silently fail if test user creation fails (DB might not be ready yet)
+    // It will be created on next startup
   }
 }
 
@@ -327,8 +356,11 @@ function setupErrorHandler(app: express.Application) {
       host: "0.0.0.0",
       reusePort: true,
     },
-    () => {
+    async () => {
       log(`express server serving on port ${port}`);
+      
+      // Seed test user for development/testing
+      await seedTestUser();
       
       // Start daily prediction refresh scheduler (runs on startup and every 24 hours)
       startDailyRefreshScheduler();
