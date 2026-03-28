@@ -1,5 +1,5 @@
-import { users, userPreferences, type User, type InsertUser, type UserPreferences } from "@shared/schema";
-import { eq, sql } from "drizzle-orm";
+import { users, userPreferences, contactSubmissions, type User, type InsertUser, type UserPreferences } from "@shared/schema";
+import { eq, desc, sql } from "drizzle-orm";
 import { db } from "./db";
 import { randomUUID } from "crypto";
 import { getUncachableStripeClient } from "./stripeClient";
@@ -205,6 +205,33 @@ export class DatabaseStorage implements IStorage {
       sql`SELECT * FROM stripe.subscriptions WHERE id = ${subscriptionId}`
     );
     return result.rows[0] || null;
+  }
+
+  async createContactSubmission(data: {
+    name: string;
+    email: string;
+    subject: string;
+    message: string;
+  }) {
+    const result = await db
+      .insert(contactSubmissions)
+      .values(data)
+      .returning();
+    return result[0];
+  }
+
+  async getContactSubmissions(status?: string) {
+    if (status) {
+      return db
+        .select()
+        .from(contactSubmissions)
+        .where(eq(contactSubmissions.status, status))
+        .orderBy(desc(contactSubmissions.createdAt));
+    }
+    return db
+      .select()
+      .from(contactSubmissions)
+      .orderBy(desc(contactSubmissions.createdAt));
   }
 }
 

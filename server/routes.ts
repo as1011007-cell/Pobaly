@@ -470,6 +470,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.use("/api/affiliate", affiliateRoutes);
 
+  // Contact form submission
+  app.post("/api/contact", async (req, res) => {
+    try {
+      const { name, email, subject, message } = req.body;
+
+      if (!name || !email || !subject || !message) {
+        return res.status(400).json({ error: "All fields are required." });
+      }
+
+      const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRe.test(email)) {
+        return res.status(400).json({ error: "Invalid email address." });
+      }
+
+      if (message.length < 10) {
+        return res.status(400).json({ error: "Message must be at least 10 characters." });
+      }
+
+      const submission = await storage.createContactSubmission({
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        subject,
+        message: message.trim(),
+      });
+
+      console.log(`Contact form submission from ${email}: [${subject}]`);
+
+      return res.json({ success: true, id: submission.id });
+    } catch (error: any) {
+      console.error("Contact form error:", error);
+      return res.status(500).json({ error: "Failed to save message. Please try again." });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

@@ -180,3 +180,23 @@ export const insertPayoutRequestSchema = createInsertSchema(payoutRequests).omit
 
 export type PayoutRequest = typeof payoutRequests.$inferSelect;
 export type InsertPayoutRequest = z.infer<typeof insertPayoutRequestSchema>;
+
+// Contact form submissions
+export const contactSubmissions = pgTable("contact_submissions", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  subject: text("subject").notNull(),
+  message: text("message").notNull(),
+  status: text("status").notNull().default("new"), // new, read, resolved
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertContactSubmissionSchema = createInsertSchema(contactSubmissions).omit({
+  id: true,
+  status: true,
+  createdAt: true,
+});
+
+export type ContactSubmission = typeof contactSubmissions.$inferSelect;
+export type InsertContactSubmission = z.infer<typeof insertContactSubmissionSchema>;
