@@ -28,6 +28,16 @@ export default function SignInScreen({ navigation }: SignInScreenProps) {
   const [password, setPassword] = useState("");
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
 
+  const TEST_EMAIL = "test@probaly.app";
+  const TEST_PASSWORD = "testpass123";
+
+  const handleTestLogin = () => {
+    setEmail(TEST_EMAIL);
+    setPassword(TEST_PASSWORD);
+    setErrors({});
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
   const validate = () => {
     const newErrors: { email?: string; password?: string } = {};
     if (!email) {
@@ -127,6 +137,17 @@ export default function SignInScreen({ navigation }: SignInScreenProps) {
             "Sign In"
           )}
         </Button>
+
+        <Pressable
+          onPress={handleTestLogin}
+          disabled={isLoading}
+          style={[styles.testButton, { opacity: isLoading ? 0.5 : 1 }]}
+          testID="button-test-login"
+        >
+          <ThemedText type="small" style={{ color: theme.accent, fontWeight: "600" }}>
+            Fill Test Credentials
+          </ThemedText>
+        </Pressable>
       </View>
 
       <View style={styles.footer}>
@@ -167,6 +188,11 @@ const styles = StyleSheet.create({
   },
   button: {
     marginTop: Spacing.md,
+  },
+  testButton: {
+    marginTop: Spacing.lg,
+    alignItems: "center",
+    paddingVertical: Spacing.sm,
   },
   footer: {
     flexDirection: "row",
