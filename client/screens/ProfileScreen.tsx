@@ -29,7 +29,6 @@ import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { getLanguageName } from "@/lib/translations";
 import { useSubscription } from "@/lib/revenuecat";
-import { requestNotificationPermissions, sendTestNotification } from "@/lib/notifications";
 
 type PlanType = "monthly" | "annual";
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -146,18 +145,6 @@ export default function ProfileScreen() {
   };
 
   const handleNotificationToggle = async (value: boolean) => {
-    if (value) {
-      // Request permission when enabling notifications
-      const granted = await requestNotificationPermissions();
-      if (!granted) {
-        // Permission denied, keep toggle off
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        return;
-      }
-      // Send test notification to confirm
-      await sendTestNotification();
-    }
-
     setNotificationsEnabled(value);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (user?.id) {
