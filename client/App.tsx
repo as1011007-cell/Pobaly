@@ -20,10 +20,13 @@ import { setupNotificationHandlers } from "@/lib/notifications";
 // Initialize RevenueCat at startup
 initializeRevenueCat();
 
-// Set up notification listeners
-setupNotificationHandlers();
-
 export default function App() {
+  useEffect(() => {
+    // Set up notification listeners after native bridge is ready
+    const cleanup = setupNotificationHandlers();
+    return cleanup;
+  }, []);
+
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>

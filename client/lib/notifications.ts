@@ -1,13 +1,30 @@
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
-});
+export function setupNotificationHandlers(
+  onNotification?: (notification: Notifications.Notification) => void
+): () => void {
+  if (Platform.OS === "web") return () => {};
+
+  // Set the handler so foreground notifications show an alert
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+    }),
+  });
+
+  const foregroundSub = Notifications.addNotificationReceivedListener((notification) => {
+    onNotification?.(notification);
+  });
+  const responseSub = Notifications.addNotificationResponseReceivedListener(() => {});
+
+  return () => {
+    foregroundSub.remove();
+    responseSub.remove();
+  };
+}
 
 export async function requestNotificationPermissions(): Promise<boolean> {
   if (Platform.OS === "web") return false;
@@ -26,20 +43,6 @@ export async function requestNotificationPermissions(): Promise<boolean> {
     console.error("Error requesting notification permissions:", error);
     return false;
   }
-}
-
-export function setupNotificationHandlers(
-  onNotification?: (notification: Notifications.Notification) => void
-): () => void {
-  if (Platform.OS === "web") return () => {};
-  const foregroundSub = Notifications.addNotificationReceivedListener((notification) => {
-    onNotification?.(notification);
-  });
-  const responseSub = Notifications.addNotificationResponseReceivedListener(() => {});
-  return () => {
-    foregroundSub.remove();
-    responseSub.remove();
-  };
 }
 
 export async function sendWelcomeNotification(): Promise<void> {
