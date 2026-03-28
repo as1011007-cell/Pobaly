@@ -156,7 +156,40 @@ Predictions table:
 - Restore Purchase: Functional button in Subscription screen footer
 - Age Rating: 17+ (Frequent/Intense Simulated Gambling)
 
+## EAS Build Configuration (eas.json)
+- **development**: Internal distribution, developmentClient=true, API → probaly.net
+- **preview**: Internal TestFlight/APK distribution, Release mode, API → probaly.net
+- **production**: App Store / Play Store, autoIncrement build numbers, API → probaly.net
+- Fill in `appleId`, `ascAppId`, `appleTeamId` in submit config before using `eas submit`
+
+## API URL Fallback
+- `client/lib/query-client.ts` → `getApiUrl()` falls back to `https://probaly.net` when `EXPO_PUBLIC_DOMAIN` is not set
+- This ensures TestFlight/App Store builds always connect to production server
+
+## Deep Linking
+- Scheme: `probaly://` and `https://probaly.net`
+- `probaly://affiliate` → Affiliate screen
+- `probaly://upgrade` → Subscription screen
+- Configured in `client/App.tsx` via `NavigationContainer linking` prop
+
+## iOS Privacy Manifest
+- Declared in `app.json` under `ios.privacyManifests`
+- `NSPrivacyAccessedAPICategoryUserDefaults` with reason `CA92.1` (for AsyncStorage)
+- `NSPrivacyTracking: false` (app does not track users)
+
+## App Icon
+- `assets/images/app-icon-1024.png` — 1024x1024 AI-generated icon (bull head on navy background)
+- Used as iOS icon, Android icon, splash screen, and favicon
+
 ## Recent Changes
+- March 2026: Complete App Store / Google Play production readiness pass
+  - iOS Privacy Manifest added
+  - Proper permissions declared and blocked on Android
+  - EAS Build configuration (eas.json) with dev/preview/production profiles
+  - Deep link handling (probaly://) added to NavigationContainer
+  - getApiUrl() and RevenueCat init made crash-safe for native builds without env vars
+  - New 1024x1024 app store icon generated
+  - Android target/compile SDK 35, minSDK 24
 - January 2026: Added affiliate program with 40% commission, 14 business day clearance, manual payout approval
 - January 2026: Added App Store compliance (gambling disclaimer, restore purchases, legal pages)
 - January 2026: Added user-specific predictions (userId field for personalized premium predictions)
