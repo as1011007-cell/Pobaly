@@ -48,6 +48,29 @@ async function seedTestUser() {
         .where(eq(users.email, TEST_EMAIL));
       log(`✓ Test user premium access refreshed: ${TEST_EMAIL}`);
     }
+    // Seed a free (non-premium) account for app store review
+    const FREE_EMAIL = "review@probaly.app";
+    const FREE_PASSWORD = "reviewpass123";
+
+    const existingFree = await db.select().from(users).where(eq(users.email, FREE_EMAIL)).limit(1);
+
+    if (existingFree.length === 0) {
+      const hashedFreePassword = await bcrypt.hash(FREE_PASSWORD, 10);
+      await db.insert(users).values({
+        email: FREE_EMAIL,
+        password: hashedFreePassword,
+        name: "App Reviewer",
+        isPremium: false,
+      });
+      log(`✓ Free review account created: ${FREE_EMAIL}`);
+    } else {
+      // Always keep this account non-premium so reviewers see the paywall
+      await db
+        .update(users)
+        .set({ isPremium: false, subscriptionExpiry: null, name: "App Reviewer" })
+        .where(eq(users.email, FREE_EMAIL));
+      log(`✓ Free review account confirmed non-premium: ${FREE_EMAIL}`);
+    }
   } catch (error) {
     // Silently fail if test user update fails
   }
