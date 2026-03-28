@@ -29,6 +29,7 @@ import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { getLanguageName } from "@/lib/translations";
 import { useSubscription } from "@/lib/revenuecat";
+import { requestNotificationPermissions, sendWelcomeNotification } from "@/lib/notifications";
 
 type PlanType = "monthly" | "annual";
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -145,6 +146,15 @@ export default function ProfileScreen() {
   };
 
   const handleNotificationToggle = async (value: boolean) => {
+    if (value) {
+      const granted = await requestNotificationPermissions();
+      if (!granted) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        return;
+      }
+      await sendWelcomeNotification();
+    }
+
     setNotificationsEnabled(value);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (user?.id) {

@@ -15,9 +15,13 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { SubscriptionProvider, initializeRevenueCat } from "@/lib/revenuecat";
+import { setupNotificationHandlers } from "@/lib/notifications";
 
 // Initialize RevenueCat at startup
 initializeRevenueCat();
+
+// Set up notification listeners
+setupNotificationHandlers();
 
 export default function App() {
   return (
