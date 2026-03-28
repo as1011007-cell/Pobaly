@@ -7,7 +7,7 @@ Probaly is a mobile sports prediction app (iOS/Android) built with React Native 
 - **Frontend**: React Native with Expo
 - **Backend**: Express.js (TypeScript)
 - **Database**: PostgreSQL with Drizzle ORM
-- **Payments**: Stripe integration via stripe-replit-sync
+- **Payments**: RevenueCat for in-app purchases (Apple App Store / Google Play Store). Stripe retained for affiliate Stripe Connect payouts only.
 - **Authentication**: Email/password with bcrypt
 - **AI**: OpenAI GPT-4o via Replit AI Integrations
 
@@ -41,7 +41,7 @@ shared/           # Shared types and schemas
 ## Key Features
 - 5-tab navigation: Home, Live, Sports, History, Profile
 - Email authentication
-- Premium subscription ($49/year) via Stripe
+- Premium subscription via RevenueCat (Apple/Google native in-app purchases, $49/month or $149/year)
 - AI-powered sports predictions with confidence levels (OpenAI GPT-4o)
 - Live match updates
 - Prediction history tracking

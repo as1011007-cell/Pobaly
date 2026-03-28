@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { StyleSheet } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -14,6 +14,10 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
+import { SubscriptionProvider, initializeRevenueCat } from "@/lib/revenuecat";
+
+// Initialize RevenueCat at startup
+initializeRevenueCat();
 
 export default function App() {
   return (
@@ -25,9 +29,11 @@ export default function App() {
               <SafeAreaProvider>
                 <GestureHandlerRootView style={styles.root}>
                   <KeyboardProvider>
-                    <NavigationContainer>
-                      <RootStackNavigator />
-                    </NavigationContainer>
+                    <SubscriptionProvider>
+                      <NavigationContainer>
+                        <RootStackNavigator />
+                      </NavigationContainer>
+                    </SubscriptionProvider>
                     <StatusBar style="auto" />
                   </KeyboardProvider>
                 </GestureHandlerRootView>
