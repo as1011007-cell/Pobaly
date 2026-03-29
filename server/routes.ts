@@ -7,6 +7,7 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import affiliateRoutes from "./affiliateRoutes";
 import { WebhookHandlers } from "./webhookHandlers";
+import { signToken, requireAuth, optionalAuth, requireAdmin, rateLimit } from "./auth";
 import {
   generateDailyPredictions,
   generatePremiumPredictionsForUser,
@@ -23,34 +24,53 @@ import {
 } from "./services/predictionService";
 
 const registerSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(6),
-  name: z.string().min(1),
-  referralCode: z.string().optional(),
+  email: z.string().email().max(254),
+  password: z.string().min(6).max(128),
+  name: z.string().min(1).max(100),
+  referralCode: z.string().max(20).optional(),
 });
 
 const loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1),
+  email: z.string().email().max(254),
+  password: z.string().min(1).max(128),
 });
+
+function safeErrorMessage(error: any, fallback = "An unexpected error occurred"): string {
+  if (error instanceof z.ZodError) {
+    return error.errors.map(e => e.message).join(", ");
+  }
+  if (typeof error?.message === "string" && error.message.length < 200) {
+    if (/password|secret|key|token|sql|query|column|table|relation|database/i.test(error.message)) {
+      return fallback;
+    }
+    return error.message;
+  }
+  return fallback;
+}
+
+const authRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 20 });
+const contactRateLimit = rateLimit({ windowMs: 60 * 60 * 1000, max: 5 });
+const generateRateLimit = rateLimit({ windowMs: 60 * 1000, max: 3 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth routes
-  app.post("/api/auth/register", async (req: Request, res: Response) => {
+  app.post("/api/auth/register", authRateLimit, async (req: Request, res: Response) => {
     try {
       const { email, password, name, referralCode } = registerSchema.parse(req.body);
       
-      const existingUser = await storage.getUserByEmail(email);
+      const existingUser = await storage.getUserByEmail(email.toLowerCase().trim());
       if (existingUser) {
         return res.status(400).json({ error: "Email already registered" });
       }
 
-      const hashedPassword = await bcrypt.hash(password, 10);
+      const hashedPassword = await bcrypt.hash(password, 12);
       const user = await storage.createUser({
-        email,
+        email: email.toLowerCase().trim(),
         password: hashedPassword,
-        name,
+        name: name.trim(),
       }, referralCode);
+
+      const token = signToken(user.id);
 
       return res.json({
         user: {
@@ -60,21 +80,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           isPremium: user.isPremium,
           subscriptionExpiry: user.subscriptionExpiry,
         },
-        token: `token-${user.id}`,
+        token,
       });
     } catch (error: any) {
-      return res.status(400).json({ error: error.message });
+      return res.status(400).json({ error: safeErrorMessage(error, "Registration failed") });
     }
   });
 
   // Account deletion — required by Apple App Store Review Guideline 5.1.1
-  app.delete("/api/auth/account", async (req: Request, res: Response) => {
+  app.delete("/api/auth/account", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { userId } = req.body;
-      if (!userId) {
-        return res.status(400).json({ error: "userId required" });
-      }
-      await storage.deleteUser(userId);
+      await storage.deleteUser(req.userId!);
       return res.json({ success: true });
     } catch (error: any) {
       console.error("Account deletion error:", error);
@@ -82,11 +98,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/auth/login", async (req: Request, res: Response) => {
+  app.post("/api/auth/login", authRateLimit, async (req: Request, res: Response) => {
     try {
       const { email, password } = loginSchema.parse(req.body);
       
-      const user = await storage.getUserByEmail(email);
+      const user = await storage.getUserByEmail(email.toLowerCase().trim());
       if (!user) {
         return res.status(401).json({ error: "Invalid credentials" });
       }
@@ -96,6 +112,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ error: "Invalid credentials" });
       }
 
+      const token = signToken(user.id);
+
       return res.json({
         user: {
           id: user.id,
@@ -104,10 +122,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           isPremium: user.isPremium,
           subscriptionExpiry: user.subscriptionExpiry,
         },
-        token: `token-${user.id}`,
+        token,
       });
     } catch (error: any) {
-      return res.status(400).json({ error: error.message });
+      return res.status(400).json({ error: safeErrorMessage(error, "Login failed") });
     }
   });
 
@@ -172,12 +190,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/checkout", async (req: Request, res: Response) => {
+  app.post("/api/checkout", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { userId, priceId } = req.body;
+      const { priceId } = req.body;
+      const userId = req.userId!;
 
-      if (!userId || !priceId) {
-        return res.status(400).json({ error: "userId and priceId are required" });
+      if (!priceId) {
+        return res.status(400).json({ error: "priceId is required" });
       }
 
       const user = await storage.getUser(userId);
@@ -221,9 +240,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
 
-  app.get("/api/subscription/:userId", async (req: Request, res: Response) => {
+  app.get("/api/subscription/:userId", requireAuth, async (req: Request, res: Response) => {
     try {
-      const userId = req.params.userId as string;
+      const userId = req.userId!;
       const user = await storage.getUser(userId);
 
       if (!user) {
@@ -254,12 +273,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============ RevenueCat Routes ============
 
   // Sync premium status after a RevenueCat purchase (called by client immediately after purchase)
-  app.post("/api/revenuecat/sync", async (req: Request, res: Response) => {
+  app.post("/api/revenuecat/sync", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { userId, isSubscribed, productIdentifier } = req.body;
-      if (!userId) return res.status(400).json({ error: "userId is required" });
+      const userId = req.userId!;
+      const { isSubscribed, productIdentifier } = req.body;
 
-      const user = await storage.getUser(String(userId));
+      const user = await storage.getUser(userId);
       if (!user) return res.status(404).json({ error: "User not found" });
 
       if (isSubscribed) {
@@ -274,22 +293,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Capture whether this is a new subscription before we update the DB
         const wasAlreadyPremium = user.isPremium === true;
 
-        await storage.updateUserStripeInfo(String(userId), {
+        await storage.updateUserStripeInfo(userId, {
           isPremium: true,
           subscriptionExpiry: expiry,
         });
         console.log(`RevenueCat sync: user ${userId} → isPremium=true (${isAnnual ? "annual" : "monthly"})`);
 
-        // Credit affiliate commission if this looks like a new purchase.
-        // The inner dedup check in processAffiliateReferralForRevenueCat prevents
-        // double-crediting even if the RevenueCat webhook already fired.
         if (!wasAlreadyPremium) {
-          await WebhookHandlers.processAffiliateReferralForRevenueCat(String(userId), String(productIdentifier || ""));
+          await WebhookHandlers.processAffiliateReferralForRevenueCat(userId, String(productIdentifier || ""));
         }
 
         return res.json({ isPremium: true, subscriptionExpiry: expiry });
       } else {
-        await storage.updateUserStripeInfo(String(userId), { isPremium: false });
+        await storage.updateUserStripeInfo(userId, { isPremium: false });
         console.log(`RevenueCat sync: user ${userId} → isPremium=false`);
         return res.json({ isPremium: false });
       }
@@ -357,13 +373,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/customer-portal", async (req: Request, res: Response) => {
+  app.post("/api/customer-portal", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { userId } = req.body;
-
-      if (!userId) {
-        return res.status(400).json({ error: "userId is required" });
-      }
+      const userId = req.userId!;
 
       const user = await storage.getUser(userId);
       if (!user || !user.stripeCustomerId) {
@@ -385,7 +397,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============ Predictions Routes ============
 
   // Generate new predictions (admin endpoint)
-  app.post("/api/predictions/generate", async (_req: Request, res: Response) => {
+  app.post("/api/predictions/generate", requireAdmin, async (_req: Request, res: Response) => {
     try {
       await generateDailyPredictions();
       res.json({ success: true, message: "Predictions generated successfully" });
@@ -396,7 +408,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Generate demo predictions for all sports (admin endpoint)
-  app.post("/api/predictions/generate-demo", async (_req: Request, res: Response) => {
+  app.post("/api/predictions/generate-demo", requireAdmin, async (_req: Request, res: Response) => {
     try {
       await generateDemoPredictions();
       res.json({ success: true, message: "Demo predictions generated successfully" });
@@ -416,11 +428,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get premium predictions (requires userId)
-  app.get("/api/predictions/premium", async (req: Request, res: Response) => {
+  // Get premium predictions (requires authentication)
+  app.get("/api/predictions/premium", optionalAuth, async (req: Request, res: Response) => {
     try {
-      const userId = req.query.userId as string;
-      const isPremiumUser = req.query.isPremium === "true";
+      const userId = req.userId as string;
+      let isPremiumUser = false;
+      if (userId) {
+        const u = await storage.getUser(userId);
+        isPremiumUser = u?.isPremium === true;
+      }
       const predictions = await getPremiumPredictions(userId, isPremiumUser);
       res.json({ predictions });
     } catch (error: any) {
@@ -429,12 +445,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Generate premium predictions for a user (called after subscription)
-  app.post("/api/predictions/generate-premium", async (req: Request, res: Response) => {
+  app.post("/api/predictions/generate-premium", requireAuth, generateRateLimit, async (req: Request, res: Response) => {
     try {
-      const { userId } = req.body;
-      if (!userId) {
-        return res.status(400).json({ error: "userId is required" });
-      }
+      const userId = req.userId!;
       await generatePremiumPredictionsForUser(userId);
       res.json({ success: true, message: "Premium predictions generated for user" });
     } catch (error: any) {
@@ -444,9 +457,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get live predictions
-  app.get("/api/predictions/live", async (req: Request, res: Response) => {
+  app.get("/api/predictions/live", optionalAuth, async (req: Request, res: Response) => {
     try {
-      const userId = req.query.userId as string;
+      const userId = req.userId as string;
       const predictions = await getLivePredictions(userId);
       res.json({ predictions });
     } catch (error: any) {
@@ -455,9 +468,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get history (correct predictions only)
-  app.get("/api/predictions/history", async (req: Request, res: Response) => {
+  app.get("/api/predictions/history", optionalAuth, async (req: Request, res: Response) => {
     try {
-      const userId = req.query.userId as string;
+      const userId = req.userId as string;
       const predictions = await getHistoryPredictions(userId);
       res.json({ predictions });
     } catch (error: any) {
@@ -466,11 +479,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get predictions by sport
-  app.get("/api/predictions/sport/:sport", async (req: Request, res: Response) => {
+  app.get("/api/predictions/sport/:sport", optionalAuth, async (req: Request, res: Response) => {
     try {
       const sport = req.params.sport as string;
-      const userId = req.query.userId as string;
-      const isPremiumUser = req.query.isPremium === "true";
+      const userId = req.userId as string;
+      let isPremiumUser = false;
+      if (userId) {
+        const u = await storage.getUser(userId);
+        isPremiumUser = u?.isPremium === true;
+      }
       const predictions = await getPredictionsBySport(sport, userId, isPremiumUser);
       res.json({ predictions });
     } catch (error: any) {
@@ -479,10 +496,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get prediction counts by sport
-  app.get("/api/predictions/counts", async (req: Request, res: Response) => {
+  app.get("/api/predictions/counts", optionalAuth, async (req: Request, res: Response) => {
     try {
-      const userId = req.query.userId as string;
-      const isPremiumUser = req.query.isPremium === "true";
+      const userId = req.userId as string;
+      let isPremiumUser = false;
+      if (userId) {
+        const u = await storage.getUser(userId);
+        isPremiumUser = u?.isPremium === true;
+      }
       const counts = await getSportPredictionCounts(userId, isPremiumUser);
       res.json({ counts });
     } catch (error: any) {
@@ -505,7 +526,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Mark prediction result (admin endpoint)
-  app.post("/api/predictions/:id/result", async (req: Request, res: Response) => {
+  app.post("/api/predictions/:id/result", requireAdmin, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id as string);
       const { result } = req.body;
@@ -524,9 +545,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============ User Preferences Routes ============
 
   // Get user preferences
-  app.get("/api/user/preferences/:userId", async (req: Request, res: Response) => {
+  app.get("/api/user/preferences/:userId", requireAuth, async (req: Request, res: Response) => {
     try {
-      const userId = req.params.userId as string;
+      const userId = req.userId!;
       const preferences = await storage.getUserPreferences(userId);
       res.json(preferences || { notificationsEnabled: true });
     } catch (error: any) {
@@ -535,13 +556,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Save user preferences
-  app.post("/api/user/preferences", async (req: Request, res: Response) => {
+  app.post("/api/user/preferences", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { userId, notificationsEnabled, emailNotifications, predictionAlerts } = req.body;
-      
-      if (!userId) {
-        return res.status(400).json({ error: "userId is required" });
-      }
+      const userId = req.userId!;
+      const { notificationsEnabled, emailNotifications, predictionAlerts } = req.body;
 
       const preferences = await storage.saveUserPreferences(userId, {
         notificationsEnabled,
@@ -556,13 +574,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============ Restore Purchases Route ============
 
-  app.post("/api/restore-purchases", async (req: Request, res: Response) => {
+  app.post("/api/restore-purchases", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { userId } = req.body;
-      
-      if (!userId) {
-        return res.status(400).json({ error: "userId is required" });
-      }
+      const userId = req.userId!;
 
       const user = await storage.getUser(userId);
       if (!user) {
@@ -599,7 +613,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/affiliate", affiliateRoutes);
 
   // Contact form submission
-  app.post("/api/contact", async (req, res) => {
+  app.post("/api/contact", contactRateLimit, async (req, res) => {
     try {
       const { name, email, subject, message } = req.body;
 

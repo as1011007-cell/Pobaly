@@ -3,6 +3,7 @@ import { db } from "./db";
 import { affiliates, referrals, users, payoutRequests } from "../shared/schema";
 import { eq, desc, and } from "drizzle-orm";
 import { getUncachableStripeClient } from "./stripeClient";
+import { requireAuth, requireAdmin } from "./auth";
 
 const router = Router();
 
@@ -28,13 +29,9 @@ function addBusinessDays(date: Date, days: number): Date {
   return result;
 }
 
-router.post("/register", async (req: Request, res: Response) => {
+router.post("/register", requireAuth, async (req: Request, res: Response) => {
   try {
-    const { userId } = req.body;
-    
-    if (!userId) {
-      return res.status(400).json({ error: "User ID required" });
-    }
+    const userId = req.userId!;
 
     const [user] = await db.select().from(users).where(eq(users.id, userId));
     if (!user) {
@@ -86,9 +83,9 @@ router.post("/register", async (req: Request, res: Response) => {
   }
 });
 
-router.get("/dashboard/:userId", async (req: Request, res: Response) => {
+router.get("/dashboard/:userId", requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = req.params.userId as string;
+    const userId = req.userId!;
 
     const [affiliate] = await db.select()
       .from(affiliates)
@@ -146,13 +143,9 @@ router.get("/dashboard/:userId", async (req: Request, res: Response) => {
   }
 });
 
-router.post("/connect-stripe", async (req: Request, res: Response) => {
+router.post("/connect-stripe", requireAuth, async (req: Request, res: Response) => {
   try {
-    const { userId } = req.body;
-    
-    if (!userId) {
-      return res.status(400).json({ error: "User ID required" });
-    }
+    const userId = req.userId!;
 
     const stripe = await getUncachableStripeClient();
 
@@ -210,9 +203,9 @@ router.post("/connect-stripe", async (req: Request, res: Response) => {
   }
 });
 
-router.get("/connect-status/:userId", async (req: Request, res: Response) => {
+router.get("/connect-status/:userId", requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = req.params.userId as string;
+    const userId = req.userId!;
     const stripe = await getUncachableStripeClient();
 
     const [affiliate] = await db.select()
@@ -244,9 +237,9 @@ router.get("/connect-status/:userId", async (req: Request, res: Response) => {
   }
 });
 
-router.post("/request-payout", async (req: Request, res: Response) => {
+router.post("/request-payout", requireAuth, async (req: Request, res: Response) => {
   try {
-    const { userId } = req.body;
+    const userId = req.userId!;
 
     const [affiliate] = await db.select()
       .from(affiliates)
@@ -342,7 +335,7 @@ router.get("/validate/:code", async (req: Request, res: Response) => {
   }
 });
 
-router.get("/admin/payout-requests", async (req: Request, res: Response) => {
+router.get("/admin/payout-requests", requireAdmin, async (req: Request, res: Response) => {
   try {
     const statusParam = req.query.status;
     const status = (typeof statusParam === "string" ? statusParam : "pending");
@@ -371,7 +364,7 @@ router.get("/admin/payout-requests", async (req: Request, res: Response) => {
   }
 });
 
-router.post("/admin/approve-payout/:requestId", async (req: Request, res: Response) => {
+router.post("/admin/approve-payout/:requestId", requireAdmin, async (req: Request, res: Response) => {
   try {
     const requestId = parseInt(req.params.requestId as string);
     const stripe = await getUncachableStripeClient();
@@ -464,7 +457,7 @@ router.post("/admin/approve-payout/:requestId", async (req: Request, res: Respon
   }
 });
 
-router.post("/admin/reject-payout/:requestId", async (req: Request, res: Response) => {
+router.post("/admin/reject-payout/:requestId", requireAdmin, async (req: Request, res: Response) => {
   try {
     const requestIdParam = req.params.requestId as string;
     const requestId = parseInt(requestIdParam);
@@ -500,9 +493,9 @@ router.post("/admin/reject-payout/:requestId", async (req: Request, res: Respons
   }
 });
 
-router.get("/payout-requests/:userId", async (req: Request, res: Response) => {
+router.get("/payout-requests/:userId", requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = req.params.userId as string;
+    const userId = req.userId!;
 
     const [affiliate] = await db.select()
       .from(affiliates)

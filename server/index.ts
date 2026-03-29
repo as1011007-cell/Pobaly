@@ -115,6 +115,20 @@ async function initStripe() {
   }
 }
 
+function setupSecurityHeaders(app: express.Application) {
+  app.use((_req, res, next) => {
+    res.header("X-Content-Type-Options", "nosniff");
+    res.header("X-Frame-Options", "DENY");
+    res.header("X-XSS-Protection", "0");
+    res.header("Referrer-Policy", "strict-origin-when-cross-origin");
+    res.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    if (process.env.REPLIT_DEPLOYMENT === "1") {
+      res.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    }
+    next();
+  });
+}
+
 function setupCors(app: express.Application) {
   app.use((req, res, next) => {
     const origins = new Set<string>();
@@ -129,19 +143,22 @@ function setupCors(app: express.Application) {
       });
     }
 
+    origins.add("https://probaly.net");
+
     const origin = req.header("origin");
 
+    const isProduction = process.env.REPLIT_DEPLOYMENT === "1";
     const isLocalhost =
       origin?.startsWith("http://localhost:") ||
       origin?.startsWith("http://127.0.0.1:");
 
-    if (origin && (origins.has(origin) || isLocalhost)) {
+    if (origin && (origins.has(origin) || (!isProduction && isLocalhost))) {
       res.header("Access-Control-Allow-Origin", origin);
       res.header(
         "Access-Control-Allow-Methods",
         "GET, POST, PUT, DELETE, OPTIONS",
       );
-      res.header("Access-Control-Allow-Headers", "Content-Type");
+      res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
       res.header("Access-Control-Allow-Credentials", "true");
     }
 
@@ -360,6 +377,7 @@ function setupErrorHandler(app: express.Application) {
 (async () => {
   await initStripe();
   
+  setupSecurityHeaders(app);
   setupCors(app);
 
   // Register Stripe webhook route BEFORE express.json()

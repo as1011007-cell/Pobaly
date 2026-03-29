@@ -105,9 +105,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshUser = async () => {
     if (!user) return;
     try {
-      const baseUrl = getApiUrl();
-      const url = new URL(`/api/subscription/${user.id}`, baseUrl);
-      const response = await fetch(url.toString());
+      const response = await apiRequest("GET", `/api/subscription/${user.id}`);
       const data = await response.json();
 
       // Always update local state to reflect the latest premium status and expiry

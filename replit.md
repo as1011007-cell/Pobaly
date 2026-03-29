@@ -8,7 +8,7 @@ Probaly is a mobile sports prediction app (iOS/Android) built with React Native 
 - **Backend**: Express.js (TypeScript)
 - **Database**: PostgreSQL with Drizzle ORM
 - **Payments**: RevenueCat for in-app purchases (Apple App Store / Google Play Store). Stripe retained for affiliate Stripe Connect payouts only.
-- **Authentication**: Email/password with bcrypt
+- **Authentication**: Email/password with bcrypt + JWT (real signed tokens, 30d expiry)
 - **AI**: OpenAI GPT-4o via Replit AI Integrations
 
 ## Project Structure
@@ -218,6 +218,17 @@ When a user purchases on iOS/Android:
   - getApiUrl() and RevenueCat init made crash-safe for native builds without env vars
   - New 1024x1024 app store icon generated
   - Android target/compile SDK 35, minSDK 24
+- March 2026: Security hardening completed
+  - Real JWT authentication (was fake `token-{userId}` strings) with `server/auth.ts`
+  - `requireAuth` middleware on all user-specific endpoints (preferences, restore-purchases, affiliate, generate-premium)
+  - `optionalAuth` middleware on prediction listing endpoints (premium status checked from DB, not client params)
+  - `requireAdmin` middleware on admin endpoints (generate, generate-demo, mark result, payout management)
+  - Admin key accepted only via `x-admin-key` header with constant-time comparison (no query string)
+  - Per-route rate limiting (auth: 10/15min, contact: 5/hr, generate: 3/min) with scoped keys
+  - Security headers: X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy, HSTS (prod only)
+  - CORS tightened: localhost origins blocked in production, Authorization header allowed
+  - Client sends JWT via `Authorization: Bearer` header on all API requests
+  - JWT_SECRET fails-closed in production (must be set as env var)
 - January 2026: Added affiliate program with 40% commission, 14 business day clearance, manual payout approval
 - January 2026: Added App Store compliance (gambling disclaimer, restore purchases, legal pages)
 - January 2026: Added user-specific predictions (userId field for personalized premium predictions)
