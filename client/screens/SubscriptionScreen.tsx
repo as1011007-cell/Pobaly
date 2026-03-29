@@ -9,7 +9,9 @@ import {
   Modal,
   Platform,
   Animated,
+  Alert,
 } from "react-native";
+import Constants from "expo-constants";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useNavigation, NavigationProp } from "@react-navigation/native";
@@ -92,8 +94,19 @@ export default function SubscriptionScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
+  // Detect Expo Go so we can show appropriate messaging
+  const isExpoGo = Constants.executionEnvironment === "storeClient";
+
   const handleSubscribe = () => {
-    if (!selectedPackage || isPurchasing) return;
+    if (isPurchasing) return;
+    if (!selectedPackage) {
+      Alert.alert(
+        "Prices unavailable",
+        "Could not load subscription prices. Please check your connection and try again.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setConfirmVisible(true);
   };
@@ -110,6 +123,11 @@ export default function SubscriptionScreen() {
       if (error?.userCancelled) return;
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       console.error("Purchase error:", error);
+      const message =
+        error?.message?.includes("browser") || error?.message?.includes("mock")
+          ? "Payments are simulated in Expo Go. Install via TestFlight or the App Store to make a real purchase."
+          : error?.message || "Something went wrong. Please try again.";
+      Alert.alert("Purchase failed", message, [{ text: "OK" }]);
     }
   };
 
@@ -118,9 +136,11 @@ export default function SubscriptionScreen() {
     try {
       await restore();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (error) {
+      Alert.alert("Purchases restored", "Your subscription has been restored.", [{ text: "OK" }]);
+    } catch (error: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       console.error("Restore error:", error);
+      Alert.alert("Restore failed", error?.message || "Could not restore purchases. Please try again.", [{ text: "OK" }]);
     }
   };
 
@@ -156,6 +176,15 @@ export default function SubscriptionScreen() {
         }}
         showsVerticalScrollIndicator={false}
       >
+        {isExpoGo && (
+          <View style={[styles.testModeBanner, { backgroundColor: `${theme.warning}20`, borderColor: theme.warning }]}>
+            <Feather name="info" size={14} color={theme.warning} />
+            <ThemedText type="small" style={{ color: theme.warning, marginLeft: Spacing.xs, flex: 1 }}>
+              Testing mode: payments are simulated in Expo Go. Real billing activates in the App Store / Google Play build.
+            </ThemedText>
+          </View>
+        )}
+
         <View style={styles.header}>
           <Image
             source={require("../../assets/images/premium-unlock.png")}
@@ -373,6 +402,7 @@ export default function SubscriptionScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  testModeBanner: { flexDirection: "row", alignItems: "center", padding: Spacing.sm, borderRadius: BorderRadius.md, borderWidth: 1, marginBottom: Spacing.lg },
   header: { alignItems: "center", marginBottom: Spacing["2xl"] },
   headerImage: { width: 120, height: 120, marginBottom: Spacing.xl },
   title: { textAlign: "center", marginBottom: Spacing.sm },
