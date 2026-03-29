@@ -78,6 +78,8 @@ export default function SubscriptionScreen() {
     monthlyPackage,
     annualPackage,
     isLoading,
+    offeringsError,
+    refetchOfferings,
     purchase,
     restore,
     isPurchasing,
@@ -86,8 +88,12 @@ export default function SubscriptionScreen() {
   } = useSubscription();
 
   const selectedPackage = selectedPlan === "monthly" ? monthlyPackage : annualPackage;
-  const monthlyPrice = monthlyPackage?.product.priceString;
-  const annualPrice = annualPackage?.product.priceString;
+  // Show real prices from RevenueCat, or fallback to known prices while loading
+  const monthlyPrice = monthlyPackage?.product.priceString ?? "$49.99";
+  const annualPrice = annualPackage?.product.priceString ?? "$149.00";
+  // Prices are live when we have real packages; show "~" prefix when using fallback
+  const monthlyPriceLabel = monthlyPackage ? monthlyPrice : `~${monthlyPrice}`;
+  const annualPriceLabel = annualPackage ? annualPrice : `~${annualPrice}`;
 
   const handleSelectPlan = (plan: PlanType) => {
     setSelectedPlan(plan);
@@ -212,18 +218,29 @@ export default function SubscriptionScreen() {
           ))}
         </View>
 
+        {offeringsError && (
+          <View style={[styles.errorBanner, { backgroundColor: `${theme.accent}15`, borderColor: theme.accent }]}>
+            <Feather name="wifi-off" size={14} color={theme.accent} />
+            <ThemedText type="small" style={{ color: theme.accent, flex: 1, marginLeft: Spacing.xs }}>
+              Could not load live prices. Showing estimated prices.
+            </ThemedText>
+            <Pressable onPress={() => refetchOfferings()} style={{ marginLeft: Spacing.sm }}>
+              <ThemedText type="small" style={{ color: theme.accent, fontWeight: "700" }}>Retry</ThemedText>
+            </Pressable>
+          </View>
+        )}
+
         <View style={styles.plansContainer}>
           {/* Monthly Plan */}
           <Pressable
             onPress={() => handleSelectPlan("monthly")}
-            disabled={isLoading || isPurchasing}
+            disabled={isPurchasing}
             style={[
               styles.planCard,
               {
                 backgroundColor: theme.backgroundDefault,
                 borderColor: selectedPlan === "monthly" ? theme.primary : theme.border,
                 borderWidth: selectedPlan === "monthly" ? 2 : 1,
-                opacity: isLoading ? 0.7 : 1,
               },
             ]}
           >
@@ -238,11 +255,11 @@ export default function SubscriptionScreen() {
               {isLoading ? (
                 <PriceSkeleton width={90} />
               ) : (
-                <ThemedText type="h2" style={{ color: theme.text }}>{monthlyPrice}</ThemedText>
+                <ThemedText type="h2" style={{ color: theme.text }}>{monthlyPriceLabel}</ThemedText>
               )}
               <ThemedText type="small" style={{ color: theme.textSecondary }}>/month</ThemedText>
             </View>
-            {selectedPlan === "monthly" && !isLoading && (
+            {selectedPlan === "monthly" && (
               <View style={[styles.selectedIndicator, { backgroundColor: theme.primary }]}>
                 <Feather name="check" size={14} color="#FFFFFF" />
               </View>
@@ -252,14 +269,13 @@ export default function SubscriptionScreen() {
           {/* Annual Plan */}
           <Pressable
             onPress={() => handleSelectPlan("annual")}
-            disabled={isLoading || isPurchasing}
+            disabled={isPurchasing}
             style={[
               styles.planCard,
               {
                 backgroundColor: theme.backgroundDefault,
                 borderColor: selectedPlan === "annual" ? theme.primary : theme.border,
                 borderWidth: selectedPlan === "annual" ? 2 : 1,
-                opacity: isLoading ? 0.7 : 1,
               },
             ]}
           >
@@ -267,7 +283,7 @@ export default function SubscriptionScreen() {
               <ThemedText style={styles.bestValueText}>BEST VALUE</ThemedText>
             </View>
             <View style={styles.planHeader}>
-              <ThemedText type="body" style={{ fontWeight: "700" }}>Yearly</ThemedText>
+              <ThemedText type="body" style={{ fontWeight: "700" }}>Annual</ThemedText>
               <View style={[styles.savingsBadge, { backgroundColor: `${theme.success}15` }]}>
                 <ThemedText style={[styles.savingsText, { color: theme.success }]}>Save 63%</ThemedText>
               </View>
@@ -277,11 +293,11 @@ export default function SubscriptionScreen() {
               {isLoading ? (
                 <PriceSkeleton width={100} />
               ) : (
-                <ThemedText type="h2" style={{ color: theme.text }}>{annualPrice}</ThemedText>
+                <ThemedText type="h2" style={{ color: theme.text }}>{annualPriceLabel}</ThemedText>
               )}
               <ThemedText type="small" style={{ color: theme.textSecondary }}>/year</ThemedText>
             </View>
-            {selectedPlan === "annual" && !isLoading && (
+            {selectedPlan === "annual" && (
               <View style={[styles.selectedIndicator, { backgroundColor: theme.primary }]}>
                 <Feather name="check" size={14} color="#FFFFFF" />
               </View>
@@ -292,7 +308,7 @@ export default function SubscriptionScreen() {
         {/* Subscribe Button */}
         <Button
           onPress={handleSubscribe}
-          disabled={isPurchasing || isLoading || !selectedPackage}
+          disabled={isPurchasing}
           style={styles.subscribeButton}
           testID="button-subscribe"
         >
@@ -403,6 +419,7 @@ export default function SubscriptionScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   testModeBanner: { flexDirection: "row", alignItems: "center", padding: Spacing.sm, borderRadius: BorderRadius.md, borderWidth: 1, marginBottom: Spacing.lg },
+  errorBanner: { flexDirection: "row", alignItems: "center", padding: Spacing.sm, borderRadius: BorderRadius.md, borderWidth: 1, marginBottom: Spacing.md },
   header: { alignItems: "center", marginBottom: Spacing["2xl"] },
   headerImage: { width: 120, height: 120, marginBottom: Spacing.xl },
   title: { textAlign: "center", marginBottom: Spacing.sm },
