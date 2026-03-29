@@ -28,8 +28,9 @@ import { BorderRadius, Spacing } from "@/constants/theme";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { getLanguageName } from "@/lib/translations";
-import { useSubscription } from "@/lib/revenuecat";
+import { useSubscription, REVENUECAT_ENTITLEMENT_IDENTIFIER } from "@/lib/revenuecat";
 import { requestNotificationPermissions, sendWelcomeNotification } from "@/lib/notifications";
+import Purchases from "react-native-purchases";
 
 type PlanType = "monthly" | "annual";
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -106,22 +107,63 @@ export default function ProfileScreen() {
     try {
       await purchase(selectedPackage);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      // Refresh user to sync premium status after purchase
+
+      // Sync premium status to server immediately after purchase
+      if (user?.id) {
+        try {
+          const customerInfo = await Purchases.getCustomerInfo();
+          const entitlement = customerInfo.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER];
+          const isSubscribed = entitlement !== undefined;
+          const productIdentifier = entitlement?.productIdentifier ?? selectedPackage.product.identifier;
+          await apiRequest("POST", "/api/revenuecat/sync", {
+            userId: String(user.id),
+            isSubscribed,
+            productIdentifier,
+          });
+        } catch (syncError) {
+          console.warn("RevenueCat sync failed:", syncError);
+        }
+      }
+
       await refreshUser();
     } catch (error: any) {
       if (error?.userCancelled) return;
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       console.error("Purchase error:", error);
+      const message =
+        error?.message?.includes("browser") || error?.message?.includes("mock")
+          ? "Payments require a native build (TestFlight or App Store). Expo Go simulates purchases only."
+          : error?.message || "Something went wrong. Please try again.";
+      Alert.alert("Purchase failed", message, [{ text: "OK" }]);
     }
   };
 
   const handleRestorePurchases = async () => {
     try {
-      await restore();
+      const restoredInfo = await restore();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (error) {
+
+      // Sync restored premium status to server
+      if (user?.id) {
+        try {
+          const entitlement = restoredInfo.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER];
+          const isSubscribed = entitlement !== undefined;
+          await apiRequest("POST", "/api/revenuecat/sync", {
+            userId: String(user.id),
+            isSubscribed,
+            productIdentifier: entitlement?.productIdentifier,
+          });
+        } catch (syncError) {
+          console.warn("Restore sync failed:", syncError);
+        }
+      }
+
+      await refreshUser();
+      Alert.alert("Purchases Restored", "Your subscription has been restored successfully.", [{ text: "OK" }]);
+    } catch (error: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       console.error("Restore error:", error);
+      Alert.alert("Restore Failed", error?.message || "Could not restore purchases. Please try again.", [{ text: "OK" }]);
     }
   };
 
@@ -233,14 +275,13 @@ export default function ProfileScreen() {
               <View style={styles.plansContainer}>
                 <Pressable
                   onPress={() => handleSelectPlan("monthly")}
-                  disabled={rcLoading || isPurchasing}
+                  disabled={isPurchasing}
                   style={[
                     styles.planCard,
                     {
                       backgroundColor: theme.backgroundDefault,
                       borderColor: selectedPlan === "monthly" ? theme.primary : theme.border,
                       borderWidth: selectedPlan === "monthly" ? 2 : 1,
-                      opacity: rcLoading ? 0.7 : 1,
                     },
                   ]}
                 >
@@ -259,7 +300,7 @@ export default function ProfileScreen() {
                     )}
                     <ThemedText type="small" style={{ color: theme.textSecondary }}>/month</ThemedText>
                   </View>
-                  {selectedPlan === "monthly" && !rcLoading && (
+                  {selectedPlan === "monthly" && (
                     <View style={[styles.selectedIndicator, { backgroundColor: theme.primary }]}>
                       <Feather name="check" size={14} color="#FFFFFF" />
                     </View>
@@ -268,14 +309,13 @@ export default function ProfileScreen() {
 
                 <Pressable
                   onPress={() => handleSelectPlan("annual")}
-                  disabled={rcLoading || isPurchasing}
+                  disabled={isPurchasing}
                   style={[
                     styles.planCard,
                     {
                       backgroundColor: theme.backgroundDefault,
                       borderColor: selectedPlan === "annual" ? theme.primary : theme.border,
                       borderWidth: selectedPlan === "annual" ? 2 : 1,
-                      opacity: rcLoading ? 0.7 : 1,
                     },
                   ]}
                 >
@@ -283,7 +323,7 @@ export default function ProfileScreen() {
                     <ThemedText style={styles.bestValueText}>BEST VALUE</ThemedText>
                   </View>
                   <View style={styles.planHeader}>
-                    <ThemedText type="body" style={{ fontWeight: "700" }}>Yearly</ThemedText>
+                    <ThemedText type="body" style={{ fontWeight: "700" }}>Annual</ThemedText>
                     <View style={[styles.savingsBadge, { backgroundColor: `${theme.success}15` }]}>
                       <ThemedText style={[styles.savingsText, { color: theme.success }]}>Save 63%</ThemedText>
                     </View>
@@ -297,7 +337,7 @@ export default function ProfileScreen() {
                     )}
                     <ThemedText type="small" style={{ color: theme.textSecondary }}>/year</ThemedText>
                   </View>
-                  {selectedPlan === "annual" && !rcLoading && (
+                  {selectedPlan === "annual" && (
                     <View style={[styles.selectedIndicator, { backgroundColor: theme.primary }]}>
                       <Feather name="check" size={14} color="#FFFFFF" />
                     </View>
@@ -307,7 +347,7 @@ export default function ProfileScreen() {
 
               <Button
                 onPress={handleSubscribe}
-                disabled={isPurchasing || rcLoading || !selectedPackage}
+                disabled={isPurchasing}
                 style={styles.subscribeButton}
                 testID="button-subscribe"
               >
