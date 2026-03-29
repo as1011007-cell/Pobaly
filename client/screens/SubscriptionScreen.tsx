@@ -128,26 +128,32 @@ export default function SubscriptionScreen() {
       await purchase(selectedPackage);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-      // After purchase, sync premium status to server so backend reflects it immediately
+      // After purchase, sync premium status to server so backend reflects it immediately.
+      // Only sync when the entitlement is actually active — never send isSubscribed:false
+      // on a fresh purchase, as that would incorrectly strip premium from the account.
       if (user?.id) {
         try {
           const customerInfo = await Purchases.getCustomerInfo();
           const entitlement = customerInfo.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER];
-          const isSubscribed = entitlement !== undefined;
-          const productIdentifier = entitlement?.productIdentifier ?? selectedPackage.product.identifier;
-          await apiRequest("POST", "/api/revenuecat/sync", {
-            userId: String(user.id),
-            isSubscribed,
-            productIdentifier,
-          });
+          if (entitlement) {
+            await apiRequest("POST", "/api/revenuecat/sync", {
+              userId: String(user.id),
+              isSubscribed: true,
+              productIdentifier: entitlement.productIdentifier ?? selectedPackage.product.identifier,
+            });
+          }
+          // If entitlement not yet active, the RevenueCat webhook will sync shortly
         } catch (syncError) {
-          // Non-fatal: webhook will eventually sync if this fails
           console.warn("RevenueCat sync failed:", syncError);
         }
       }
 
-      // Refresh local user state so premium UI unlocks
+      // Refresh local user state so premium UI unlocks, then navigate back
       await refreshUser();
+      // Give the UI a moment to show the success state, then pop back
+      setTimeout(() => {
+        if (navigation.canGoBack()) navigation.goBack();
+      }, 1200);
     } catch (error: any) {
       if (error?.userCancelled) return;
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);

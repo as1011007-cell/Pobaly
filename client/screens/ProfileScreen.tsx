@@ -15,6 +15,7 @@ import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
 import { Feather } from "@expo/vector-icons";
+import Constants from "expo-constants";
 
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { ThemedText } from "@/components/ThemedText";
@@ -95,24 +96,44 @@ export default function ProfileScreen() {
   };
 
   const handleSubscribe = async () => {
-    if (isPurchasing || !selectedPackage) return;
+    if (isPurchasing) return;
+    if (!selectedPackage) {
+      const isExpoGo = Constants.executionEnvironment === "storeClient";
+      if (isExpoGo) {
+        Alert.alert(
+          "Expo Go limitation",
+          "In-app purchases require a TestFlight or App Store build. Build with 'eas build --profile preview' to test real purchases.",
+          [{ text: "OK" }]
+        );
+      } else if (!rcLoading) {
+        Alert.alert(
+          "Prices unavailable",
+          "Could not connect to the App Store. Please check your connection and try again.",
+          [{ text: "OK" }]
+        );
+      }
+      return;
+    }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
       await purchase(selectedPackage);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-      // Sync premium status to server immediately after purchase
+      // Sync premium status to server immediately after purchase.
+      // Only sync when entitlement is confirmed active — never send isSubscribed:false
+      // on a fresh purchase, as that would incorrectly strip premium from the account.
       if (user?.id) {
         try {
           const customerInfo = await Purchases.getCustomerInfo();
           const entitlement = customerInfo.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER];
-          const isSubscribed = entitlement !== undefined;
-          const productIdentifier = entitlement?.productIdentifier ?? selectedPackage.product.identifier;
-          await apiRequest("POST", "/api/revenuecat/sync", {
-            userId: String(user.id),
-            isSubscribed,
-            productIdentifier,
-          });
+          if (entitlement) {
+            await apiRequest("POST", "/api/revenuecat/sync", {
+              userId: String(user.id),
+              isSubscribed: true,
+              productIdentifier: entitlement.productIdentifier ?? selectedPackage.product.identifier,
+            });
+          }
+          // If entitlement not yet active, RevenueCat webhook will sync shortly
         } catch (syncError) {
           console.warn("RevenueCat sync failed:", syncError);
         }
@@ -132,6 +153,7 @@ export default function ProfileScreen() {
   };
 
   const handleRestorePurchases = async () => {
+    if (isRestoring || isPurchasing) return;
     try {
       const restoredInfo = await restore();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -152,7 +174,12 @@ export default function ProfileScreen() {
       }
 
       await refreshUser();
-      Alert.alert("Purchases Restored", "Your subscription has been restored successfully.", [{ text: "OK" }]);
+      const hasActiveSubscription = restoredInfo.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
+      if (hasActiveSubscription) {
+        Alert.alert("Purchases Restored", "Your subscription has been restored successfully.", [{ text: "OK" }]);
+      } else {
+        Alert.alert("No Purchases Found", "We could not find any previous purchases on this Apple ID.", [{ text: "OK" }]);
+      }
     } catch (error: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       console.error("Restore error:", error);
@@ -367,7 +394,7 @@ export default function ProfileScreen() {
 
               <Button
                 onPress={handleSubscribe}
-                disabled={isPurchasing}
+                disabled={isPurchasing || rcLoading}
                 style={styles.subscribeButton}
                 testID="button-subscribe"
               >

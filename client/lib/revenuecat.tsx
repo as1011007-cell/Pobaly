@@ -4,28 +4,34 @@ import Purchases from "react-native-purchases";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import Constants from "expo-constants";
 
-const REVENUECAT_TEST_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_TEST_API_KEY;
-const REVENUECAT_IOS_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY;
-const REVENUECAT_ANDROID_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY;
+// EXPO_PUBLIC_ keys are intentionally public — safe to have as fallbacks in source.
+// EAS builds inject these from eas.json env blocks; the fallbacks ensure Expo Go and
+// Replit dev environment work even without secrets configured in the host shell.
+const REVENUECAT_TEST_API_KEY =
+  process.env.EXPO_PUBLIC_REVENUECAT_TEST_API_KEY || "test_ujejbUaLMSXGLBgQREyCkMNwUmj";
+const REVENUECAT_IOS_API_KEY =
+  process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY || "appl_eGrJgGTzuQlDyJTRiMiPczUDSuT";
+const REVENUECAT_ANDROID_API_KEY =
+  process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY || "goog_ALAAevcXbLPVkioULpXpsBquKKj";
 
 export const REVENUECAT_ENTITLEMENT_IDENTIFIER = "premium";
 
 // Prevents reconfiguring if called multiple times (e.g. hot reload)
 let _initialized = false;
 
-function getRevenueCatApiKey(): string | null {
-  // Expo Go always uses the test key — real StoreKit is unavailable
+function getRevenueCatApiKey(): string {
+  // Expo Go always uses the test key — real StoreKit is unavailable in Expo Go
   if (Platform.OS === "web" || Constants.executionEnvironment === "storeClient") {
-    return REVENUECAT_TEST_API_KEY || null;
+    return REVENUECAT_TEST_API_KEY;
   }
-  // Development builds (__DEV__) also use the test key so sandbox purchases work
+  // Development builds (__DEV__) use the test key so sandbox purchases work
   if (__DEV__) {
-    return REVENUECAT_TEST_API_KEY || null;
+    return REVENUECAT_TEST_API_KEY;
   }
   // Release builds (TestFlight, App Store, Play Store) use the real platform key
-  if (Platform.OS === "ios" && REVENUECAT_IOS_API_KEY) return REVENUECAT_IOS_API_KEY;
-  if (Platform.OS === "android" && REVENUECAT_ANDROID_API_KEY) return REVENUECAT_ANDROID_API_KEY;
-  return REVENUECAT_TEST_API_KEY || null;
+  if (Platform.OS === "ios") return REVENUECAT_IOS_API_KEY;
+  if (Platform.OS === "android") return REVENUECAT_ANDROID_API_KEY;
+  return REVENUECAT_TEST_API_KEY;
 }
 
 // Wrap any promise with a timeout so queries never hang forever
@@ -41,15 +47,15 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 export function initializeRevenueCat() {
   if (_initialized) return;
   const apiKey = getRevenueCatApiKey();
-  if (!apiKey) {
-    console.warn("RevenueCat: No API key — skipping initialization (set EXPO_PUBLIC_REVENUECAT_*_API_KEY in eas.json)");
-    return;
-  }
   // Only log DEBUG in dev — production builds use INFO to reduce noise
   Purchases.setLogLevel(__DEV__ ? Purchases.LOG_LEVEL.DEBUG : Purchases.LOG_LEVEL.INFO);
   Purchases.configure({ apiKey });
   _initialized = true;
   console.log(`RevenueCat initialized [${__DEV__ ? "test" : Platform.OS === "ios" ? "ios" : "android"}]`);
+}
+
+export function isRevenueCatReady(): boolean {
+  return _initialized;
 }
 
 export async function loginRevenueCat(userId: string) {
@@ -77,6 +83,7 @@ function useSubscriptionContext() {
     staleTime: 60 * 1000,
     retry: 3,
     retryDelay: (attempt) => Math.min(2000 * (attempt + 1), 8000),
+    enabled: _initialized,
   });
 
   const offeringsQuery = useQuery({
@@ -85,6 +92,7 @@ function useSubscriptionContext() {
     staleTime: 300 * 1000,
     retry: 3,
     retryDelay: (attempt) => Math.min(2000 * (attempt + 1), 8000),
+    enabled: _initialized,
   });
 
   const purchaseMutation = useMutation({
@@ -118,14 +126,15 @@ function useSubscriptionContext() {
     monthlyPackage,
     annualPackage,
     isSubscribed,
-    isLoading: offeringsQuery.isLoading,
-    isLoadingCustomer: customerInfoQuery.isLoading,
+    isLoading: offeringsQuery.isLoading && _initialized,
+    isLoadingCustomer: customerInfoQuery.isLoading && _initialized,
     offeringsError: offeringsQuery.isError,
     purchase: purchaseMutation.mutateAsync,
     restore: restoreMutation.mutateAsync,
     isPurchasing: purchaseMutation.isPending,
     isRestoring: restoreMutation.isPending,
     refetchOfferings: offeringsQuery.refetch,
+    refetchCustomerInfo: customerInfoQuery.refetch,
   };
 }
 
