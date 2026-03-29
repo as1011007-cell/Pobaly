@@ -6,7 +6,6 @@ import {
   Image,
   ActivityIndicator,
   Pressable,
-  Modal,
   Platform,
   Animated,
   Alert,
@@ -74,7 +73,6 @@ export default function SubscriptionScreen() {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const { user, isPremium, refreshUser } = useAuth();
   const [selectedPlan, setSelectedPlan] = useState<PlanType>("annual");
-  const [confirmVisible, setConfirmVisible] = useState(false);
 
   const {
     monthlyPackage,
@@ -105,7 +103,7 @@ export default function SubscriptionScreen() {
   // Detect Expo Go so we can show appropriate messaging
   const isExpoGo = Constants.executionEnvironment === "storeClient";
 
-  const handleSubscribe = () => {
+  const handleSubscribe = async () => {
     if (isPurchasing) return;
     if (!selectedPackage) {
       Alert.alert(
@@ -116,12 +114,6 @@ export default function SubscriptionScreen() {
       return;
     }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setConfirmVisible(true);
-  };
-
-  const handleConfirmPurchase = async () => {
-    setConfirmVisible(false);
-    if (!selectedPackage) return;
     try {
       await purchase(selectedPackage);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -400,54 +392,11 @@ export default function SubscriptionScreen() {
         </View>
       </ScrollView>
 
-      {/* Purchase Confirmation Modal */}
-      <Modal visible={confirmVisible} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { backgroundColor: theme.backgroundDefault }]}>
-            <ThemedText type="h4" style={{ textAlign: "center", marginBottom: Spacing.sm }}>
-              Confirm Purchase
-            </ThemedText>
-            <ThemedText
-              type="body"
-              style={{ color: theme.textSecondary, textAlign: "center", marginBottom: Spacing.xl }}
-            >
-              {selectedPlan === "annual"
-                ? `Subscribe for ${annualPrice}/year`
-                : `Subscribe for ${monthlyPrice}/month`}
-              {"\n"}
-              Billed by {Platform.OS === "ios" ? "Apple" : Platform.OS === "android" ? "Google" : "Apple / Google"}.
-            </ThemedText>
-            <View style={styles.modalButtons}>
-              <Pressable
-                onPress={() => setConfirmVisible(false)}
-                style={[styles.modalBtn, { backgroundColor: `${theme.border}40` }]}
-                testID="button-cancel-purchase"
-              >
-                <ThemedText type="body">Cancel</ThemedText>
-              </Pressable>
-              <Pressable
-                onPress={handleConfirmPurchase}
-                style={[styles.modalBtn, { backgroundColor: theme.primary }]}
-                testID="button-confirm-purchase"
-              >
-                <ThemedText type="body" style={{ color: "#FFF", fontWeight: "700" }}>Subscribe</ThemedText>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Full-screen purchasing overlay */}
+      {/* Apple Pay-style spinner overlay — shows while purchase sheet is processing */}
       {isPurchasing && (
         <View style={styles.purchasingOverlay}>
-          <View style={[styles.purchasingCard, { backgroundColor: theme.backgroundDefault }]}>
-            <ActivityIndicator size="large" color={theme.primary} />
-            <ThemedText type="body" style={{ marginTop: Spacing.md, fontWeight: "600" }}>
-              Processing payment...
-            </ThemedText>
-            <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: Spacing.xs, textAlign: "center" }}>
-              Please wait while {Platform.OS === "ios" ? "Apple" : "Google"} processes your purchase.
-            </ThemedText>
+          <View style={styles.purchasingCard}>
+            <ActivityIndicator size="large" color="#FFFFFF" />
           </View>
         </View>
       )}
@@ -485,10 +434,6 @@ const styles = StyleSheet.create({
   successContent: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: Spacing.xl },
   successIcon: { width: 100, height: 100, borderRadius: 50, alignItems: "center", justifyContent: "center", marginBottom: Spacing.xl },
   successTitle: { textAlign: "center", marginBottom: Spacing.md },
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center" },
-  modalCard: { width: "85%", borderRadius: BorderRadius.xl, padding: Spacing.xl },
-  modalButtons: { flexDirection: "row", gap: Spacing.md },
-  modalBtn: { flex: 1, paddingVertical: Spacing.md, borderRadius: BorderRadius.lg, alignItems: "center" },
-  purchasingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center", zIndex: 999 },
-  purchasingCard: { borderRadius: BorderRadius.xl, padding: Spacing["2xl"], alignItems: "center", width: "75%" },
+  purchasingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center", zIndex: 999 },
+  purchasingCard: { width: 80, height: 80, borderRadius: 20, backgroundColor: "rgba(40,40,40,0.92)", alignItems: "center", justifyContent: "center" },
 });

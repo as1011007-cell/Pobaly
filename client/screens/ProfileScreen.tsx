@@ -6,7 +6,6 @@ import {
   ActivityIndicator,
   Pressable,
   Platform,
-  Modal,
   Animated,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -85,7 +84,6 @@ export default function ProfileScreen() {
 
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<PlanType>("annual");
-  const [confirmVisible, setConfirmVisible] = useState(false);
 
   const selectedPackage = selectedPlan === "monthly" ? monthlyPackage : annualPackage;
   const monthlyPrice = monthlyPackage?.product.priceString ?? "$49.99";
@@ -96,14 +94,9 @@ export default function ProfileScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
-  const handleSubscribe = () => {
-    if (!selectedPackage) return;
-    setConfirmVisible(true);
-  };
-
-  const handleConfirmPurchase = async () => {
-    setConfirmVisible(false);
-    if (!selectedPackage) return;
+  const handleSubscribe = async () => {
+    if (isPurchasing || !selectedPackage) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
       await purchase(selectedPackage);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -464,54 +457,11 @@ export default function ProfileScreen() {
         </ThemedText>
       </KeyboardAwareScrollViewCompat>
 
-      {/* Purchase Confirmation Modal */}
-      <Modal visible={confirmVisible} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { backgroundColor: theme.backgroundDefault }]}>
-            <ThemedText type="h4" style={{ textAlign: "center", marginBottom: Spacing.sm }}>
-              Confirm Purchase
-            </ThemedText>
-            <ThemedText
-              type="body"
-              style={{ color: theme.textSecondary, textAlign: "center", marginBottom: Spacing.xl }}
-            >
-              {selectedPlan === "annual"
-                ? `Subscribe for ${annualPrice}/year`
-                : `Subscribe for ${monthlyPrice}/month`}
-              {"\n"}
-              Billed by {Platform.OS === "ios" ? "Apple" : Platform.OS === "android" ? "Google" : "Apple / Google"}.
-            </ThemedText>
-            <View style={styles.modalButtons}>
-              <Pressable
-                onPress={() => setConfirmVisible(false)}
-                style={[styles.modalBtn, { backgroundColor: `${theme.border}40` }]}
-              >
-                <ThemedText type="body">Cancel</ThemedText>
-              </Pressable>
-              <Pressable
-                onPress={handleConfirmPurchase}
-                style={[styles.modalBtn, { backgroundColor: theme.primary }]}
-              >
-                <ThemedText type="body" style={{ color: "#FFF", fontWeight: "700" }}>
-                  Subscribe
-                </ThemedText>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Full-screen purchasing overlay */}
+      {/* Apple Pay-style spinner overlay — shows while purchase sheet is processing */}
       {isPurchasing && (
         <View style={styles.purchasingOverlay}>
-          <View style={[styles.purchasingCard, { backgroundColor: theme.backgroundDefault }]}>
-            <ActivityIndicator size="large" color={theme.primary} />
-            <ThemedText type="body" style={{ marginTop: Spacing.md, fontWeight: "600" }}>
-              Processing payment...
-            </ThemedText>
-            <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: Spacing.xs, textAlign: "center" }}>
-              Please wait while {Platform.OS === "ios" ? "Apple" : "Google"} processes your purchase.
-            </ThemedText>
+          <View style={styles.purchasingCard}>
+            <ActivityIndicator size="large" color="#FFFFFF" />
           </View>
         </View>
       )}
@@ -541,10 +491,6 @@ const styles = StyleSheet.create({
   bestValueText: { color: "#FFFFFF", fontSize: 10, fontWeight: "700", letterSpacing: 0.5 },
   selectedIndicator: { position: "absolute", bottom: Spacing.md, right: Spacing.md, width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   subscribeButton: { marginTop: Spacing.sm },
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center" },
-  modalCard: { width: "85%", borderRadius: BorderRadius.xl, padding: Spacing.xl },
-  modalButtons: { flexDirection: "row", gap: Spacing.md },
-  modalBtn: { flex: 1, paddingVertical: Spacing.md, borderRadius: BorderRadius.lg, alignItems: "center" },
-  purchasingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center", zIndex: 999 },
-  purchasingCard: { borderRadius: BorderRadius.xl, padding: Spacing["2xl"], alignItems: "center", width: "75%" },
+  purchasingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center", zIndex: 999 },
+  purchasingCard: { width: 80, height: 80, borderRadius: 20, backgroundColor: "rgba(40,40,40,0.92)", alignItems: "center", justifyContent: "center" },
 });
