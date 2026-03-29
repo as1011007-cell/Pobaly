@@ -60,7 +60,7 @@ export default function PrivacyPolicyScreen() {
           4. Third-Party Services
         </ThemedText>
         <ThemedText type="body" style={[styles.paragraph, { color: theme.textSecondary }]}>
-          We use trusted third-party services including: Stripe for payment processing, OpenAI for AI predictions, and analytics services for app improvement. These providers have their own privacy policies.
+          We use trusted third-party services including: Apple App Store and Google Play for payment processing and subscription management, RevenueCat for subscription status, OpenAI for AI-powered predictions, and analytics services for app improvement. These providers have their own privacy policies governing data they collect.
         </ThemedText>
       </View>
 

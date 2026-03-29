@@ -180,6 +180,33 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      "Delete Account",
+      "This will permanently delete your account and all associated data. This action cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete Account",
+          style: "destructive",
+          onPress: async () => {
+            if (!user?.id) return;
+            try {
+              await apiRequest("DELETE", new URL("/api/auth/account", getApiUrl()).toString(), {
+                userId: user.id,
+              });
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              await signOut();
+            } catch (error) {
+              console.error("Delete account error:", error);
+              Alert.alert("Error", "Could not delete account. Please try again or contact support@probaly.app.");
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleNotificationToggle = async (value: boolean) => {
     if (value) {
       const granted = await requestNotificationPermissions();
@@ -448,6 +475,12 @@ export default function ProfileScreen() {
               title={t.signOut}
               destructive
               onPress={handleSignOut}
+            />
+            <SettingsRow
+              icon="trash-2"
+              title="Delete Account"
+              destructive
+              onPress={handleDeleteAccount}
             />
           </View>
         </View>

@@ -233,6 +233,24 @@ export class DatabaseStorage implements IStorage {
       .from(contactSubmissions)
       .orderBy(desc(contactSubmissions.createdAt));
   }
+
+  // Anonymize user data to satisfy Apple's account deletion requirement.
+  // Keeps the row (preserving referential integrity with referrals/affiliates)
+  // but scrubs all personal information and revokes access.
+  async deleteUser(userId: string): Promise<void> {
+    await db
+      .update(users)
+      .set({
+        email: `deleted_${userId}@deleted.invalid`,
+        password: "DELETED",
+        name: null,
+        stripeCustomerId: null,
+        stripeSubscriptionId: null,
+        isPremium: false,
+        subscriptionExpiry: null,
+      })
+      .where(eq(users.id, userId));
+  }
 }
 
 export const storage = new DatabaseStorage();

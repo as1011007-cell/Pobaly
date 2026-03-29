@@ -66,6 +66,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Account deletion — required by Apple App Store Review Guideline 5.1.1
+  app.delete("/api/auth/account", async (req: Request, res: Response) => {
+    try {
+      const { userId } = req.body;
+      if (!userId) {
+        return res.status(400).json({ error: "userId required" });
+      }
+      await storage.deleteUser(userId);
+      return res.json({ success: true });
+    } catch (error: any) {
+      console.error("Account deletion error:", error);
+      return res.status(500).json({ error: "Failed to delete account" });
+    }
+  });
+
   app.post("/api/auth/login", async (req: Request, res: Response) => {
     try {
       const { email, password } = loginSchema.parse(req.body);

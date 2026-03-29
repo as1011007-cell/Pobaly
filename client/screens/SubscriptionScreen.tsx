@@ -360,9 +360,12 @@ export default function SubscriptionScreen() {
 
         <View style={styles.footer}>
           <ThemedText type="small" style={{ color: theme.textSecondary, textAlign: "center", lineHeight: 20 }}>
-            Cancel anytime. Subscriptions are managed by{" "}
-            {Platform.OS === "ios" ? "the App Store" : Platform.OS === "android" ? "Google Play" : "Apple / Google"}.
-            By subscribing, you agree to our Terms of Service and Privacy Policy.
+            {Platform.OS === "ios"
+              ? "Payment will be charged to your Apple ID account at confirmation of purchase. Subscription automatically renews unless canceled at least 24 hours before the end of the current period. Manage or cancel in your Apple ID Account Settings."
+              : Platform.OS === "android"
+              ? "Payment will be charged to your Google Play account at confirmation of purchase. Subscription automatically renews unless canceled at least 24 hours before the end of the current period. Manage or cancel in Google Play."
+              : "Subscription automatically renews unless canceled at least 24 hours before the end of the current period."
+            }{"\n\n"}For entertainment purposes only. Must be 18+. By subscribing, you agree to our Terms and Privacy Policy.
           </ThemedText>
           <View style={styles.footerLinks}>
             <Pressable
