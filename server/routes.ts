@@ -209,13 +209,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { userId } = req.params;
       const user = await storage.getUser(userId);
-      
+
       if (!user) {
         return res.status(404).json({ error: "User not found" });
       }
 
+      // Return DB premium status regardless of how the subscription was created
+      // (works for both Stripe and RevenueCat subscriptions)
       if (!user.stripeSubscriptionId) {
-        return res.json({ subscription: null, isPremium: false });
+        return res.json({
+          subscription: null,
+          isPremium: user.isPremium || false,
+          expiryDate: user.subscriptionExpiry,
+        });
       }
 
       const subscription = await storage.getSubscription(user.stripeSubscriptionId);
@@ -225,6 +231,95 @@ export async function registerRoutes(app: Express): Promise<Server> {
         expiryDate: user.subscriptionExpiry,
       });
     } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============ RevenueCat Routes ============
+
+  // Sync premium status after a RevenueCat purchase (called by client immediately after purchase)
+  app.post("/api/revenuecat/sync", async (req: Request, res: Response) => {
+    try {
+      const { userId, isSubscribed, productIdentifier } = req.body;
+      if (!userId) return res.status(400).json({ error: "userId is required" });
+
+      const user = await storage.getUser(String(userId));
+      if (!user) return res.status(404).json({ error: "User not found" });
+
+      if (isSubscribed) {
+        const isAnnual = String(productIdentifier || "").includes("annual");
+        const expiry = new Date();
+        if (isAnnual) {
+          expiry.setFullYear(expiry.getFullYear() + 1);
+        } else {
+          expiry.setMonth(expiry.getMonth() + 1);
+        }
+        await storage.updateUserStripeInfo(String(userId), {
+          isPremium: true,
+          subscriptionExpiry: expiry,
+        });
+        console.log(`RevenueCat sync: user ${userId} → isPremium=true (${isAnnual ? "annual" : "monthly"})`);
+        return res.json({ isPremium: true, subscriptionExpiry: expiry });
+      } else {
+        await storage.updateUserStripeInfo(String(userId), { isPremium: false });
+        console.log(`RevenueCat sync: user ${userId} → isPremium=false`);
+        return res.json({ isPremium: false });
+      }
+    } catch (error: any) {
+      console.error("RevenueCat sync error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // RevenueCat webhook — handles subscription lifecycle events from RevenueCat dashboard
+  app.post("/api/revenuecat/webhook", async (req: Request, res: Response) => {
+    try {
+      const event = req.body;
+      const eventType = event?.event?.type;
+      const appUserId = event?.event?.app_user_id;
+      const productId = event?.event?.product_id;
+      const expirationAtMs = event?.event?.expiration_at_ms;
+
+      if (!appUserId || !eventType) {
+        return res.status(400).json({ error: "Invalid webhook payload" });
+      }
+
+      const user = await storage.getUser(String(appUserId));
+      if (!user) {
+        // User not found — could be anonymous RevenueCat user before login mapping
+        console.log(`RevenueCat webhook: user ${appUserId} not in DB (skipping)`);
+        return res.json({ received: true });
+      }
+
+      const activatingEvents = ["INITIAL_PURCHASE", "RENEWAL", "PRODUCT_CHANGE", "UNCANCELLATION", "TRANSFER"];
+      const deactivatingEvents = ["CANCELLATION", "EXPIRATION", "BILLING_ISSUE"];
+
+      if (activatingEvents.includes(eventType)) {
+        let expiry: Date;
+        if (expirationAtMs) {
+          expiry = new Date(expirationAtMs);
+        } else {
+          expiry = new Date();
+          const isAnnual = String(productId || "").includes("annual");
+          isAnnual
+            ? expiry.setFullYear(expiry.getFullYear() + 1)
+            : expiry.setMonth(expiry.getMonth() + 1);
+        }
+        await storage.updateUserStripeInfo(String(appUserId), {
+          isPremium: true,
+          subscriptionExpiry: expiry,
+        });
+        console.log(`RevenueCat webhook: ${eventType} → isPremium=true for ${appUserId}`);
+      } else if (deactivatingEvents.includes(eventType)) {
+        await storage.updateUserStripeInfo(String(appUserId), { isPremium: false });
+        console.log(`RevenueCat webhook: ${eventType} → isPremium=false for ${appUserId}`);
+      } else {
+        console.log(`RevenueCat webhook: unhandled event type ${eventType}`);
+      }
+
+      res.json({ received: true });
+    } catch (error: any) {
+      console.error("RevenueCat webhook error:", error);
       res.status(500).json({ error: error.message });
     }
   });

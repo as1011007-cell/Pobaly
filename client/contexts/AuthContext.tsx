@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 import { User } from "@/types";
 import { storage } from "@/lib/storage";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
+import Purchases from "react-native-purchases";
 
 interface AuthContextType {
   user: User | null;
@@ -55,6 +56,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await storage.setUser(newUser);
       await storage.setAuthToken(data.token);
       setUser(newUser);
+      // Link this user to RevenueCat so purchases are attributed correctly
+      Purchases.logIn(String(data.user.id)).catch(() => {});
     } finally {
       setIsLoading(false);
     }
@@ -82,6 +85,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await storage.setAuthToken(data.token);
       await storage.setOnboardingComplete();
       setUser(newUser);
+      // Link this user to RevenueCat so purchases are attributed correctly
+      Purchases.logIn(String(data.user.id)).catch(() => {});
     } finally {
       setIsLoading(false);
     }
@@ -90,6 +95,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = async () => {
     setIsLoading(true);
     try {
+      // Unlink RevenueCat identity so purchases aren't shared between accounts
+      Purchases.logOut().catch(() => {});
       await storage.clearAll();
       setUser(null);
     } finally {

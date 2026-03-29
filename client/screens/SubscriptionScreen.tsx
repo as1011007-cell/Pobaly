@@ -24,8 +24,10 @@ import { Button } from "@/components/Button";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/contexts/AuthContext";
 import { BorderRadius, Spacing } from "@/constants/theme";
-import { useSubscription } from "@/lib/revenuecat";
+import { useSubscription, REVENUECAT_ENTITLEMENT_IDENTIFIER } from "@/lib/revenuecat";
 import { useFocusEffect } from "@react-navigation/native";
+import Purchases from "react-native-purchases";
+import { apiRequest } from "@/lib/query-client";
 
 const features = [
   { icon: "unlock", title: "All Daily Predictions", description: "Access every AI prediction" },
@@ -70,7 +72,7 @@ export default function SubscriptionScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
-  const { isPremium, refreshUser } = useAuth();
+  const { user, isPremium, refreshUser } = useAuth();
   const [selectedPlan, setSelectedPlan] = useState<PlanType>("annual");
   const [confirmVisible, setConfirmVisible] = useState(false);
 
@@ -123,7 +125,26 @@ export default function SubscriptionScreen() {
     try {
       await purchase(selectedPackage);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      // Refresh user to sync premium status after purchase
+
+      // After purchase, sync premium status to server so backend reflects it immediately
+      if (user?.id) {
+        try {
+          const customerInfo = await Purchases.getCustomerInfo();
+          const entitlement = customerInfo.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER];
+          const isSubscribed = entitlement !== undefined;
+          const productIdentifier = entitlement?.productIdentifier ?? selectedPackage.product.identifier;
+          await apiRequest("POST", "/api/revenuecat/sync", {
+            userId: String(user.id),
+            isSubscribed,
+            productIdentifier,
+          });
+        } catch (syncError) {
+          // Non-fatal: webhook will eventually sync if this fails
+          console.warn("RevenueCat sync failed:", syncError);
+        }
+      }
+
+      // Refresh local user state so premium UI unlocks
       await refreshUser();
     } catch (error: any) {
       if (error?.userCancelled) return;
@@ -140,9 +161,27 @@ export default function SubscriptionScreen() {
   const handleRestorePurchases = async () => {
     if (isRestoring) return;
     try {
-      await restore();
+      const restoredInfo = await restore();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert("Purchases restored", "Your subscription has been restored.", [{ text: "OK" }]);
+
+      // Sync restored premium status to server
+      if (user?.id) {
+        try {
+          const entitlement = restoredInfo.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER];
+          const isSubscribed = entitlement !== undefined;
+          const productIdentifier = entitlement?.productIdentifier;
+          await apiRequest("POST", "/api/revenuecat/sync", {
+            userId: String(user.id),
+            isSubscribed,
+            productIdentifier,
+          });
+        } catch (syncError) {
+          console.warn("RevenueCat restore sync failed:", syncError);
+        }
+      }
+
+      await refreshUser();
+      Alert.alert("Purchases restored", "Your subscription has been restored successfully.", [{ text: "OK" }]);
     } catch (error: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       console.error("Restore error:", error);

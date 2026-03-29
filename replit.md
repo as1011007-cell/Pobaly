@@ -181,7 +181,26 @@ Predictions table:
 - `assets/images/app-icon-1024.png` — 1024x1024 AI-generated icon (bull head on navy background)
 - Used as iOS icon, Android icon, splash screen, and favicon
 
+## RevenueCat Subscription Sync Flow
+When a user purchases on iOS/Android:
+1. `AuthContext` calls `Purchases.logIn(userId)` on sign-in so purchases are linked to the DB user
+2. After purchase, `SubscriptionScreen` calls `POST /api/revenuecat/sync` → sets `isPremium=true` in DB immediately
+3. `GET /api/subscription/:userId` returns `isPremium` from DB (works for both Stripe and RevenueCat)
+4. For ongoing renewals/cancellations: configure RevenueCat webhook in RevenueCat dashboard → `https://probaly.net/api/revenuecat/webhook`
+
+### RevenueCat Webhook Setup (one-time, in RevenueCat dashboard)
+- Go to RevenueCat Dashboard → Project Settings → Integrations → Webhooks
+- Add endpoint URL: `https://probaly.net/api/revenuecat/webhook`
+- Events handled: INITIAL_PURCHASE, RENEWAL, PRODUCT_CHANGE, UNCANCELLATION, TRANSFER, CANCELLATION, EXPIRATION, BILLING_ISSUE
+
 ## Recent Changes
+- March 2026: Fixed RevenueCat → server premium sync for native iOS/Android builds
+  - AuthContext now calls Purchases.logIn(userId) on sign-in (links purchases to DB user)
+  - AuthContext calls Purchases.logOut() on sign-out
+  - POST /api/revenuecat/sync endpoint: immediately marks user isPremium after purchase
+  - POST /api/revenuecat/webhook endpoint: handles subscription lifecycle events
+  - GET /api/subscription/:userId now returns DB isPremium even without Stripe subscription
+  - Restore purchases also syncs premium status to server
 - March 2026: Complete App Store / Google Play production readiness pass
   - iOS Privacy Manifest added
   - Proper permissions declared and blocked on Android
