@@ -102,6 +102,7 @@
       "favicon": "./assets/images/probaly-logo.png"
     },
     "plugins": [
+      "react-native-purchases",
       [
         "expo-splash-screen",
         {

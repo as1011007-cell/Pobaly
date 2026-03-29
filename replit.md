@@ -194,6 +194,7 @@ When a user purchases on iOS/Android:
 - Events handled: INITIAL_PURCHASE, RENEWAL, PRODUCT_CHANGE, UNCANCELLATION, TRANSFER, CANCELLATION, EXPIRATION, BILLING_ISSUE
 
 ## Recent Changes
+- March 2026: Added `react-native-purchases` to Expo plugins in app.json — required for StoreKit/Google Billing to link correctly in native builds. Without this, in-app purchases silently fail. Requires a new EAS build to take effect.
 - March 2026: Fixed RevenueCat → server premium sync for native iOS/Android builds
   - AuthContext now calls Purchases.logIn(userId) on sign-in (links purchases to DB user)
   - AuthContext calls Purchases.logOut() on sign-out

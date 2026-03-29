@@ -339,7 +339,7 @@ export default function SubscriptionScreen() {
         {/* Subscribe Button */}
         <Button
           onPress={handleSubscribe}
-          disabled={isPurchasing}
+          disabled={isPurchasing || isLoading}
           style={styles.subscribeButton}
           testID="button-subscribe"
         >
