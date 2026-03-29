@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 import { User } from "@/types";
 import { storage } from "@/lib/storage";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
-import Purchases from "react-native-purchases";
+import { loginRevenueCat, logoutRevenueCat } from "@/lib/revenuecat";
 
 interface AuthContextType {
   user: User | null;
@@ -28,7 +28,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const loadUser = async () => {
     try {
       const savedUser = await storage.getUser();
-      setUser(savedUser);
+      if (savedUser) {
+        setUser(savedUser);
+        // Re-link RevenueCat to this user on every app restart so purchases are
+        // always attributed to the correct account, not the anonymous session.
+        loginRevenueCat(String(savedUser.id));
+      }
     } catch (error) {
       console.error("Failed to load user:", error);
     } finally {
@@ -39,10 +44,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signIn = async (email: string, password: string) => {
     setIsLoading(true);
     try {
-      const response = await apiRequest("POST", "/api/auth/login", {
-        email,
-        password,
-      });
+      const response = await apiRequest("POST", "/api/auth/login", { email, password });
       const data = await response.json();
 
       const newUser: User = {
@@ -57,7 +59,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await storage.setAuthToken(data.token);
       setUser(newUser);
       // Link this user to RevenueCat so purchases are attributed correctly
-      Purchases.logIn(String(data.user.id)).catch(() => {});
+      loginRevenueCat(String(data.user.id));
     } finally {
       setIsLoading(false);
     }
@@ -66,11 +68,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signUp = async (email: string, password: string, name: string) => {
     setIsLoading(true);
     try {
-      const response = await apiRequest("POST", "/api/auth/register", {
-        email,
-        password,
-        name,
-      });
+      const response = await apiRequest("POST", "/api/auth/register", { email, password, name });
       const data = await response.json();
 
       const newUser: User = {
@@ -86,7 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await storage.setOnboardingComplete();
       setUser(newUser);
       // Link this user to RevenueCat so purchases are attributed correctly
-      Purchases.logIn(String(data.user.id)).catch(() => {});
+      loginRevenueCat(String(data.user.id));
     } finally {
       setIsLoading(false);
     }
@@ -96,7 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     try {
       // Unlink RevenueCat identity so purchases aren't shared between accounts
-      Purchases.logOut().catch(() => {});
+      logoutRevenueCat();
       await storage.clearAll();
       setUser(null);
     } finally {
@@ -112,15 +110,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const response = await fetch(url.toString());
       const data = await response.json();
 
-      if (data.isPremium !== user.isPremium) {
-        const updatedUser: User = {
-          ...user,
-          isPremium: data.isPremium,
-          subscriptionExpiry: data.expiryDate,
-        };
-        await storage.setUser(updatedUser);
-        setUser(updatedUser);
-      }
+      // Always update local state to reflect the latest premium status and expiry
+      const updatedUser: User = {
+        ...user,
+        isPremium: data.isPremium ?? user.isPremium,
+        subscriptionExpiry: data.expiryDate ?? user.subscriptionExpiry,
+      };
+      await storage.setUser(updatedUser);
+      setUser(updatedUser);
     } catch (error) {
       console.error("Failed to refresh user:", error);
     }

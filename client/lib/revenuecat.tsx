@@ -10,10 +10,19 @@ const REVENUECAT_ANDROID_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_AP
 
 export const REVENUECAT_ENTITLEMENT_IDENTIFIER = "premium";
 
+// Prevents reconfiguring if called multiple times (e.g. hot reload)
+let _initialized = false;
+
 function getRevenueCatApiKey(): string | null {
-  if (__DEV__ || Platform.OS === "web" || Constants.executionEnvironment === "storeClient") {
+  // Expo Go always uses the test key — real StoreKit is unavailable
+  if (Platform.OS === "web" || Constants.executionEnvironment === "storeClient") {
     return REVENUECAT_TEST_API_KEY || null;
   }
+  // Development builds (__DEV__) also use the test key so sandbox purchases work
+  if (__DEV__) {
+    return REVENUECAT_TEST_API_KEY || null;
+  }
+  // Release builds (TestFlight, App Store, Play Store) use the real platform key
   if (Platform.OS === "ios" && REVENUECAT_IOS_API_KEY) return REVENUECAT_IOS_API_KEY;
   if (Platform.OS === "android" && REVENUECAT_ANDROID_API_KEY) return REVENUECAT_ANDROID_API_KEY;
   return REVENUECAT_TEST_API_KEY || null;
@@ -29,27 +38,45 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
-export function initializeRevenueCat(userId?: string) {
+export function initializeRevenueCat() {
+  if (_initialized) return;
   const apiKey = getRevenueCatApiKey();
   if (!apiKey) {
-    console.warn("RevenueCat: No API key configured — subscriptions will not work");
+    console.warn("RevenueCat: No API key — skipping initialization (set EXPO_PUBLIC_REVENUECAT_*_API_KEY in eas.json)");
     return;
   }
-  Purchases.setLogLevel(Purchases.LOG_LEVEL.DEBUG);
+  // Only log DEBUG in dev — production builds use INFO to reduce noise
+  Purchases.setLogLevel(__DEV__ ? Purchases.LOG_LEVEL.DEBUG : Purchases.LOG_LEVEL.INFO);
   Purchases.configure({ apiKey });
-  if (userId) {
-    Purchases.logIn(userId).catch(console.error);
+  _initialized = true;
+  console.log(`RevenueCat initialized [${__DEV__ ? "test" : Platform.OS === "ios" ? "ios" : "android"}]`);
+}
+
+export async function loginRevenueCat(userId: string) {
+  if (!_initialized) return;
+  try {
+    await Purchases.logIn(userId);
+  } catch (e) {
+    console.warn("RevenueCat logIn failed:", e);
   }
-  console.log("RevenueCat initialized");
+}
+
+export async function logoutRevenueCat() {
+  if (!_initialized) return;
+  try {
+    await Purchases.logOut();
+  } catch (e) {
+    console.warn("RevenueCat logOut failed:", e);
+  }
 }
 
 function useSubscriptionContext() {
   const customerInfoQuery = useQuery({
     queryKey: ["revenuecat", "customer-info"],
-    queryFn: () => withTimeout(Purchases.getCustomerInfo(), 8000),
+    queryFn: () => withTimeout(Purchases.getCustomerInfo(), 20000),
     staleTime: 60 * 1000,
-    retry: 1,
-    retryDelay: 2000,
+    retry: 3,
+    retryDelay: (attempt) => Math.min(2000 * (attempt + 1), 8000),
   });
 
   const offeringsQuery = useQuery({
@@ -84,11 +111,6 @@ function useSubscriptionContext() {
     (p) => p.packageType === "ANNUAL"
   );
 
-  // Only block the UI on offerings loading — customer info loads in the background
-  const isLoadingOfferings = offeringsQuery.isLoading;
-  const isLoadingCustomer = customerInfoQuery.isLoading;
-  const offeringsError = offeringsQuery.isError;
-
   return {
     customerInfo: customerInfoQuery.data,
     offerings: offeringsQuery.data,
@@ -96,15 +118,13 @@ function useSubscriptionContext() {
     monthlyPackage,
     annualPackage,
     isSubscribed,
-    isLoading: isLoadingOfferings,
-    isLoadingCustomer,
-    offeringsError,
+    isLoading: offeringsQuery.isLoading,
+    isLoadingCustomer: customerInfoQuery.isLoading,
+    offeringsError: offeringsQuery.isError,
     purchase: purchaseMutation.mutateAsync,
     restore: restoreMutation.mutateAsync,
     isPurchasing: purchaseMutation.isPending,
     isRestoring: restoreMutation.isPending,
-    purchaseError: purchaseMutation.error,
-    restoreError: restoreMutation.error,
     refetchOfferings: offeringsQuery.refetch,
   };
 }

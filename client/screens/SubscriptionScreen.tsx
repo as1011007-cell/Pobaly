@@ -24,7 +24,6 @@ import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/contexts/AuthContext";
 import { BorderRadius, Spacing } from "@/constants/theme";
 import { useSubscription, REVENUECAT_ENTITLEMENT_IDENTIFIER } from "@/lib/revenuecat";
-import { useFocusEffect } from "@react-navigation/native";
 import Purchases from "react-native-purchases";
 import { apiRequest } from "@/lib/query-client";
 
@@ -184,7 +183,12 @@ export default function SubscriptionScreen() {
       }
 
       await refreshUser();
-      Alert.alert("Purchases restored", "Your subscription has been restored successfully.", [{ text: "OK" }]);
+      const hasActiveSubscription = restoredInfo.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
+      if (hasActiveSubscription) {
+        Alert.alert("Purchases restored", "Your subscription has been restored successfully.", [{ text: "OK" }]);
+      } else {
+        Alert.alert("No purchases found", "We could not find any previous purchases on this Apple ID.", [{ text: "OK" }]);
+      }
     } catch (error: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       console.error("Restore error:", error);

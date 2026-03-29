@@ -196,13 +196,20 @@ When a user purchases on iOS/Android:
 - Events handled: INITIAL_PURCHASE, RENEWAL, PRODUCT_CHANGE, UNCANCELLATION, TRANSFER, CANCELLATION, EXPIRATION, BILLING_ISSUE
 
 ## Recent Changes
+- March 2026: Comprehensive purchase flow hardening
+  - RevenueCat keys added to eas.json for all build profiles (root cause of TestFlight price loading failure — EAS cloud has no Replit secrets)
+  - `initializeRevenueCat()` now guarded against multiple calls (_initialized flag)
+  - `loginRevenueCat(userId)` now called on every app restart (loadUser) — previously RevenueCat was anonymous after relaunch
+  - AuthContext uses exported loginRevenueCat/logoutRevenueCat helpers (no direct Purchases import)
+  - `refreshUser()` always updates local state (was silently skipping when isPremium unchanged)
+  - Restore purchases: correctly shows "No purchases found" if nothing was restored
+  - Offerings and customer info: 20s timeout, 3 retries with exponential backoff
+  - RevenueCat log level: DEBUG in dev, INFO in production
+  - Subscription screen shows Retry button on connection failure; Expo Go shows clear TestFlight explanation
 - March 2026: Fixed RevenueCat → server premium sync for native iOS/Android builds
-  - AuthContext now calls Purchases.logIn(userId) on sign-in (links purchases to DB user)
-  - AuthContext calls Purchases.logOut() on sign-out
   - POST /api/revenuecat/sync endpoint: immediately marks user isPremium after purchase
   - POST /api/revenuecat/webhook endpoint: handles subscription lifecycle events
   - GET /api/subscription/:userId now returns DB isPremium even without Stripe subscription
-  - Restore purchases also syncs premium status to server
 - March 2026: Complete App Store / Google Play production readiness pass
   - iOS Privacy Manifest added
   - Proper permissions declared and blocked on Android
