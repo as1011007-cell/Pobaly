@@ -3,11 +3,12 @@ const path = require("path");
 
 const config = getDefaultConfig(__dirname);
 
-// Exclude .local directory (contains volatile workflow-log files that
-// disappear mid-watch and crash Metro's FallbackWatcher)
-config.watchFolders = (config.watchFolders || []).filter(
-  (f) => !f.startsWith(path.join(__dirname, ".local"))
-);
+// Exclude .local directory — contains volatile Replit workflow-log files
+// that disappear mid-watch and crash Metro's FallbackWatcher (ENOENT).
+// The blockList regex is respected by metro-file-map's FallbackWatcher ignore list.
+const localDir = path.join(__dirname, ".local");
+// Escape every special regex character in the absolute path
+const escapedLocalDir = localDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 config.resolver = {
   ...config.resolver,
@@ -17,9 +18,8 @@ config.resolver = {
       : config.resolver?.blockList
       ? [config.resolver.blockList]
       : []),
-    new RegExp(
-      `^${path.join(__dirname, "\\.local").replace(/\\/g, "\\\\").replace(/\./g, "\\.")}[/\\\\]`
-    ),
+    // Match anything inside .local/
+    new RegExp(`^${escapedLocalDir}[\\/]`),
   ],
 };
 
