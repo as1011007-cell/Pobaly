@@ -25,9 +25,9 @@ import {
 } from "@replit/revenuecat-sdk";
 
 const APP_STORE_APP_NAME = "Probaly iOS";
-const APP_STORE_BUNDLE_ID = "com.probaly.app";
+const APP_STORE_BUNDLE_ID = "app.probaly.logic";
 const PLAY_STORE_APP_NAME = "Probaly Android";
-const PLAY_STORE_PACKAGE_NAME = "com.probaly.app";
+const PLAY_STORE_PACKAGE_NAME = "app.probaly.logic";
 
 const ENTITLEMENT_IDENTIFIER = "premium";
 const ENTITLEMENT_DISPLAY_NAME = "Premium Access";
@@ -154,7 +154,17 @@ async function setupRevenueCat() {
     appStoreApp = data;
     console.log(`Created App Store app: ${appStoreApp.id}`);
   } else {
-    console.log(`App Store app found: ${appStoreApp.id}`);
+    console.log(`App Store app found: ${appStoreApp.id} (bundle_id: ${appStoreApp.app_store?.bundle_id})`);
+    if (appStoreApp.app_store?.bundle_id !== APP_STORE_BUNDLE_ID) {
+      console.log(`Updating bundle_id from ${appStoreApp.app_store?.bundle_id} to ${APP_STORE_BUNDLE_ID}...`);
+      const { data: updated, error } = await client.patch({
+        url: "/projects/{project_id}/apps/{app_id}",
+        path: { project_id: projectId, app_id: appStoreApp.id },
+        body: { app_store: { bundle_id: APP_STORE_BUNDLE_ID } },
+      });
+      if (error) console.warn(`Could not auto-update bundle_id (update in RevenueCat dashboard manually): ${JSON.stringify(error)}`);
+      else { appStoreApp = updated; console.log(`Updated App Store bundle_id to ${APP_STORE_BUNDLE_ID}`); }
+    }
   }
 
   let playStoreApp = apps.items.find((a) => a.type === "play_store");
@@ -168,7 +178,17 @@ async function setupRevenueCat() {
     playStoreApp = data;
     console.log(`Created Play Store app: ${playStoreApp.id}`);
   } else {
-    console.log(`Play Store app found: ${playStoreApp.id}`);
+    console.log(`Play Store app found: ${playStoreApp.id} (package: ${playStoreApp.play_store?.package_name})`);
+    if (playStoreApp.play_store?.package_name !== PLAY_STORE_PACKAGE_NAME) {
+      console.log(`Updating package_name from ${playStoreApp.play_store?.package_name} to ${PLAY_STORE_PACKAGE_NAME}...`);
+      const { data: updated, error } = await client.patch({
+        url: "/projects/{project_id}/apps/{app_id}",
+        path: { project_id: projectId, app_id: playStoreApp.id },
+        body: { play_store: { package_name: PLAY_STORE_PACKAGE_NAME } },
+      });
+      if (error) console.warn(`Could not auto-update package_name: ${JSON.stringify(error)}`);
+      else { playStoreApp = updated; console.log(`Updated Play Store package_name to ${PLAY_STORE_PACKAGE_NAME}`); }
+    }
   }
 
   // List existing products
