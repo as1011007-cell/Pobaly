@@ -149,7 +149,7 @@ Predictions table:
 - Frontend: `npm run expo:dev` (port 8081)
 
 ## App Store Compliance
-- Bundle ID: com.probaly.app (iOS and Android)
+- Bundle ID: app.probaly.logic (iOS and Android)
 - Privacy Policy: Accessible from Profile and Subscription screens (privacy@probaly.app)
 - Terms of Service: Accessible from Profile and Subscription screens (support@probaly.app)
 - Gambling Disclaimer: Home screen footer with 18+ requirement and "entertainment purposes only"

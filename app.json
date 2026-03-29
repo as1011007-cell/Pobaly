@@ -19,7 +19,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.probaly.app",
+      "bundleIdentifier": "app.probaly.logic",
       "buildNumber": "1",
       "icon": "./assets/images/probaly-logo.png",
       "config": {
@@ -58,7 +58,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "icon": "./assets/images/probaly-logo.png",
-      "package": "com.probaly.app",
+      "package": "app.probaly.logic",
       "versionCode": 1,
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,

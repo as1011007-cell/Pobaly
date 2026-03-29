@@ -31,7 +31,7 @@
       ],
       "ios": {
         "supportsTablet": true,
-        "bundleIdentifier": "com.probaly.app",
+        "bundleIdentifier": "app.probaly.logic",
         "buildNumber": "1",
         "icon": "./assets/images/probaly-logo.png",
         "config": {
@@ -72,7 +72,7 @@
           "monochromeImageUrl": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/assets/./assets/images/android-icon-monochrome.png"
         },
         "icon": "./assets/images/probaly-logo.png",
-        "package": "com.probaly.app",
+        "package": "app.probaly.logic",
         "versionCode": 1,
         "compileSdkVersion": 35,
         "targetSdkVersion": 35,
