@@ -54,7 +54,7 @@ export async function sendWelcomeNotification(): Promise<void> {
         body: "Get the best sports analysis from Probaly",
         badge: 1,
       },
-      trigger: { seconds: 2 } as Notifications.TimeIntervalTriggerInput,
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: 2 },
     });
   } catch (error) {
     console.error("Error sending welcome notification:", error);

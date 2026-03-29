@@ -60,9 +60,6 @@
       "icon": "./assets/images/probaly-logo.png",
       "package": "com.probaly.app",
       "versionCode": 1,
-      "compileSdkVersion": 35,
-      "targetSdkVersion": 35,
-      "minSdkVersion": 24,
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "permissions": [
@@ -125,7 +122,8 @@
           "color": "#1A237E",
           "sounds": []
         }
-      ]
+      ],
+      "expo-font"
     ],
     "experiments": {
       "reactCompiler": true
