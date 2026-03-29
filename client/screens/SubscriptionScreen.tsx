@@ -78,8 +78,6 @@ export default function SubscriptionScreen() {
     monthlyPackage,
     annualPackage,
     isLoading,
-    offeringsError,
-    refetchOfferings,
     purchase,
     restore,
     isPurchasing,
@@ -249,18 +247,6 @@ export default function SubscriptionScreen() {
           ))}
         </View>
 
-        {offeringsError && Platform.OS !== "web" && !isExpoGo && (
-          <View style={[styles.errorBanner, { backgroundColor: `${theme.accent}15`, borderColor: theme.accent }]}>
-            <Feather name="wifi-off" size={14} color={theme.accent} />
-            <ThemedText type="small" style={{ color: theme.accent, flex: 1, marginLeft: Spacing.xs }}>
-              Could not load live prices. Showing estimated prices.
-            </ThemedText>
-            <Pressable onPress={() => refetchOfferings()} style={{ marginLeft: Spacing.sm }}>
-              <ThemedText type="small" style={{ color: theme.accent, fontWeight: "700" }}>Retry</ThemedText>
-            </Pressable>
-          </View>
-        )}
-
         <View style={styles.plansContainer}>
           {/* Monthly Plan */}
           <Pressable
@@ -410,7 +396,6 @@ export default function SubscriptionScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   testModeBanner: { flexDirection: "row", alignItems: "center", padding: Spacing.sm, borderRadius: BorderRadius.md, borderWidth: 1, marginBottom: Spacing.lg },
-  errorBanner: { flexDirection: "row", alignItems: "center", padding: Spacing.sm, borderRadius: BorderRadius.md, borderWidth: 1, marginBottom: Spacing.md },
   header: { alignItems: "center", marginBottom: Spacing["2xl"] },
   headerImage: { width: 120, height: 120, marginBottom: Spacing.xl },
   title: { textAlign: "center", marginBottom: Spacing.sm },
