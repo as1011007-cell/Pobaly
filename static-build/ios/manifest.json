@@ -1,11 +1,11 @@
 {
-  "id": "1fd9eb8b-ec46-430f-9096-60376e464433",
-  "createdAt": "2026-03-28T23:00:22.603Z",
+  "id": "f0961b68-5569-4618-8756-37a13350fbf4",
+  "createdAt": "2026-03-29T00:29:52.031Z",
   "runtimeVersion": "1.0.0",
   "launchAsset": {
-    "key": "bundle-1774738822603-11152",
+    "key": "bundle-1774744192031-18410",
     "contentType": "application/javascript",
-    "url": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/1774738822603-11152/_expo/static/js/ios/bundle.js"
+    "url": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/1774744192031-18410/_expo/static/js/ios/bundle.js"
   },
   "assets": [],
   "metadata": {},
@@ -19,7 +19,7 @@
         "policy": "appVersion"
       },
       "orientation": "portrait",
-      "icon": "./assets/images/app-icon-1024.png",
+      "icon": "./assets/images/probaly-logo.png",
       "scheme": "probaly",
       "userInterfaceStyle": "automatic",
       "newArchEnabled": true,
@@ -33,7 +33,7 @@
         "supportsTablet": true,
         "bundleIdentifier": "com.probaly.app",
         "buildNumber": "1",
-        "icon": "./assets/images/app-icon-1024.png",
+        "icon": "./assets/images/probaly-logo.png",
         "config": {
           "usesNonExemptEncryption": false
         },
@@ -71,7 +71,7 @@
           "foregroundImageUrl": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/assets/./assets/images/android-icon-foreground.png",
           "monochromeImageUrl": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/assets/./assets/images/android-icon-monochrome.png"
         },
-        "icon": "./assets/images/app-icon-1024.png",
+        "icon": "./assets/images/probaly-logo.png",
         "package": "com.probaly.app",
         "versionCode": 1,
         "compileSdkVersion": 35,
@@ -113,22 +113,22 @@
             ]
           }
         ],
-        "iconUrl": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/assets/./assets/images/app-icon-1024.png"
+        "iconUrl": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/assets/./assets/images/probaly-logo.png"
       },
       "web": {
         "output": "single",
-        "favicon": "./assets/images/app-icon-1024.png"
+        "favicon": "./assets/images/probaly-logo.png"
       },
       "plugins": [
         [
           "expo-splash-screen",
           {
-            "image": "./assets/images/app-icon-1024.png",
+            "image": "./assets/images/probaly-logo.png",
             "imageWidth": 200,
             "resizeMode": "contain",
-            "backgroundColor": "#ffffff",
+            "backgroundColor": "#1A237E",
             "dark": {
-              "backgroundColor": "#111827"
+              "backgroundColor": "#1A237E"
             }
           }
         ],
@@ -136,7 +136,7 @@
         [
           "expo-notifications",
           {
-            "icon": "./assets/images/app-icon-1024.png",
+            "icon": "./assets/images/probaly-logo.png",
             "color": "#1A237E",
             "sounds": []
           }
@@ -173,9 +173,9 @@
         "web"
       ],
       "androidStatusBar": {
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#1A237E"
       },
-      "iconUrl": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/assets/./assets/images/app-icon-1024.png",
+      "iconUrl": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/assets/./assets/images/probaly-logo.png",
       "hostUri": "16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/ios"
     },
     "expoGo": {

@@ -15,8 +15,10 @@ import { createServer } from "node:http";
 var schema_exports = {};
 __export(schema_exports, {
   affiliates: () => affiliates,
+  contactSubmissions: () => contactSubmissions,
   conversations: () => conversations,
   insertAffiliateSchema: () => insertAffiliateSchema,
+  insertContactSubmissionSchema: () => insertContactSubmissionSchema,
   insertConversationSchema: () => insertConversationSchema,
   insertMessageSchema: () => insertMessageSchema,
   insertPayoutRequestSchema: () => insertPayoutRequestSchema,
@@ -183,9 +185,24 @@ var insertPayoutRequestSchema = createInsertSchema(payoutRequests).omit({
   reviewedAt: true,
   paidAt: true
 });
+var contactSubmissions = pgTable("contact_submissions", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  subject: text("subject").notNull(),
+  message: text("message").notNull(),
+  status: text("status").notNull().default("new"),
+  // new, read, resolved
+  createdAt: timestamp("created_at").defaultNow()
+});
+var insertContactSubmissionSchema = createInsertSchema(contactSubmissions).omit({
+  id: true,
+  status: true,
+  createdAt: true
+});
 
 // server/storage.ts
-import { eq, sql as sql2 } from "drizzle-orm";
+import { eq, desc, sql as sql2 } from "drizzle-orm";
 
 // server/db.ts
 import { drizzle } from "drizzle-orm/postgres-js";
@@ -413,6 +430,16 @@ var DatabaseStorage = class {
     );
     return result.rows[0] || null;
   }
+  async createContactSubmission(data) {
+    const result = await db.insert(contactSubmissions).values(data).returning();
+    return result[0];
+  }
+  async getContactSubmissions(status) {
+    if (status) {
+      return db.select().from(contactSubmissions).where(eq(contactSubmissions.status, status)).orderBy(desc(contactSubmissions.createdAt));
+    }
+    return db.select().from(contactSubmissions).orderBy(desc(contactSubmissions.createdAt));
+  }
 };
 var storage = new DatabaseStorage();
 
@@ -471,7 +498,7 @@ import bcrypt from "bcryptjs";
 
 // server/affiliateRoutes.ts
 import { Router } from "express";
-import { eq as eq2, desc, and } from "drizzle-orm";
+import { eq as eq2, desc as desc2, and } from "drizzle-orm";
 var router = Router();
 function generateAffiliateCode() {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -543,7 +570,7 @@ router.get("/dashboard/:userId", async (req, res) => {
     if (!affiliate) {
       return res.status(404).json({ error: "Not registered as affiliate" });
     }
-    const affiliateReferrals = await db.select().from(referrals).where(eq2(referrals.affiliateId, affiliate.id)).orderBy(desc(referrals.createdAt)).limit(50);
+    const affiliateReferrals = await db.select().from(referrals).where(eq2(referrals.affiliateId, affiliate.id)).orderBy(desc2(referrals.createdAt)).limit(50);
     const now = /* @__PURE__ */ new Date();
     const pendingReferrals = affiliateReferrals.filter((ref) => ref.status === "pending");
     let clearedEarnings = 0;
@@ -732,7 +759,7 @@ router.get("/admin/payout-requests", async (req, res) => {
       affiliateCode: affiliates.affiliateCode,
       stripeConnectAccountId: affiliates.stripeConnectAccountId,
       userId: affiliates.userId
-    }).from(payoutRequests).innerJoin(affiliates, eq2(payoutRequests.affiliateId, affiliates.id)).where(eq2(payoutRequests.status, status)).orderBy(desc(payoutRequests.requestedAt));
+    }).from(payoutRequests).innerJoin(affiliates, eq2(payoutRequests.affiliateId, affiliates.id)).where(eq2(payoutRequests.status, status)).orderBy(desc2(payoutRequests.requestedAt));
     res.json({ requests });
   } catch (error) {
     console.error("List payout requests error:", error);
@@ -837,7 +864,7 @@ router.get("/payout-requests/:userId", async (req, res) => {
     if (!affiliate) {
       return res.status(404).json({ error: "Not registered as affiliate" });
     }
-    const requests = await db.select().from(payoutRequests).where(eq2(payoutRequests.affiliateId, affiliate.id)).orderBy(desc(payoutRequests.requestedAt));
+    const requests = await db.select().from(payoutRequests).where(eq2(payoutRequests.affiliateId, affiliate.id)).orderBy(desc2(payoutRequests.requestedAt));
     res.json({ requests });
   } catch (error) {
     console.error("Get payout requests error:", error);
@@ -848,7 +875,7 @@ var affiliateRoutes_default = router;
 
 // server/services/predictionService.ts
 import OpenAI from "openai";
-import { eq as eq3, and as and2, gte, isNull, desc as desc2, sql as sql3 } from "drizzle-orm";
+import { eq as eq3, and as and2, gte, isNull, desc as desc3, sql as sql3 } from "drizzle-orm";
 
 // server/services/sportsApiService.ts
 var SPORTS_MAP = {
@@ -1377,7 +1404,7 @@ async function getFreeTip() {
       gte(predictions.matchTime, now),
       isNull(predictions.result)
     )
-  ).orderBy(desc2(predictions.createdAt)).limit(1);
+  ).orderBy(desc3(predictions.createdAt)).limit(1);
   return freeTip || null;
 }
 async function getPremiumPredictions(userId, isPremiumUser) {
@@ -1427,14 +1454,14 @@ async function getHistoryPredictions(userId) {
         eq3(predictions.result, "correct"),
         isNull(predictions.userId)
       )
-    ).orderBy(desc2(predictions.matchTime));
+    ).orderBy(desc3(predictions.matchTime));
   }
   return db.select().from(predictions).where(
     and2(
       eq3(predictions.result, "correct"),
       sql3`(${predictions.userId} = ${userId} OR ${predictions.userId} IS NULL)`
     )
-  ).orderBy(desc2(predictions.matchTime));
+  ).orderBy(desc3(predictions.matchTime));
 }
 async function getPredictionsBySport(sport, userId, isPremiumUser) {
   const now = /* @__PURE__ */ new Date();
@@ -1893,6 +1920,32 @@ async function registerRoutes(app2) {
     }
   });
   app2.use("/api/affiliate", affiliateRoutes_default);
+  app2.post("/api/contact", async (req, res) => {
+    try {
+      const { name, email, subject, message } = req.body;
+      if (!name || !email || !subject || !message) {
+        return res.status(400).json({ error: "All fields are required." });
+      }
+      const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRe.test(email)) {
+        return res.status(400).json({ error: "Invalid email address." });
+      }
+      if (message.length < 10) {
+        return res.status(400).json({ error: "Message must be at least 10 characters." });
+      }
+      const submission = await storage.createContactSubmission({
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        subject,
+        message: message.trim()
+      });
+      console.log(`Contact form submission from ${email}: [${subject}]`);
+      return res.json({ success: true, id: submission.id });
+    } catch (error) {
+      console.error("Contact form error:", error);
+      return res.status(500).json({ error: "Failed to save message. Please try again." });
+    }
+  });
   const httpServer = createServer(app2);
   return httpServer;
 }
@@ -2001,16 +2054,37 @@ async function seedTestUser() {
   try {
     const TEST_EMAIL = "test@probaly.app";
     const TEST_PASSWORD = "testpass123";
+    const PREMIUM_EXPIRY = new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1e3);
     const existing = await db.select().from(users).where(eq5(users.email, TEST_EMAIL)).limit(1);
     if (existing.length === 0) {
       const hashedPassword = await bcrypt2.hash(TEST_PASSWORD, 10);
       await db.insert(users).values({
         email: TEST_EMAIL,
         password: hashedPassword,
-        name: "Test User",
+        name: "Probaly Tester",
+        isPremium: true,
+        subscriptionExpiry: PREMIUM_EXPIRY
+      });
+      log(`\u2713 Test user created with premium: ${TEST_EMAIL}`);
+    } else {
+      await db.update(users).set({ isPremium: true, subscriptionExpiry: PREMIUM_EXPIRY, name: "Probaly Tester" }).where(eq5(users.email, TEST_EMAIL));
+      log(`\u2713 Test user premium access refreshed: ${TEST_EMAIL}`);
+    }
+    const FREE_EMAIL = "review@probaly.app";
+    const FREE_PASSWORD = "reviewpass123";
+    const existingFree = await db.select().from(users).where(eq5(users.email, FREE_EMAIL)).limit(1);
+    if (existingFree.length === 0) {
+      const hashedFreePassword = await bcrypt2.hash(FREE_PASSWORD, 10);
+      await db.insert(users).values({
+        email: FREE_EMAIL,
+        password: hashedFreePassword,
+        name: "App Reviewer",
         isPremium: false
       });
-      log(`\u2713 Test user created: ${TEST_EMAIL}`);
+      log(`\u2713 Free review account created: ${FREE_EMAIL}`);
+    } else {
+      await db.update(users).set({ isPremium: false, subscriptionExpiry: null, name: "App Reviewer" }).where(eq5(users.email, FREE_EMAIL));
+      log(`\u2713 Free review account confirmed non-premium: ${FREE_EMAIL}`);
     }
   } catch (error) {
   }
@@ -2158,6 +2232,29 @@ function configureExpoAndLanding(app2) {
     next();
   });
   app2.use("/assets", express.static(path.resolve(process.cwd(), "assets")));
+  app2.get("/contact", (_req, res) => {
+    const contactPath = path.resolve(process.cwd(), "server", "templates", "contact.html");
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.sendFile(contactPath);
+  });
+  const servePrivacyPolicy = (_req, res) => {
+    const policyPath = path.resolve(process.cwd(), "server", "templates", "privacy-policy.html");
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.sendFile(policyPath);
+  };
+  app2.get("/privacypolicy", servePrivacyPolicy);
+  app2.get("/privacy-policy", servePrivacyPolicy);
+  const serveTerms = (_req, res) => {
+    const termsPath = path.resolve(process.cwd(), "server", "templates", "terms.html");
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.sendFile(termsPath);
+  };
+  app2.get("/term", serveTerms);
+  app2.get("/terms", serveTerms);
+  app2.get("/termsofservice", serveTerms);
+  app2.get("/terms-of-service", serveTerms);
+  app2.get("/termsandconditions", serveTerms);
+  app2.get("/terms-and-conditions", serveTerms);
   if (webBuildExists) {
     app2.use(express.static(distPath));
     app2.use((req, res, next) => {
