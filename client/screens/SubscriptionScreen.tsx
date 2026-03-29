@@ -78,6 +78,8 @@ export default function SubscriptionScreen() {
     monthlyPackage,
     annualPackage,
     isLoading,
+    offeringsError,
+    refetchOfferings,
     purchase,
     restore,
     isPurchasing,
@@ -86,12 +88,12 @@ export default function SubscriptionScreen() {
   } = useSubscription();
 
   const selectedPackage = selectedPlan === "monthly" ? monthlyPackage : annualPackage;
-  // Show real prices from RevenueCat, or fallback to known prices while loading
+  // Show real prices from RevenueCat, or fallback to known prices while loading/failed
   const monthlyPrice = monthlyPackage?.product.priceString ?? "$49.99";
   const annualPrice = annualPackage?.product.priceString ?? "$149.00";
-  // Prices are live when we have real packages; show "~" prefix when using fallback
-  const monthlyPriceLabel = monthlyPackage ? monthlyPrice : `~${monthlyPrice}`;
-  const annualPriceLabel = annualPackage ? annualPrice : `~${annualPrice}`;
+  // Always show the known prices — RevenueCat will update them live once loaded
+  const monthlyPriceLabel = monthlyPrice;
+  const annualPriceLabel = annualPrice;
 
   const handleSelectPlan = (plan: PlanType) => {
     setSelectedPlan(plan);
@@ -104,11 +106,22 @@ export default function SubscriptionScreen() {
   const handleSubscribe = async () => {
     if (isPurchasing) return;
     if (!selectedPackage) {
-      Alert.alert(
-        "Prices unavailable",
-        "Could not load subscription prices. Please check your connection and try again.",
-        [{ text: "OK" }]
-      );
+      if (isExpoGo) {
+        Alert.alert(
+          "Expo Go limitation",
+          "In-app purchases require a TestFlight or App Store build. Build with 'eas build --profile preview' to test real purchases.",
+          [{ text: "OK" }]
+        );
+      } else {
+        Alert.alert(
+          "Prices unavailable",
+          "Could not connect to the App Store. Please check your connection and try again.",
+          [
+            { text: "Retry", onPress: () => refetchOfferings() },
+            { text: "Cancel", style: "cancel" },
+          ]
+        );
+      }
       return;
     }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -211,14 +224,24 @@ export default function SubscriptionScreen() {
         }}
         showsVerticalScrollIndicator={false}
       >
-        {isExpoGo && (
+        {isExpoGo ? (
           <View style={[styles.testModeBanner, { backgroundColor: `${theme.warning}20`, borderColor: theme.warning }]}>
-            <Feather name="info" size={14} color={theme.warning} />
-            <ThemedText type="small" style={{ color: theme.warning, marginLeft: Spacing.xs, flex: 1 }}>
-              Testing mode: payments are simulated in Expo Go. Real billing activates in the App Store / Google Play build.
+            <Feather name="info" size={16} color={theme.warning} />
+            <ThemedText type="small" style={{ color: theme.warning, marginLeft: Spacing.xs, flex: 1, lineHeight: 18 }}>
+              Purchases require a TestFlight or App Store build. Prices shown are the configured amounts — real billing activates in the native build.
             </ThemedText>
           </View>
-        )}
+        ) : offeringsError ? (
+          <View style={[styles.testModeBanner, { backgroundColor: `${theme.accent}15`, borderColor: theme.accent }]}>
+            <Feather name="wifi-off" size={16} color={theme.accent} />
+            <ThemedText type="small" style={{ color: theme.accent, marginLeft: Spacing.xs, flex: 1 }}>
+              Could not connect to the App Store.
+            </ThemedText>
+            <Pressable onPress={() => refetchOfferings()} style={{ marginLeft: Spacing.sm }}>
+              <ThemedText type="small" style={{ color: theme.accent, fontWeight: "700" }}>Retry</ThemedText>
+            </Pressable>
+          </View>
+        ) : null}
 
         <View style={styles.header}>
           <Image

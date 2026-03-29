@@ -54,10 +54,10 @@ function useSubscriptionContext() {
 
   const offeringsQuery = useQuery({
     queryKey: ["revenuecat", "offerings"],
-    queryFn: () => withTimeout(Purchases.getOfferings(), 8000),
+    queryFn: () => withTimeout(Purchases.getOfferings(), 20000),
     staleTime: 300 * 1000,
-    retry: 1,
-    retryDelay: 2000,
+    retry: 3,
+    retryDelay: (attempt) => Math.min(2000 * (attempt + 1), 8000),
   });
 
   const purchaseMutation = useMutation({

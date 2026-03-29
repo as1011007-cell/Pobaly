@@ -161,6 +161,8 @@ Predictions table:
 - **preview**: Internal TestFlight/APK distribution, Release mode, API → probaly.net
 - **production**: App Store / Play Store, autoIncrement build numbers, API → probaly.net
 - Fill in `appleId`, `ascAppId`, `appleTeamId` in submit config before using `eas submit`
+- **IMPORTANT**: All `EXPO_PUBLIC_*` env vars (RevenueCat keys, domain) MUST be in each profile's `env` block in eas.json. EAS builds run on Expo cloud servers and have NO access to Replit environment secrets.
+- RevenueCat keys are embedded in eas.json (safe — they are `EXPO_PUBLIC_` keys meant to ship in the app bundle)
 
 ## API URL Fallback
 - `client/lib/query-client.ts` → `getApiUrl()` falls back to `https://probaly.net` when `EXPO_PUBLIC_DOMAIN` is not set
