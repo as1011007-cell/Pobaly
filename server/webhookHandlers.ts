@@ -86,49 +86,40 @@ export class WebhookHandlers {
   
   static async processAffiliateReferral(userId: string, subscription: any): Promise<void> {
     try {
-      // Get user to check if they were referred
       const [user] = await db.select().from(users).where(eq(users.id, userId));
-      
-      if (!user || !user.referredByCode) {
-        return;
-      }
-      
-      // Find the affiliate who referred this user
+      if (!user || !user.referredByCode) return;
+
       const [affiliate] = await db.select()
         .from(affiliates)
         .where(eq(affiliates.affiliateCode, user.referredByCode));
-      
+
       if (!affiliate || !affiliate.isActive) {
         console.log(`Affiliate not found or inactive for code: ${user.referredByCode}`);
         return;
       }
-      
-      // Check if referral already exists for this subscription
+
+      // Dedup: one commission per referred user ever (check by user ID first, then subscription)
       const existingReferral = await db.select()
         .from(referrals)
-        .where(eq(referrals.subscriptionId, subscription.id));
-      
+        .where(eq(referrals.referredUserId, userId));
       if (existingReferral.length > 0) {
-        console.log(`Referral already exists for subscription: ${subscription.id}`);
+        console.log(`Referral already exists for user: ${userId}`);
         return;
       }
-      
-      // Get subscription amount (monthly or annual)
+
       const subscriptionAmount = subscription.items?.data?.[0]?.price?.unit_amount || 4900;
       const commissionRate = affiliate.commissionRate || 40;
       const commissionAmount = Math.floor(subscriptionAmount * (commissionRate / 100));
-      
-      // Create referral record
+
       await db.insert(referrals).values({
         affiliateId: affiliate.id,
         referredUserId: userId,
         subscriptionId: subscription.id,
-        subscriptionAmount: subscriptionAmount,
-        commissionAmount: commissionAmount,
+        subscriptionAmount,
+        commissionAmount,
         status: "pending",
       });
-      
-      // Update affiliate earnings
+
       await db.update(affiliates)
         .set({
           totalEarnings: (affiliate.totalEarnings || 0) + commissionAmount,
@@ -136,10 +127,63 @@ export class WebhookHandlers {
           totalReferrals: (affiliate.totalReferrals || 0) + 1,
         })
         .where(eq(affiliates.id, affiliate.id));
-      
-      console.log(`Affiliate referral processed: ${affiliate.affiliateCode} earned $${(commissionAmount / 100).toFixed(2)} (40% of $${(subscriptionAmount / 100).toFixed(2)})`);
+
+      console.log(`Stripe affiliate referral: ${affiliate.affiliateCode} earned $${(commissionAmount / 100).toFixed(2)}`);
     } catch (error) {
-      console.error('Error processing affiliate referral:', error);
+      console.error('Error processing Stripe affiliate referral:', error);
+    }
+  }
+
+  // Handles affiliate commission for RevenueCat (native iOS/Android) purchases.
+  // Uses referredUserId as the dedup key — affiliates earn for the first subscription only.
+  static async processAffiliateReferralForRevenueCat(userId: string, productId: string): Promise<void> {
+    try {
+      const [user] = await db.select().from(users).where(eq(users.id, userId));
+      if (!user || !user.referredByCode) return;
+
+      const [affiliate] = await db.select()
+        .from(affiliates)
+        .where(eq(affiliates.affiliateCode, user.referredByCode));
+
+      if (!affiliate || !affiliate.isActive) {
+        console.log(`RevenueCat affiliate: not found or inactive for code ${user.referredByCode}`);
+        return;
+      }
+
+      // One referral credit per referred user, ever — prevents double-crediting on renewals/restores
+      const existingReferral = await db.select()
+        .from(referrals)
+        .where(eq(referrals.referredUserId, userId));
+      if (existingReferral.length > 0) {
+        console.log(`RevenueCat affiliate: referral already exists for user ${userId}`);
+        return;
+      }
+
+      const isAnnual = String(productId || "").toLowerCase().includes("annual");
+      const subscriptionAmount = isAnnual ? 14900 : 4999; // in cents
+      const commissionRate = affiliate.commissionRate || 40;
+      const commissionAmount = Math.floor(subscriptionAmount * (commissionRate / 100));
+
+      await db.insert(referrals).values({
+        affiliateId: affiliate.id,
+        referredUserId: userId,
+        subscriptionId: `rc_${userId}_${productId}`,
+        subscriptionAmount,
+        commissionAmount,
+        status: "pending",
+      });
+
+      await db.update(affiliates)
+        .set({
+          totalEarnings: (affiliate.totalEarnings || 0) + commissionAmount,
+          pendingEarnings: (affiliate.pendingEarnings || 0) + commissionAmount,
+          totalReferrals: (affiliate.totalReferrals || 0) + 1,
+        })
+        .where(eq(affiliates.id, affiliate.id));
+
+      console.log(`RevenueCat affiliate referral: ${affiliate.affiliateCode} earned $${(commissionAmount / 100).toFixed(2)} (${isAnnual ? "annual" : "monthly"}) for user ${userId}`);
+    } catch (error) {
+      console.error('Error processing RevenueCat affiliate referral:', error);
     }
   }
 }

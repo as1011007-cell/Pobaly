@@ -6,6 +6,7 @@ import { getStripePublishableKey } from "./stripeClient";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import affiliateRoutes from "./affiliateRoutes";
+import { WebhookHandlers } from "./webhookHandlers";
 import {
   generateDailyPredictions,
   generatePremiumPredictionsForUser,
@@ -269,11 +270,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } else {
           expiry.setMonth(expiry.getMonth() + 1);
         }
+
+        // Capture whether this is a new subscription before we update the DB
+        const wasAlreadyPremium = user.isPremium === true;
+
         await storage.updateUserStripeInfo(String(userId), {
           isPremium: true,
           subscriptionExpiry: expiry,
         });
         console.log(`RevenueCat sync: user ${userId} → isPremium=true (${isAnnual ? "annual" : "monthly"})`);
+
+        // Credit affiliate commission if this looks like a new purchase.
+        // The inner dedup check in processAffiliateReferralForRevenueCat prevents
+        // double-crediting even if the RevenueCat webhook already fired.
+        if (!wasAlreadyPremium) {
+          await WebhookHandlers.processAffiliateReferralForRevenueCat(String(userId), String(productIdentifier || ""));
+        }
+
         return res.json({ isPremium: true, subscriptionExpiry: expiry });
       } else {
         await storage.updateUserStripeInfo(String(userId), { isPremium: false });
@@ -325,6 +338,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           subscriptionExpiry: expiry,
         });
         console.log(`RevenueCat webhook: ${eventType} → isPremium=true for ${appUserId}`);
+
+        // Credit affiliate commission only on the very first purchase — not renewals or restores
+        if (eventType === "INITIAL_PURCHASE") {
+          await WebhookHandlers.processAffiliateReferralForRevenueCat(String(appUserId), String(productId || ""));
+        }
       } else if (deactivatingEvents.includes(eventType)) {
         await storage.updateUserStripeInfo(String(appUserId), { isPremium: false });
         console.log(`RevenueCat webhook: ${eventType} → isPremium=false for ${appUserId}`);
