@@ -1,0 +1,26 @@
+const { getDefaultConfig } = require("expo/metro-config");
+const path = require("path");
+
+const config = getDefaultConfig(__dirname);
+
+// Exclude .local directory (contains volatile workflow-log files that
+// disappear mid-watch and crash Metro's FallbackWatcher)
+config.watchFolders = (config.watchFolders || []).filter(
+  (f) => !f.startsWith(path.join(__dirname, ".local"))
+);
+
+config.resolver = {
+  ...config.resolver,
+  blockList: [
+    ...(Array.isArray(config.resolver?.blockList)
+      ? config.resolver.blockList
+      : config.resolver?.blockList
+      ? [config.resolver.blockList]
+      : []),
+    new RegExp(
+      `^${path.join(__dirname, "\\.local").replace(/\\/g, "\\\\").replace(/\./g, "\\.")}[/\\\\]`
+    ),
+  ],
+};
+
+module.exports = config;
