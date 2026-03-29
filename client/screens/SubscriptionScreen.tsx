@@ -249,7 +249,7 @@ export default function SubscriptionScreen() {
           ))}
         </View>
 
-        {offeringsError && (
+        {offeringsError && Platform.OS !== "web" && !isExpoGo && (
           <View style={[styles.errorBanner, { backgroundColor: `${theme.accent}15`, borderColor: theme.accent }]}>
             <Feather name="wifi-off" size={14} color={theme.accent} />
             <ThemedText type="small" style={{ color: theme.accent, flex: 1, marginLeft: Spacing.xs }}>
