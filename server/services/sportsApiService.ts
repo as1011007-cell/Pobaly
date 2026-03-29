@@ -133,11 +133,11 @@ export async function getUpcomingMatchesFromApi(): Promise<SportsMatch[]> {
   allMatches.sort((a, b) => a.matchTime.getTime() - b.matchTime.getTime());
 
   if (allMatches.length === 0) {
-    console.log('No real games found from sports API');
-  } else {
-    console.log(`Fetched ${allMatches.length} real upcoming matches from sports API`);
+    console.log('No real games found from sports API — using built-in fallback matches');
+    return getFallbackMatches();
   }
   
+  console.log(`Fetched ${allMatches.length} real upcoming matches from sports API`);
   return allMatches;
 }
 

@@ -787,7 +787,25 @@ async function refreshDemoPredictions(): Promise<void> {
   
   const now = new Date();
   
-  // Delete demo predictions with expired match times
+  // Check how many current (non-expired) demo predictions exist
+  const existing = await db.select()
+    .from(predictions)
+    .where(
+      and(
+        eq(predictions.isPremium, true),
+        isNull(predictions.userId),
+        sql`${predictions.matchTime} > ${now.toISOString()}::timestamp`
+      )
+    );
+
+  // If we have plenty of fresh predictions, skip the expensive API refresh
+  // to avoid burning API rate limit quota on every server restart
+  if (existing.length >= 5) {
+    console.log(`Skipping demo prediction refresh — ${existing.length} fresh predictions already cached`);
+    return;
+  }
+
+  // Only delete expired predictions AFTER confirming we'll generate replacements
   await db.delete(predictions)
     .where(
       and(
