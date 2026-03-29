@@ -1,11 +1,11 @@
 {
-  "id": "f0961b68-5569-4618-8756-37a13350fbf4",
-  "createdAt": "2026-03-29T00:29:52.031Z",
+  "id": "0e0acece-3a03-4722-9a9c-c8d4b4ddf388",
+  "createdAt": "2026-03-29T00:43:48.177Z",
   "runtimeVersion": "1.0.0",
   "launchAsset": {
-    "key": "bundle-1774744192031-18410",
+    "key": "bundle-1774745028177-20783",
     "contentType": "application/javascript",
-    "url": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/1774744192031-18410/_expo/static/js/ios/bundle.js"
+    "url": "https://probaly.net/1774745028177-20783/_expo/static/js/ios/bundle.js"
   },
   "assets": [],
   "metadata": {},
@@ -176,10 +176,10 @@
         "backgroundColor": "#1A237E"
       },
       "iconUrl": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/assets/./assets/images/probaly-logo.png",
-      "hostUri": "16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/ios"
+      "hostUri": "probaly.net/ios"
     },
     "expoGo": {
-      "debuggerHost": "16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/ios",
+      "debuggerHost": "probaly.net/ios",
       "developer": {
         "tool": "expo-cli",
         "projectRoot": "/home/runner/workspace"

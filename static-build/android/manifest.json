@@ -1,11 +1,11 @@
 {
-  "id": "bc3e4de4-05ff-44be-9aca-ef393684d4da",
-  "createdAt": "2026-03-29T00:29:52.031Z",
+  "id": "a8db90c0-ae59-48a7-8697-18cd1ea91744",
+  "createdAt": "2026-03-29T00:43:48.177Z",
   "runtimeVersion": "1.0.0",
   "launchAsset": {
-    "key": "bundle-1774744192031-18410",
+    "key": "bundle-1774745028177-20783",
     "contentType": "application/javascript",
-    "url": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/1774744192031-18410/_expo/static/js/android/bundle.js"
+    "url": "https://probaly.net/1774745028177-20783/_expo/static/js/android/bundle.js"
   },
   "assets": [],
   "metadata": {},
@@ -176,10 +176,10 @@
         "backgroundColor": "#1A237E"
       },
       "iconUrl": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/assets/./assets/images/probaly-logo.png",
-      "hostUri": "16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/android"
+      "hostUri": "probaly.net/android"
     },
     "expoGo": {
-      "debuggerHost": "16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/android",
+      "debuggerHost": "probaly.net/android",
       "developer": {
         "tool": "expo-cli",
         "projectRoot": "/home/runner/workspace"
