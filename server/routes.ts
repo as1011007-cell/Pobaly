@@ -223,7 +223,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/subscription/:userId", async (req: Request, res: Response) => {
     try {
-      const { userId } = req.params;
+      const userId = req.params.userId as string;
       const user = await storage.getUser(userId);
 
       if (!user) {
@@ -468,7 +468,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get predictions by sport
   app.get("/api/predictions/sport/:sport", async (req: Request, res: Response) => {
     try {
-      const { sport } = req.params;
+      const sport = req.params.sport as string;
       const userId = req.query.userId as string;
       const isPremiumUser = req.query.isPremium === "true";
       const predictions = await getPredictionsBySport(sport, userId, isPremiumUser);
@@ -493,7 +493,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get single prediction by ID
   app.get("/api/predictions/:id", async (req: Request, res: Response) => {
     try {
-      const id = parseInt(req.params.id);
+      const id = parseInt(req.params.id as string);
       const prediction = await getPredictionById(id);
       if (!prediction) {
         return res.status(404).json({ error: "Prediction not found" });
@@ -507,7 +507,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Mark prediction result (admin endpoint)
   app.post("/api/predictions/:id/result", async (req: Request, res: Response) => {
     try {
-      const id = parseInt(req.params.id);
+      const id = parseInt(req.params.id as string);
       const { result } = req.body;
       
       if (result !== "correct" && result !== "incorrect") {
@@ -526,7 +526,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get user preferences
   app.get("/api/user/preferences/:userId", async (req: Request, res: Response) => {
     try {
-      const { userId } = req.params;
+      const userId = req.params.userId as string;
       const preferences = await storage.getUserPreferences(userId);
       res.json(preferences || { notificationsEnabled: true });
     } catch (error: any) {
@@ -579,7 +579,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (subscription && subscription.status === "active") {
         // Restore the subscription
-        const expiryDate = new Date(subscription.current_period_end * 1000);
+        const expiryDate = new Date((subscription as any).current_period_end * 1000);
         await storage.updateUserStripeInfo(userId, {
           stripeSubscriptionId: subscription.id,
           isPremium: true,

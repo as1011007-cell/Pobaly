@@ -12,7 +12,9 @@ export function setupNotificationHandlers(
       shouldShowAlert: true,
       shouldPlaySound: true,
       shouldSetBadge: true,
-    }),
+      shouldShowBanner: true,
+      shouldShowList: true,
+    } as any),
   });
 
   const foregroundSub = Notifications.addNotificationReceivedListener((notification) => {

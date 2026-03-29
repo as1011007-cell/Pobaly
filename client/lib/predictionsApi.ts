@@ -25,7 +25,7 @@ function mapApiPrediction(apiPred: ApiPrediction): Prediction {
   return {
     id: String(apiPred.id),
     matchTitle: apiPred.matchTitle,
-    sport: apiPred.sport,
+    sport: apiPred.sport as Prediction["sport"],
     matchTime: apiPred.matchTime,
     predictedOutcome: apiPred.predictedOutcome,
     probability: apiPred.probability,

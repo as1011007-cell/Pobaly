@@ -1,4 +1,14 @@
-export type Sport = "football" | "basketball" | "cricket" | "tennis";
+export type Sport =
+  | "football"
+  | "basketball"
+  | "cricket"
+  | "tennis"
+  | "baseball"
+  | "hockey"
+  | "mma"
+  | "golf"
+  | "soccer"
+  | "ufc";
 
 export type ConfidenceLevel = "low" | "medium" | "high";
 

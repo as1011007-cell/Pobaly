@@ -4,6 +4,12 @@ import { db } from "./db";
 import { randomUUID } from "crypto";
 import { getUncachableStripeClient } from "./stripeClient";
 
+// Drizzle's db.execute() returns a RowList which is array-like but typed differently
+// across adapter versions. This helper extracts the rows safely.
+function extractRows(result: any): any[] {
+  return result?.rows ?? Array.from(result ?? []);
+}
+
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
@@ -88,14 +94,14 @@ export class DatabaseStorage implements IStorage {
     const result = await db.execute(
       sql`SELECT * FROM stripe.products WHERE id = ${productId}`
     );
-    return result.rows[0] || null;
+    return extractRows(result)[0] || null;
   }
 
   async listProducts(active = true, limit = 20, offset = 0) {
     const result = await db.execute(
       sql`SELECT * FROM stripe.products WHERE active = ${active} LIMIT ${limit} OFFSET ${offset}`
     );
-    return result.rows || [];
+    return extractRows(result);
   }
 
   async listProductsWithPrices(active = true, limit = 20, offset = 0) {
@@ -126,7 +132,7 @@ export class DatabaseStorage implements IStorage {
       `
     );
     
-    const rows = result.rows || [];
+    const rows = extractRows(result);
     
     if (rows.length === 0) {
       try {
@@ -183,28 +189,28 @@ export class DatabaseStorage implements IStorage {
     const result = await db.execute(
       sql`SELECT * FROM stripe.prices WHERE id = ${priceId}`
     );
-    return result.rows[0] || null;
+    return extractRows(result)[0] || null;
   }
 
   async listPrices(active = true, limit = 20, offset = 0) {
     const result = await db.execute(
       sql`SELECT * FROM stripe.prices WHERE active = ${active} LIMIT ${limit} OFFSET ${offset}`
     );
-    return result.rows || [];
+    return extractRows(result);
   }
 
   async getPricesForProduct(productId: string) {
     const result = await db.execute(
       sql`SELECT * FROM stripe.prices WHERE product = ${productId} AND active = true`
     );
-    return result.rows || [];
+    return extractRows(result);
   }
 
   async getSubscription(subscriptionId: string) {
     const result = await db.execute(
       sql`SELECT * FROM stripe.subscriptions WHERE id = ${subscriptionId}`
     );
-    return result.rows[0] || null;
+    return extractRows(result)[0] || null;
   }
 
   async createContactSubmission(data: {

@@ -373,7 +373,7 @@ router.get("/admin/payout-requests", async (req: Request, res: Response) => {
 
 router.post("/admin/approve-payout/:requestId", async (req: Request, res: Response) => {
   try {
-    const requestId = parseInt(req.params.requestId);
+    const requestId = parseInt(req.params.requestId as string);
     const stripe = await getUncachableStripeClient();
 
     const [payoutRequest] = await db.select()
