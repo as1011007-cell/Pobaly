@@ -384,7 +384,22 @@ export default function SubscriptionScreen() {
               : Platform.OS === "android"
               ? "Payment will be charged to your Google Play account at confirmation of purchase. Subscription automatically renews unless canceled at least 24 hours before the end of the current period. Manage or cancel in Google Play."
               : "Subscription automatically renews unless canceled at least 24 hours before the end of the current period."
-            }{"\n\n"}For entertainment purposes only. Must be 18+. By subscribing, you agree to our Terms and Privacy Policy.
+            }{"\n\n"}For entertainment purposes only. Must be 18+. By subscribing, you agree to our{" "}
+            <ThemedText
+              type="small"
+              style={{ color: theme.accent, textDecorationLine: "underline" }}
+              onPress={() => navigation.navigate("TermsOfService")}
+            >
+              Terms of Use (EULA)
+            </ThemedText>
+            {" "}and{" "}
+            <ThemedText
+              type="small"
+              style={{ color: theme.accent, textDecorationLine: "underline" }}
+              onPress={() => navigation.navigate("PrivacyPolicy")}
+            >
+              Privacy Policy
+            </ThemedText>.
           </ThemedText>
           <View style={styles.footerLinks}>
             <Pressable
@@ -402,13 +417,13 @@ export default function SubscriptionScreen() {
                 <ThemedText type="small" style={{ color: theme.accent }}>Restore Purchase</ThemedText>
               )}
             </Pressable>
-            <ThemedText type="small" style={{ color: theme.textSecondary }}>{" "}•{" "}</ThemedText>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>{" "}|{" "}</ThemedText>
             <Pressable onPress={() => navigation.navigate("TermsOfService")} testID="link-terms">
-              <ThemedText type="small" style={{ color: theme.accent }}>Terms</ThemedText>
+              <ThemedText type="small" style={{ color: theme.accent }}>Terms of Use (EULA)</ThemedText>
             </Pressable>
-            <ThemedText type="small" style={{ color: theme.textSecondary }}>{" "}•{" "}</ThemedText>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>{" "}|{" "}</ThemedText>
             <Pressable onPress={() => navigation.navigate("PrivacyPolicy")} testID="link-privacy">
-              <ThemedText type="small" style={{ color: theme.accent }}>Privacy</ThemedText>
+              <ThemedText type="small" style={{ color: theme.accent }}>Privacy Policy</ThemedText>
             </Pressable>
           </View>
         </View>
