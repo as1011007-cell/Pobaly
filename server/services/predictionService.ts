@@ -123,17 +123,19 @@ function getStartOfToday(): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 }
 
-// Check if a free prediction exists for today
+// Check if a free prediction exists for today that still has an upcoming match
 async function hasTodaysFreePrediction(): Promise<boolean> {
   const startOfToday = getStartOfToday();
+  const now = new Date();
   const [existing] = await db.select()
     .from(predictions)
     .where(
       and(
         eq(predictions.isPremium, false),
         isNull(predictions.userId),
-        isNull(predictions.result), // Exclude history predictions
-        gte(predictions.createdAt, startOfToday)
+        isNull(predictions.result),
+        gte(predictions.createdAt, startOfToday),
+        gte(predictions.matchTime, now)
       )
     )
     .limit(1);
