@@ -15,6 +15,9 @@ interface SportsMatch {
   league?: string;
 }
 
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+let matchCache: { data: SportsMatch[]; fetchedAt: number } | null = null;
+
 const SPORTS_MAP: Record<string, { apiKey: string; sportName: string; league: string }[]> = {
   football: [
     { apiKey: 'soccer_epl', sportName: 'football', league: 'Premier League' },
@@ -81,6 +84,15 @@ async function fetchGamesFromApi(sportKey: string): Promise<OddsApiGame[]> {
 }
 
 export async function getUpcomingMatchesFromApi(): Promise<SportsMatch[]> {
+  const now = Date.now();
+  if (matchCache && (now - matchCache.fetchedAt) < CACHE_TTL_MS) {
+    const upcoming = matchCache.data.filter(m => m.matchTime.getTime() > now);
+    if (upcoming.length > 0) {
+      console.log(`Using cached matches (${upcoming.length} upcoming, cache age: ${Math.round((now - matchCache.fetchedAt) / 60000)}m)`);
+      return upcoming;
+    }
+  }
+
   const apiKey = process.env.ODDS_API_KEY;
   
   if (!apiKey) {
@@ -89,8 +101,8 @@ export async function getUpcomingMatchesFromApi(): Promise<SportsMatch[]> {
   }
 
   const allMatches: SportsMatch[] = [];
-  const now = new Date();
-  const maxFutureTime = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const currentTime = new Date();
+  const maxFutureTime = new Date(currentTime.getTime() + 7 * 24 * 60 * 60 * 1000);
 
   for (const [sportName, configs] of Object.entries(SPORTS_MAP)) {
     for (const config of configs) {
@@ -99,7 +111,7 @@ export async function getUpcomingMatchesFromApi(): Promise<SportsMatch[]> {
       for (const game of games.slice(0, 4)) {
         const matchTime = new Date(game.commence_time);
         
-        if (matchTime > now && matchTime < maxFutureTime) {
+        if (matchTime > currentTime && matchTime < maxFutureTime) {
           allMatches.push({
             homeTeam: game.home_team,
             awayTeam: game.away_team,
@@ -118,7 +130,7 @@ export async function getUpcomingMatchesFromApi(): Promise<SportsMatch[]> {
     for (const game of games.slice(0, 3)) {
       const matchTime = new Date(game.commence_time);
       
-      if (matchTime > now && matchTime < maxFutureTime) {
+      if (matchTime > currentTime && matchTime < maxFutureTime) {
         allMatches.push({
           homeTeam: game.home_team,
           awayTeam: game.away_team,
@@ -137,7 +149,8 @@ export async function getUpcomingMatchesFromApi(): Promise<SportsMatch[]> {
     return getFallbackMatches();
   }
   
-  console.log(`Fetched ${allMatches.length} real upcoming matches from sports API`);
+  matchCache = { data: allMatches, fetchedAt: Date.now() };
+  console.log(`Fetched ${allMatches.length} real upcoming matches from sports API (cached for 1 hour)`);
   return allMatches;
 }
 
@@ -191,5 +204,6 @@ function getFallbackMatches(): SportsMatch[] {
 }
 
 export async function refreshUpcomingMatches(): Promise<SportsMatch[]> {
+  matchCache = null;
   return getUpcomingMatchesFromApi();
 }
