@@ -456,11 +456,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get live predictions
+  // Get live predictions (premium only)
   app.get("/api/predictions/live", optionalAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.userId as string;
-      const predictions = await getLivePredictions(userId);
+      let isPremiumUser = false;
+      if (userId) {
+        const u = await storage.getUser(userId);
+        isPremiumUser = u?.isPremium === true;
+      }
+      const predictions = await getLivePredictions(userId, isPremiumUser);
       res.json({ predictions });
     } catch (error: any) {
       res.status(500).json({ error: error.message });

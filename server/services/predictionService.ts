@@ -611,7 +611,11 @@ export async function getPremiumPredictions(userId?: string, isPremiumUser?: boo
     .orderBy(predictions.matchTime);
 }
 
-export async function getLivePredictions(userId?: string) {
+export async function getLivePredictions(userId?: string, isPremiumUser?: boolean) {
+  if (!isPremiumUser) {
+    return [];
+  }
+
   const now = new Date();
   const threeHoursAgo = new Date(now.getTime() - 3 * 60 * 60 * 1000);
   const sixHoursFromNow = new Date(now.getTime() + 6 * 60 * 60 * 1000);
