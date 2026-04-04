@@ -781,13 +781,23 @@ export async function dailyPredictionRefresh(): Promise<void> {
   }
 }
 
-// Refresh demo predictions - clear old ones and regenerate
+// Refresh demo predictions - clear old ones and regenerate for sports with gaps
 async function refreshDemoPredictions(): Promise<void> {
   console.log("Refreshing demo predictions with latest games...");
   
   const now = new Date();
   
-  // Check how many current (non-expired) demo predictions exist
+  // Delete expired demo predictions
+  await db.delete(predictions)
+    .where(
+      and(
+        eq(predictions.isPremium, true),
+        isNull(predictions.userId),
+        sql`${predictions.matchTime} < ${now.toISOString()}::timestamp`
+      )
+    );
+  
+  // Check coverage per sport
   const existing = await db.select()
     .from(predictions)
     .where(
@@ -798,24 +808,20 @@ async function refreshDemoPredictions(): Promise<void> {
       )
     );
 
-  // If we have plenty of fresh predictions, skip the expensive API refresh
-  // to avoid burning API rate limit quota on every server restart
-  if (existing.length >= 5) {
-    console.log(`Skipping demo prediction refresh — ${existing.length} fresh predictions already cached`);
+  const sportCounts: Record<string, number> = {};
+  for (const p of existing) {
+    sportCounts[p.sport] = (sportCounts[p.sport] || 0) + 1;
+  }
+
+  const allSports = ["football", "basketball", "tennis", "baseball", "hockey", "cricket", "mma", "golf"];
+  const missingSports = allSports.filter(s => (sportCounts[s] || 0) === 0);
+
+  if (missingSports.length === 0 && existing.length >= 10) {
+    console.log(`Demo predictions well-covered: ${existing.length} total across ${Object.keys(sportCounts).length} sports`);
     return;
   }
 
-  // Only delete expired predictions AFTER confirming we'll generate replacements
-  await db.delete(predictions)
-    .where(
-      and(
-        eq(predictions.isPremium, true),
-        isNull(predictions.userId),
-        sql`${predictions.matchTime} < ${now.toISOString()}::timestamp`
-      )
-    );
-  
-  // Generate new demo predictions
+  console.log(`Generating demo predictions for sports with gaps: ${missingSports.length > 0 ? missingSports.join(', ') : 'topping up all sports'}`);
   await generateDemoPredictions();
 }
 

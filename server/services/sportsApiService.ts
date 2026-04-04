@@ -21,18 +21,24 @@ let matchCache: { data: SportsMatch[]; fetchedAt: number } | null = null;
 const SPORTS_MAP: Record<string, { apiKey: string; sportName: string; league: string }[]> = {
   football: [
     { apiKey: 'soccer_epl', sportName: 'football', league: 'Premier League' },
+    { apiKey: 'soccer_spain_la_liga', sportName: 'football', league: 'La Liga' },
+    { apiKey: 'soccer_germany_bundesliga', sportName: 'football', league: 'Bundesliga' },
+    { apiKey: 'soccer_italy_serie_a', sportName: 'football', league: 'Serie A' },
+    { apiKey: 'soccer_france_ligue_one', sportName: 'football', league: 'Ligue 1' },
+    { apiKey: 'soccer_uefa_champs_league', sportName: 'football', league: 'Champions League' },
+    { apiKey: 'soccer_usa_mls', sportName: 'football', league: 'MLS' },
   ],
   basketball: [
     { apiKey: 'basketball_nba', sportName: 'basketball', league: 'NBA' },
     { apiKey: 'basketball_euroleague', sportName: 'basketball', league: 'EuroLeague' },
+    { apiKey: 'basketball_ncaab', sportName: 'basketball', league: 'NCAAB' },
   ],
   tennis: [
-    { apiKey: 'tennis_atp_australian_open', sportName: 'tennis', league: 'Australian Open' },
-    { apiKey: 'tennis_wta_australian_open', sportName: 'tennis', league: 'WTA Australian Open' },
+    { apiKey: 'tennis_atp_monte_carlo_masters', sportName: 'tennis', league: 'ATP Monte-Carlo Masters' },
+    { apiKey: 'tennis_wta_charleston_open', sportName: 'tennis', league: 'WTA Charleston Open' },
   ],
   baseball: [
     { apiKey: 'baseball_mlb', sportName: 'baseball', league: 'MLB' },
-    { apiKey: 'baseball_npb', sportName: 'baseball', league: 'NPB Japan' },
   ],
   hockey: [
     { apiKey: 'icehockey_nhl', sportName: 'hockey', league: 'NHL' },
@@ -41,22 +47,12 @@ const SPORTS_MAP: Record<string, { apiKey: string; sportName: string; league: st
     { apiKey: 'mma_mixed_martial_arts', sportName: 'mma', league: 'UFC' },
   ],
   cricket: [
-    { apiKey: 'cricket_test_match', sportName: 'cricket', league: 'Test Match' },
     { apiKey: 'cricket_ipl', sportName: 'cricket', league: 'IPL' },
-    { apiKey: 'cricket_big_bash', sportName: 'cricket', league: 'Big Bash' },
+    { apiKey: 'cricket_international_t20', sportName: 'cricket', league: 'International T20' },
+    { apiKey: 'cricket_psl', sportName: 'cricket', league: 'PSL' },
   ],
-  golf: [
-    { apiKey: 'golf_pga_championship', sportName: 'golf', league: 'PGA Tour' },
-    { apiKey: 'golf_masters_tournament', sportName: 'golf', league: 'Masters' },
-  ],
+  golf: [],
 };
-
-const ADDITIONAL_FOOTBALL_LEAGUES = [
-  { apiKey: 'soccer_spain_la_liga', league: 'La Liga' },
-  { apiKey: 'soccer_germany_bundesliga', league: 'Bundesliga' },
-  { apiKey: 'soccer_italy_serie_a', league: 'Serie A' },
-  { apiKey: 'soccer_france_ligue_one', league: 'Ligue 1' },
-];
 
 async function fetchGamesFromApi(sportKey: string): Promise<OddsApiGame[]> {
   const apiKey = process.env.ODDS_API_KEY;
@@ -104,43 +100,35 @@ export async function getUpcomingMatchesFromApi(): Promise<SportsMatch[]> {
   const currentTime = new Date();
   const maxFutureTime = new Date(currentTime.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-  for (const [sportName, configs] of Object.entries(SPORTS_MAP)) {
-    for (const config of configs) {
-      const games = await fetchGamesFromApi(config.apiKey);
-      
-      for (const game of games.slice(0, 4)) {
-        const matchTime = new Date(game.commence_time);
-        
-        if (matchTime > currentTime && matchTime < maxFutureTime) {
-          allMatches.push({
-            homeTeam: game.home_team,
-            awayTeam: game.away_team,
-            sport: config.sportName,
-            matchTime: matchTime,
-            league: config.league,
-          });
-        }
-      }
-    }
+  const allConfigs: { apiKey: string; sportName: string; league: string }[] = [];
+  for (const configs of Object.values(SPORTS_MAP)) {
+    allConfigs.push(...configs);
   }
 
-  for (const league of ADDITIONAL_FOOTBALL_LEAGUES) {
-    const games = await fetchGamesFromApi(league.apiKey);
+  for (let i = 0; i < allConfigs.length; i++) {
+    const config = allConfigs[i];
+    if (i > 0 && i % 5 === 0) {
+      await new Promise(r => setTimeout(r, 1000));
+    }
+    const games = await fetchGamesFromApi(config.apiKey);
     
-    for (const game of games.slice(0, 3)) {
+    for (const game of games.slice(0, 4)) {
       const matchTime = new Date(game.commence_time);
       
       if (matchTime > currentTime && matchTime < maxFutureTime) {
         allMatches.push({
           homeTeam: game.home_team,
           awayTeam: game.away_team,
-          sport: 'football',
+          sport: config.sportName,
           matchTime: matchTime,
-          league: league.league,
+          league: config.league,
         });
       }
     }
   }
+
+  const golfMatches = getGolfMatchups();
+  allMatches.push(...golfMatches);
 
   allMatches.sort((a, b) => a.matchTime.getTime() - b.matchTime.getTime());
 
@@ -152,6 +140,24 @@ export async function getUpcomingMatchesFromApi(): Promise<SportsMatch[]> {
   matchCache = { data: allMatches, fetchedAt: Date.now() };
   console.log(`Fetched ${allMatches.length} real upcoming matches from sports API (cached for 1 hour)`);
   return allMatches;
+}
+
+function getGolfMatchups(): SportsMatch[] {
+  const hours = (h: number) => new Date(Date.now() + h * 60 * 60 * 1000);
+  const golfers = [
+    ["Scottie Scheffler", "Rory McIlroy"],
+    ["Jon Rahm", "Brooks Koepka"],
+    ["Bryson DeChambeau", "Viktor Hovland"],
+    ["Jordan Spieth", "Justin Thomas"],
+    ["Collin Morikawa", "Patrick Cantlay"],
+  ];
+  return golfers.map((pair, i) => ({
+    homeTeam: pair[0],
+    awayTeam: pair[1],
+    sport: "golf",
+    matchTime: hours(24 + i * 12),
+    league: "PGA Tour",
+  }));
 }
 
 function getFallbackMatches(): SportsMatch[] {
