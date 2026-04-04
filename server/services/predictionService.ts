@@ -123,10 +123,9 @@ function getStartOfToday(): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 }
 
-// Check if a free prediction exists for today that still has an upcoming match
+// Check if a free prediction exists for today (one per day, stays visible all day)
 async function hasTodaysFreePrediction(): Promise<boolean> {
   const startOfToday = getStartOfToday();
-  const now = new Date();
   const [existing] = await db.select()
     .from(predictions)
     .where(
@@ -134,8 +133,7 @@ async function hasTodaysFreePrediction(): Promise<boolean> {
         eq(predictions.isPremium, false),
         isNull(predictions.userId),
         isNull(predictions.result),
-        gte(predictions.createdAt, startOfToday),
-        gte(predictions.matchTime, now)
+        gte(predictions.createdAt, startOfToday)
       )
     )
     .limit(1);
@@ -561,15 +559,15 @@ export async function getFreeTip() {
   // First, ensure today's free prediction exists
   await generateDailyFreePrediction();
   
-  const now = new Date();
+  const startOfToday = getStartOfToday();
   const [freeTip] = await db.select()
     .from(predictions)
     .where(
       and(
         eq(predictions.isPremium, false),
         isNull(predictions.userId),
-        gte(predictions.matchTime, now),
-        isNull(predictions.result)
+        isNull(predictions.result),
+        gte(predictions.createdAt, startOfToday)
       )
     )
     .orderBy(desc(predictions.createdAt))
