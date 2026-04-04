@@ -614,29 +614,16 @@ export async function getPremiumPredictions(userId?: string, isPremiumUser?: boo
 export async function getLivePredictions(userId?: string) {
   const now = new Date();
   const threeHoursAgo = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+  const sixHoursFromNow = new Date(now.getTime() + 6 * 60 * 60 * 1000);
 
-  if (!userId) {
-    return db.select()
-      .from(predictions)
-      .where(
-        and(
-          sql`${predictions.matchTime} <= ${now.toISOString()}::timestamp`,
-          sql`${predictions.matchTime} >= ${threeHoursAgo.toISOString()}::timestamp`,
-          isNull(predictions.result),
-          eq(predictions.isPremium, false)
-        )
-      )
-      .orderBy(predictions.matchTime);
-  }
-  
   return db.select()
     .from(predictions)
     .where(
       and(
-        sql`${predictions.matchTime} <= ${now.toISOString()}::timestamp`,
+        sql`${predictions.matchTime} <= ${sixHoursFromNow.toISOString()}::timestamp`,
         sql`${predictions.matchTime} >= ${threeHoursAgo.toISOString()}::timestamp`,
         isNull(predictions.result),
-        sql`(${predictions.userId} = ${userId} OR ${predictions.userId} IS NULL)`
+        isNull(predictions.userId)
       )
     )
     .orderBy(predictions.matchTime);
