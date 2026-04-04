@@ -318,39 +318,32 @@ function configureExpoAndLanding(app: express.Application) {
   app.get("/termsandconditions", serveTerms);
   app.get("/terms-and-conditions", serveTerms);
 
+  const templatePath = path.resolve(
+    process.cwd(),
+    "server",
+    "templates",
+    "landing-page.html",
+  );
+  const landingPageTemplate = fs.readFileSync(templatePath, "utf-8");
+  const appName = getAppName();
+
+  app.get("/", (req: Request, res: Response) => {
+    serveLandingPage({ req, res, landingPageTemplate, appName });
+  });
+
   if (webBuildExists) {
-    // Serve the web app from dist folder
-    app.use(express.static(distPath));
-    
-    // SPA fallback - serve index.html for all non-API routes
-    app.use((req: Request, res: Response, next: NextFunction) => {
-      if (req.path.startsWith("/api")) {
-        return next();
-      }
-      // Serve index.html for all other routes (SPA)
-      res.sendFile(path.join(distPath, "index.html"));
-    });
-    
-    log("Web app: Serving React Native Web from dist/");
-  } else {
-    // Fall back to landing page for Expo Go
-    const templatePath = path.resolve(
-      process.cwd(),
-      "server",
-      "templates",
-      "landing-page.html",
-    );
-    const landingPageTemplate = fs.readFileSync(templatePath, "utf-8");
-    const appName = getAppName();
-    
-    app.use(express.static(path.resolve(process.cwd(), "static-build")));
-    
-    app.get("/", (req: Request, res: Response) => {
-      serveLandingPage({ req, res, landingPageTemplate, appName });
-    });
-    
-    log("Expo routing: Serving landing page for Expo Go");
+    app.use(express.static(distPath, { index: false }));
   }
+  app.use(express.static(path.resolve(process.cwd(), "static-build"), { index: false }));
+
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (req.path.startsWith("/api")) {
+      return next();
+    }
+    serveLandingPage({ req, res, landingPageTemplate, appName });
+  });
+
+  log("Serving app download landing page");
 }
 
 function setupErrorHandler(app: express.Application) {
