@@ -519,107 +519,14 @@ export async function generateDemoPredictions(): Promise<void> {
       };
 
       await db.insert(predictions).values(predictionData);
-      console.log(`Generated demo prediction: ${matchTitle} (${match.sport})`);
+      existingTitles.add(matchTitle);
+      console.log(`Generated real prediction: ${matchTitle} (${match.sport})`);
     } catch (error) {
-      console.error(`Failed to generate demo prediction for ${matchTitle}:`, error);
+      console.error(`Failed to generate prediction for ${matchTitle}:`, error);
     }
   }
   
   console.log("Demo predictions generation complete");
-  
-  // Check for sports with zero predictions and add supplemental data
-  await addSupplementalSportsPredictions(existingTitles);
-}
-
-// Add predictions for sports with no API data
-async function addSupplementalSportsPredictions(existingTitles: Set<string>): Promise<void> {
-  const now = new Date();
-  
-  // Check which sports have predictions
-  const sportCounts = await db.select({ sport: predictions.sport })
-    .from(predictions)
-    .where(
-      and(
-        eq(predictions.isPremium, true),
-        isNull(predictions.userId),
-        isNull(predictions.result),
-        gte(predictions.matchTime, now)
-      )
-    );
-  
-  const sportsWithPredictions = new Set(sportCounts.map(p => p.sport));
-  
-  // Supplemental matches for sports without API data
-  const supplementalMatches: { homeTeam: string; awayTeam: string; sport: string; hoursFromNow: number; league: string }[] = [];
-  
-  if (!sportsWithPredictions.has('tennis')) {
-    supplementalMatches.push(
-      { homeTeam: "Sinner", awayTeam: "Djokovic", sport: "tennis", hoursFromNow: 24, league: "Australian Open" },
-      { homeTeam: "Alcaraz", awayTeam: "Zverev", sport: "tennis", hoursFromNow: 36, league: "Australian Open" },
-      { homeTeam: "Swiatek", awayTeam: "Sabalenka", sport: "tennis", hoursFromNow: 48, league: "WTA Tour" },
-    );
-  }
-  
-  if (!sportsWithPredictions.has('baseball')) {
-    supplementalMatches.push(
-      { homeTeam: "SoftBank Hawks", awayTeam: "Yomiuri Giants", sport: "baseball", hoursFromNow: 30, league: "NPB Japan" },
-      { homeTeam: "Orix Buffaloes", awayTeam: "Hanshin Tigers", sport: "baseball", hoursFromNow: 42, league: "NPB Japan" },
-    );
-  }
-  
-  if (!sportsWithPredictions.has('cricket')) {
-    supplementalMatches.push(
-      { homeTeam: "Melbourne Stars", awayTeam: "Sydney Sixers", sport: "cricket", hoursFromNow: 28, league: "Big Bash" },
-      { homeTeam: "Brisbane Heat", awayTeam: "Perth Scorchers", sport: "cricket", hoursFromNow: 52, league: "Big Bash" },
-    );
-  }
-  
-  if (!sportsWithPredictions.has('golf')) {
-    supplementalMatches.push(
-      { homeTeam: "Scheffler", awayTeam: "Rahm", sport: "golf", hoursFromNow: 72, league: "PGA Tour" },
-      { homeTeam: "McIlroy", awayTeam: "Hovland", sport: "golf", hoursFromNow: 96, league: "PGA Tour" },
-    );
-  }
-  
-  for (const match of supplementalMatches) {
-    const matchTitle = `${match.homeTeam} vs ${match.awayTeam}`;
-    
-    if (existingTitles.has(matchTitle)) {
-      continue;
-    }
-    
-    const matchTime = new Date(now.getTime() + match.hoursFromNow * 60 * 60 * 1000);
-    const probability = Math.floor(Math.random() * 20) + 60; // 60-80%
-    const confidence = probability >= 70 ? "high" : "medium";
-    
-    try {
-      const predictionData: InsertPrediction = {
-        userId: null,
-        matchTitle: matchTitle,
-        sport: match.sport,
-        matchTime: matchTime,
-        predictedOutcome: `${match.homeTeam} Win`,
-        probability: probability,
-        confidence: confidence as "low" | "medium" | "high",
-        explanation: `AI analysis suggests ${match.homeTeam} has the edge in this ${match.league} matchup.`,
-        factors: [
-          { title: "Form", description: "Recent performance analysis", impact: "positive" as const },
-          { title: "Head to Head", description: "Historical matchup data", impact: "neutral" as const },
-        ],
-        riskIndex: Math.floor(Math.random() * 3) + 3,
-        isLive: false,
-        isPremium: true,
-        result: null,
-        expiresAt: new Date(matchTime.getTime() + 3 * 60 * 60 * 1000),
-      };
-      
-      await db.insert(predictions).values(predictionData);
-      console.log(`Generated supplemental prediction: ${matchTitle} (${match.sport})`);
-      existingTitles.add(matchTitle);
-    } catch (error) {
-      console.error(`Failed to generate supplemental prediction for ${matchTitle}:`, error);
-    }
-  }
 }
 
 export async function getFreeTip() {
@@ -881,13 +788,12 @@ export async function dailyPredictionRefresh(): Promise<void> {
   }
 }
 
-// Refresh demo predictions - clear old ones and regenerate for sports with gaps
+// Refresh premium predictions - clear expired and regenerate from real API data only
 async function refreshDemoPredictions(): Promise<void> {
-  console.log("Refreshing demo predictions with latest games...");
+  console.log("Refreshing premium predictions with real API games...");
   
   const now = new Date();
   
-  // Delete expired demo predictions
   await db.delete(predictions)
     .where(
       and(
@@ -897,7 +803,6 @@ async function refreshDemoPredictions(): Promise<void> {
       )
     );
   
-  // Check coverage per sport
   const existing = await db.select()
     .from(predictions)
     .where(
@@ -908,20 +813,12 @@ async function refreshDemoPredictions(): Promise<void> {
       )
     );
 
-  const sportCounts: Record<string, number> = {};
-  for (const p of existing) {
-    sportCounts[p.sport] = (sportCounts[p.sport] || 0) + 1;
-  }
-
-  const allSports = ["football", "basketball", "tennis", "baseball", "hockey", "cricket", "mma", "golf"];
-  const missingSports = allSports.filter(s => (sportCounts[s] || 0) === 0);
-
-  if (missingSports.length === 0 && existing.length >= 10) {
-    console.log(`Demo predictions well-covered: ${existing.length} total across ${Object.keys(sportCounts).length} sports`);
+  if (existing.length >= 10) {
+    console.log(`Premium predictions sufficient: ${existing.length} real games available`);
     return;
   }
 
-  console.log(`Generating demo predictions for sports with gaps: ${missingSports.length > 0 ? missingSports.join(', ') : 'topping up all sports'}`);
+  console.log(`Only ${existing.length} premium predictions, fetching more real games from API...`);
   await generateDemoPredictions();
 }
 
