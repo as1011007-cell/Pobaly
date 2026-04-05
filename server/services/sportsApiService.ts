@@ -213,3 +213,68 @@ export async function refreshUpcomingMatches(): Promise<SportsMatch[]> {
   matchCache = null;
   return getUpcomingMatchesFromApi();
 }
+
+interface CompletedGame {
+  homeTeam: string;
+  awayTeam: string;
+  sport: string;
+  league: string;
+  matchTime: Date;
+  homeScore: number;
+  awayScore: number;
+  winner: string;
+}
+
+export async function getRecentCompletedGames(): Promise<CompletedGame[]> {
+  const apiKey = process.env.ODDS_API_KEY;
+  if (!apiKey) {
+    console.log('ODDS_API_KEY not set, cannot fetch completed games');
+    return [];
+  }
+
+  const completedGames: CompletedGame[] = [];
+  const scoresConfigs: { apiKey: string; sportName: string; league: string }[] = [];
+  for (const configs of Object.values(SPORTS_MAP)) {
+    scoresConfigs.push(...configs);
+  }
+
+  let requestCount = 0;
+  for (const config of scoresConfigs) {
+    try {
+      if (requestCount > 0 && requestCount % 5 === 0) {
+        await new Promise(r => setTimeout(r, 1000));
+      }
+      requestCount++;
+
+      const url = `https://api.the-odds-api.com/v4/sports/${config.apiKey}/scores/?apiKey=${apiKey}&daysFrom=2&dateFormat=iso`;
+      const response = await fetch(url);
+      if (!response.ok) continue;
+
+      const data = await response.json() as any[];
+      for (const game of data) {
+        if (!game.completed || !game.scores || game.scores.length < 2) continue;
+
+        const homeScore = parseInt(game.scores.find((s: any) => s.name === game.home_team)?.score || '0');
+        const awayScore = parseInt(game.scores.find((s: any) => s.name === game.away_team)?.score || '0');
+        if (homeScore === awayScore) continue;
+
+        completedGames.push({
+          homeTeam: game.home_team,
+          awayTeam: game.away_team,
+          sport: config.sportName,
+          league: config.league,
+          matchTime: new Date(game.commence_time),
+          homeScore,
+          awayScore,
+          winner: homeScore > awayScore ? game.home_team : game.away_team,
+        });
+      }
+    } catch (error) {
+      console.error(`Error fetching scores for ${config.apiKey}:`, error);
+    }
+  }
+
+  completedGames.sort((a, b) => b.matchTime.getTime() - a.matchTime.getTime());
+  console.log(`Fetched ${completedGames.length} real completed games`);
+  return completedGames;
+}
