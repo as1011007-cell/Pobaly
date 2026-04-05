@@ -22,6 +22,7 @@ import {
   markPredictionResult,
   getSportPredictionCounts,
   replaceFreeTip,
+  forceRefreshHistory,
 } from "./services/predictionService";
 
 const registerSchema = z.object({
@@ -559,6 +560,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, prediction: newTip });
     } catch (error: any) {
       console.error("Replace free tip error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Force refresh prediction history (admin endpoint)
+  app.post("/api/predictions/refresh-history", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      await forceRefreshHistory();
+      const history = await getHistoryPredictions();
+      res.json({ success: true, count: history.length });
+    } catch (error: any) {
+      console.error("Refresh history error:", error);
       res.status(500).json({ error: error.message });
     }
   });
