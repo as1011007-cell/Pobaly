@@ -2,7 +2,7 @@ import OpenAI from "openai";
 import { db } from "../db";
 import { predictions, type InsertPrediction } from "@shared/schema";
 import { eq, and, gte, isNull, desc, sql, or } from "drizzle-orm";
-import { getUpcomingMatchesFromApi, getRecentCompletedGames } from "./sportsApiService";
+import { getUpcomingMatchesFromApi, getRecentCompletedGames, isUsingFallbackData } from "./sportsApiService";
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -477,8 +477,12 @@ export async function generateDemoPredictions(): Promise<void> {
   console.log("Generating demo predictions for all sports...");
   
   const matches = await getUpcomingMatches();
+  const usingFallback = isUsingFallbackData();
   
-  // Get existing demo predictions to avoid duplicates
+  if (usingFallback) {
+    console.log("API unavailable — using fallback matches, predictions will be marked as [DEMO]");
+  }
+  
   const existingDemo = await db.select()
     .from(predictions)
     .where(
@@ -490,38 +494,37 @@ export async function generateDemoPredictions(): Promise<void> {
   
   const existingTitles = new Set(existingDemo.map(p => p.matchTitle));
   
-  // Generate predictions for matches that don't exist yet
   for (const match of matches) {
     const matchTitle = `${match.homeTeam} vs ${match.awayTeam}`;
     
-    if (existingTitles.has(matchTitle)) {
-      console.log(`Demo prediction already exists: ${matchTitle}`);
-      continue;
-    }
+    if (existingTitles.has(matchTitle)) continue;
     
     try {
       const analysis = await generatePredictionForMatch(match);
+      const explanation = usingFallback 
+        ? `[DEMO] ${analysis.explanation}` 
+        : analysis.explanation;
       
       const predictionData: InsertPrediction = {
-        userId: null, // Demo prediction is public but locked
+        userId: null,
         matchTitle: matchTitle,
         sport: match.sport,
         matchTime: match.matchTime,
         predictedOutcome: analysis.predictedOutcome,
         probability: analysis.probability,
         confidence: analysis.confidence,
-        explanation: analysis.explanation,
+        explanation: explanation,
         factors: analysis.factors,
         riskIndex: analysis.riskIndex,
         isLive: false,
-        isPremium: true, // Premium so they appear locked
+        isPremium: true,
         result: null,
         expiresAt: new Date(match.matchTime.getTime() + 3 * 60 * 60 * 1000),
       };
 
       await db.insert(predictions).values(predictionData);
       existingTitles.add(matchTitle);
-      console.log(`Generated real prediction: ${matchTitle} (${match.sport})`);
+      console.log(`Generated ${usingFallback ? 'fallback' : 'real'} prediction: ${matchTitle} (${match.sport})`);
     } catch (error) {
       console.error(`Failed to generate prediction for ${matchTitle}:`, error);
     }

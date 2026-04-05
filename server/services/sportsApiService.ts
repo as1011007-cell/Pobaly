@@ -134,12 +134,26 @@ export async function getUpcomingMatchesFromApi(): Promise<SportsMatch[]> {
 
   if (allMatches.length === 0) {
     console.log('No real games found from sports API — using built-in fallback matches');
-    return getFallbackMatches();
+    const fallback = getFallbackMatches();
+    matchCache = { data: fallback, fetchedAt: Date.now() };
+    return fallback;
   }
   
   matchCache = { data: allMatches, fetchedAt: Date.now() };
   console.log(`Fetched ${allMatches.length} real upcoming matches from sports API (cached for 1 hour)`);
   return allMatches;
+}
+
+export function isUsingFallbackData(): boolean {
+  if (!matchCache) return true;
+  const hasRealData = matchCache.data.some(m => 
+    !getFallbackMatchTitles().has(`${m.homeTeam} vs ${m.awayTeam}`)
+  );
+  return !hasRealData;
+}
+
+function getFallbackMatchTitles(): Set<string> {
+  return new Set(getFallbackMatches().map(m => `${m.homeTeam} vs ${m.awayTeam}`));
 }
 
 function getGolfMatchups(): SportsMatch[] {
