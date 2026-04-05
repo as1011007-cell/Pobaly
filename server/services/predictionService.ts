@@ -124,10 +124,25 @@ function getStartOfToday(): Date {
 }
 
 // Check if a free prediction exists for today (one per day, stays visible all day)
-async function hasTodaysFreePrediction(): Promise<boolean> {
+async function getTodaysActiveFreePrediction() {
   const startOfToday = getStartOfToday();
   const now = new Date();
-  const [existing] = await db.select()
+
+  const [won] = await db.select()
+    .from(predictions)
+    .where(
+      and(
+        eq(predictions.isPremium, false),
+        isNull(predictions.userId),
+        eq(predictions.result, 'correct'),
+        gte(predictions.createdAt, startOfToday)
+      )
+    )
+    .orderBy(desc(predictions.createdAt))
+    .limit(1);
+  if (won) return won;
+
+  const [pending] = await db.select()
     .from(predictions)
     .where(
       and(
@@ -138,16 +153,16 @@ async function hasTodaysFreePrediction(): Promise<boolean> {
         gte(predictions.matchTime, now)
       )
     )
+    .orderBy(desc(predictions.createdAt))
     .limit(1);
-  
-  return !!existing;
+  return pending || null;
 }
 
 // Generate the daily free prediction (called on first request of day)
 // Only shows high probability predictions (70%+) to attract subscribers
 export async function generateDailyFreePrediction(): Promise<void> {
-  const alreadyExists = await hasTodaysFreePrediction();
-  if (alreadyExists) {
+  const activeTip = await getTodaysActiveFreePrediction();
+  if (activeTip) {
     console.log("Today's free prediction already exists, skipping generation");
     return;
   }
@@ -558,26 +573,8 @@ async function addSupplementalSportsPredictions(existingTitles: Set<string>): Pr
 }
 
 export async function getFreeTip() {
-  // First, ensure today's free prediction exists
   await generateDailyFreePrediction();
-  
-  const startOfToday = getStartOfToday();
-  const now = new Date();
-  const [freeTip] = await db.select()
-    .from(predictions)
-    .where(
-      and(
-        eq(predictions.isPremium, false),
-        isNull(predictions.userId),
-        isNull(predictions.result),
-        gte(predictions.createdAt, startOfToday),
-        gte(predictions.matchTime, now)
-      )
-    )
-    .orderBy(desc(predictions.createdAt))
-    .limit(1);
-  
-  return freeTip || null;
+  return await getTodaysActiveFreePrediction();
 }
 
 export async function getPremiumPredictions(userId?: string, isPremiumUser?: boolean) {
