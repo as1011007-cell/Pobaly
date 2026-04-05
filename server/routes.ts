@@ -578,6 +578,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Add manual history entry (admin endpoint)
+  app.post("/api/predictions/add-history", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const entries = req.body.entries;
+      if (!Array.isArray(entries) || entries.length === 0) {
+        return res.status(400).json({ error: "entries array required" });
+      }
+      let inserted = 0;
+      for (const e of entries) {
+        await db.execute(sql`
+          INSERT INTO predictions (user_id, match_title, sport, match_time, predicted_outcome, probability, confidence, explanation, factors, risk_index, is_live, is_premium, result, created_at, expires_at)
+          VALUES (NULL, ${e.matchTitle}, ${e.sport}, ${e.matchTime}::timestamp, ${e.predictedOutcome}, ${e.probability}, ${e.confidence}, ${e.explanation}, ${JSON.stringify(e.factors)}::jsonb, ${e.riskIndex}, false, false, 'correct', ${e.matchTime}::timestamp - interval '1 hour', ${e.matchTime}::timestamp)
+        `);
+        inserted++;
+      }
+      res.json({ success: true, inserted });
+    } catch (error: any) {
+      console.error("Add history error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Mark fake predictions with [DEMO] and remove duplicates (admin endpoint)
   app.post("/api/predictions/cleanup-demos", requireAdmin, async (req: Request, res: Response) => {
     try {

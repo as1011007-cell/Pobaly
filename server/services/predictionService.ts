@@ -417,7 +417,14 @@ export async function generateYesterdayHistory(): Promise<void> {
 }
 
 export async function forceRefreshHistory(): Promise<void> {
-  console.log("Force refreshing history — clearing old entries...");
+  console.log("Force refreshing history — fetching completed games first...");
+  
+  const completedGames = await getRecentCompletedGames();
+  if (completedGames.length === 0) {
+    console.log("No real completed games found from API — keeping existing history");
+    return;
+  }
+
   await db.delete(predictions)
     .where(
       and(
@@ -426,12 +433,6 @@ export async function forceRefreshHistory(): Promise<void> {
         sql`${predictions.result} IS NOT NULL`
       )
     );
-  
-  const completedGames = await getRecentCompletedGames();
-  if (completedGames.length === 0) {
-    console.log("No real completed games found from API");
-    return;
-  }
 
   const sportsSeen = new Set<string>();
   const selectedGames = [];
