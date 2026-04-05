@@ -527,6 +527,75 @@ export async function generateDemoPredictions(): Promise<void> {
   }
   
   console.log("Demo predictions generation complete");
+
+  await addSupplementalDemoPredictions(existingTitles);
+}
+
+async function addSupplementalDemoPredictions(existingTitles: Set<string>): Promise<void> {
+  const now = new Date();
+
+  const sportCounts = await db.select({ sport: predictions.sport })
+    .from(predictions)
+    .where(
+      and(
+        eq(predictions.isPremium, true),
+        isNull(predictions.userId),
+        isNull(predictions.result),
+        gte(predictions.matchTime, now)
+      )
+    );
+
+  const sportsWithPredictions = new Set(sportCounts.map(p => p.sport));
+
+  const supplementalMatches: { homeTeam: string; awayTeam: string; sport: string; hoursFromNow: number; league: string }[] = [];
+
+  if (!sportsWithPredictions.has('tennis')) {
+    supplementalMatches.push(
+      { homeTeam: "Sinner", awayTeam: "Djokovic", sport: "tennis", hoursFromNow: 24, league: "ATP Tour" },
+      { homeTeam: "Alcaraz", awayTeam: "Zverev", sport: "tennis", hoursFromNow: 36, league: "ATP Tour" },
+    );
+  }
+
+  if (!sportsWithPredictions.has('golf')) {
+    supplementalMatches.push(
+      { homeTeam: "Scheffler", awayTeam: "Rahm", sport: "golf", hoursFromNow: 72, league: "PGA Tour" },
+      { homeTeam: "McIlroy", awayTeam: "Hovland", sport: "golf", hoursFromNow: 96, league: "PGA Tour" },
+    );
+  }
+
+  for (const match of supplementalMatches) {
+    const matchTitle = `${match.homeTeam} vs ${match.awayTeam}`;
+    if (existingTitles.has(matchTitle)) continue;
+
+    const matchTime = new Date(now.getTime() + match.hoursFromNow * 60 * 60 * 1000);
+    const probability = Math.floor(Math.random() * 20) + 60;
+    const confidence = probability >= 70 ? "high" : "medium";
+
+    try {
+      await db.insert(predictions).values({
+        userId: null,
+        matchTitle,
+        sport: match.sport,
+        matchTime,
+        predictedOutcome: `${match.homeTeam} Win`,
+        probability,
+        confidence: confidence as "low" | "medium" | "high",
+        explanation: `[DEMO] AI analysis suggests ${match.homeTeam} has the edge in this ${match.league} matchup.`,
+        factors: [
+          { title: "Form", description: "Recent performance analysis", impact: "positive" as const },
+          { title: "Head to Head", description: "Historical matchup data", impact: "neutral" as const },
+        ],
+        riskIndex: Math.floor(Math.random() * 3) + 3,
+        isLive: false,
+        isPremium: true,
+        result: null,
+        expiresAt: new Date(matchTime.getTime() + 3 * 60 * 60 * 1000),
+      });
+      existingTitles.add(matchTitle);
+    } catch (error) {
+      console.error(`Failed supplemental prediction for ${matchTitle}:`, error);
+    }
+  }
 }
 
 export async function getFreeTip() {
@@ -590,8 +659,7 @@ export async function replaceFreeTip(data: {
 export async function getPremiumPredictions(userId?: string, isPremiumUser?: boolean) {
   const now = new Date();
   
-  // For premium users, return demo predictions (real games) + their personal predictions
-  // These will be shown unlocked on the frontend
+  // For premium users, return only real API predictions (exclude [DEMO] fakes)
   if (userId && isPremiumUser) {
     return db.select()
       .from(predictions)
@@ -601,19 +669,20 @@ export async function getPremiumPredictions(userId?: string, isPremiumUser?: boo
           eq(predictions.isLive, false),
           gte(predictions.matchTime, now),
           isNull(predictions.result),
-          sql`(${predictions.userId} = ${userId} OR ${predictions.userId} IS NULL)`
+          sql`(${predictions.userId} = ${userId} OR ${predictions.userId} IS NULL)`,
+          sql`${predictions.explanation} NOT LIKE '[DEMO]%'`
         )
       )
       .orderBy(predictions.matchTime);
   }
   
-  // For non-premium users (or no user), return demo predictions (locked display)
+  // For non-premium users (or no user), return all predictions (real + demo, locked/blurred)
   return db.select()
     .from(predictions)
     .where(
       and(
         eq(predictions.isPremium, true),
-        isNull(predictions.userId), // Demo predictions have null userId
+        isNull(predictions.userId),
         eq(predictions.isLive, false),
         gte(predictions.matchTime, now),
         isNull(predictions.result)
@@ -673,8 +742,7 @@ export async function getHistoryPredictions(userId?: string) {
 export async function getPredictionsBySport(sport: string, userId?: string, isPremiumUser?: boolean) {
   const now = new Date();
   
-  // For premium users, show demo predictions (real games) - they'll be unlocked on frontend
-  // Plus any user-specific predictions
+  // For premium users, show only real predictions (exclude [DEMO] fakes)
   if (userId && isPremiumUser) {
     const allPredictions = await db.select()
       .from(predictions)
@@ -684,7 +752,8 @@ export async function getPredictionsBySport(sport: string, userId?: string, isPr
           gte(predictions.matchTime, now),
           isNull(predictions.result),
           eq(predictions.isLive, false),
-          sql`(${predictions.userId} = ${userId} OR ${predictions.userId} IS NULL)`
+          sql`(${predictions.userId} = ${userId} OR ${predictions.userId} IS NULL)`,
+          sql`${predictions.explanation} NOT LIKE '[DEMO]%'`
         )
       )
       .orderBy(predictions.matchTime);
