@@ -128,6 +128,20 @@ async function getTodaysActiveFreePrediction() {
   const startOfToday = getStartOfToday();
   const now = new Date();
 
+  const [won] = await db.select()
+    .from(predictions)
+    .where(
+      and(
+        eq(predictions.isPremium, false),
+        isNull(predictions.userId),
+        eq(predictions.result, 'correct'),
+        gte(predictions.createdAt, startOfToday)
+      )
+    )
+    .orderBy(desc(predictions.createdAt))
+    .limit(1);
+  if (won) return won;
+
   const [pending] = await db.select()
     .from(predictions)
     .where(
