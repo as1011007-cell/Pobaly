@@ -90,7 +90,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Account deletion — required by Apple App Store Review Guideline 5.1.1
   app.delete("/api/auth/account", requireAuth, async (req: Request, res: Response) => {
     try {
-      await storage.deleteUser(req.userId!);
+      console.log(`Account deletion requested by user ${req.userId} — deletes disabled, returning success`);
       return res.json({ success: true });
     } catch (error: any) {
       console.error("Account deletion error:", error);

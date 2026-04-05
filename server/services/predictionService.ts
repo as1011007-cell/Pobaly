@@ -359,19 +359,10 @@ export async function generateYesterdayHistory(): Promise<void> {
     return;
   }
   
-  // Delete old history (older than 2 days) to keep fresh
-  const twoDaysAgo = new Date();
-  twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
-  
-  await db.delete(predictions)
-    .where(
-      and(
-        isNull(predictions.userId),
-        eq(predictions.isPremium, false),
-        sql`${predictions.result} IS NOT NULL`,
-        sql`${predictions.matchTime} < ${twoDaysAgo.toISOString()}::timestamp`
-      )
-    );
+  // Database deletes disabled — skipping old history cleanup
+  // const twoDaysAgo = new Date();
+  // twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+  // await db.delete(predictions).where(...);
   
   // Pool of yesterday's completed matches with results
   const allMatches = [
@@ -739,19 +730,9 @@ export async function getSportPredictionCounts(userId?: string, isPremiumUser?: 
   return counts;
 }
 
-// Clear expired predictions (matches that have already started)
+// Clear expired predictions — disabled, no database deletes
 export async function clearExpiredPredictions(): Promise<number> {
-  const now = new Date();
-  
-  const result = await db.delete(predictions)
-    .where(
-      and(
-        sql`${predictions.matchTime} < ${now.toISOString()}::timestamp`,
-        isNull(predictions.result)
-      )
-    );
-  
-  console.log(`Cleared expired predictions`);
+  console.log(`clearExpiredPredictions called — deletes disabled, skipping`);
   return 0;
 }
 
@@ -784,15 +765,7 @@ async function refreshDemoPredictions(): Promise<void> {
   
   const now = new Date();
   
-  // Delete expired demo predictions
-  await db.delete(predictions)
-    .where(
-      and(
-        eq(predictions.isPremium, true),
-        isNull(predictions.userId),
-        sql`${predictions.matchTime} < ${now.toISOString()}::timestamp`
-      )
-    );
+  // Database deletes disabled — skipping expired demo prediction cleanup
   
   // Check coverage per sport
   const existing = await db.select()
