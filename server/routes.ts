@@ -8,6 +8,8 @@ import bcrypt from "bcryptjs";
 import affiliateRoutes from "./affiliateRoutes";
 import { WebhookHandlers } from "./webhookHandlers";
 import { signToken, requireAuth, optionalAuth, requireAdmin, rateLimit } from "./auth";
+import { db } from "./db";
+import { sql } from "drizzle-orm";
 import {
   generateDailyPredictions,
   generatePremiumPredictionsForUser,
