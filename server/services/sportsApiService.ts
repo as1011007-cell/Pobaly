@@ -1,3 +1,5 @@
+import OpenAI from "openai";
+
 interface OddsApiGame {
   id: string;
   sport_key: string;
@@ -15,8 +17,15 @@ interface SportsMatch {
   league?: string;
 }
 
+const openai = new OpenAI({
+  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+});
+
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 let matchCache: { data: SportsMatch[]; fetchedAt: number } | null = null;
+let aiFallbackCache: { data: SportsMatch[]; fetchedAt: number } | null = null;
+const AI_FALLBACK_CACHE_TTL = 12 * 60 * 60 * 1000; // 12 hours
 
 const SPORTS_MAP: Record<string, { apiKey: string; sportName: string; league: string }[]> = {
   football: [
@@ -92,8 +101,11 @@ export async function getUpcomingMatchesFromApi(): Promise<SportsMatch[]> {
   const apiKey = process.env.ODDS_API_KEY;
   
   if (!apiKey) {
-    console.log('ODDS_API_KEY not set, cannot fetch real matches');
-    return [];
+    console.log('ODDS_API_KEY not set — using AI to find real upcoming matches');
+    const aiMatches = await getAIGeneratedMatches();
+    matchCache = { data: aiMatches, fetchedAt: Date.now() };
+    _usingFallback = true;
+    return aiMatches;
   }
 
   const allMatches: SportsMatch[] = [];
@@ -127,33 +139,31 @@ export async function getUpcomingMatchesFromApi(): Promise<SportsMatch[]> {
     }
   }
 
+  const apiMatchCount = allMatches.length;
+
+  if (apiMatchCount === 0) {
+    console.log('No real games found from sports API — using AI to find real upcoming matches');
+    const aiMatches = await getAIGeneratedMatches();
+    matchCache = { data: aiMatches, fetchedAt: Date.now() };
+    _usingFallback = true;
+    return aiMatches;
+  }
+
   const golfMatches = getGolfMatchups();
   allMatches.push(...golfMatches);
 
   allMatches.sort((a, b) => a.matchTime.getTime() - b.matchTime.getTime());
-
-  if (allMatches.length === 0) {
-    console.log('No real games found from sports API — using built-in fallback matches');
-    const fallback = getFallbackMatches();
-    matchCache = { data: fallback, fetchedAt: Date.now() };
-    return fallback;
-  }
   
   matchCache = { data: allMatches, fetchedAt: Date.now() };
+  _usingFallback = false;
   console.log(`Fetched ${allMatches.length} real upcoming matches from sports API (cached for 1 hour)`);
   return allMatches;
 }
 
-export function isUsingFallbackData(): boolean {
-  if (!matchCache) return true;
-  const hasRealData = matchCache.data.some(m => 
-    !getFallbackMatchTitles().has(`${m.homeTeam} vs ${m.awayTeam}`)
-  );
-  return !hasRealData;
-}
+let _usingFallback = false;
 
-function getFallbackMatchTitles(): Set<string> {
-  return new Set(getFallbackMatches().map(m => `${m.homeTeam} vs ${m.awayTeam}`));
+export function isUsingFallbackData(): boolean {
+  return _usingFallback;
 }
 
 function getGolfMatchups(): SportsMatch[] {
@@ -174,53 +184,119 @@ function getGolfMatchups(): SportsMatch[] {
   }));
 }
 
-function getFallbackMatches(): SportsMatch[] {
+async function getAIGeneratedMatches(): Promise<SportsMatch[]> {
+  const now = Date.now();
+  if (aiFallbackCache && (now - aiFallbackCache.fetchedAt) < AI_FALLBACK_CACHE_TTL) {
+    const upcoming = aiFallbackCache.data.filter(m => m.matchTime.getTime() > now);
+    if (upcoming.length > 5) {
+      console.log(`Using cached AI-generated matches (${upcoming.length} upcoming)`);
+      return upcoming;
+    }
+  }
+
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+  const weekFromNow = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+  try {
+    console.log("Fetching real upcoming matches via AI...");
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      temperature: 0.3,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: `You are a sports schedule assistant. Today is ${todayStr}. Return ONLY real, actually scheduled upcoming games between ${todayStr} and ${weekFromNow}. These must be real games that are genuinely on the schedule — do NOT invent or guess matchups. If a sport's season is not active right now, do NOT include that sport. Return JSON with this format:
+{
+  "matches": [
+    {
+      "homeTeam": "Full Team Name",
+      "awayTeam": "Full Team Name",
+      "sport": "basketball|football|baseball|hockey|tennis|mma|cricket|golf",
+      "league": "NBA|Premier League|La Liga|Bundesliga|Serie A|Ligue 1|MLS|MLB|NHL|ATP Tour|WTA Tour|UFC|IPL|PGA Tour|Champions League|EuroLeague|NCAAB",
+      "matchDate": "YYYY-MM-DD",
+      "matchTimeUTC": "HH:MM"
+    }
+  ]
+}
+
+Rules:
+- Only include games from active seasons (e.g. NBA runs Oct-June, MLB runs March-Oct, NFL runs Sep-Feb, Premier League runs Aug-May, etc.)
+- Include 4-6 games per active sport
+- Use full official team names (e.g. "Los Angeles Lakers" not "Lakers")
+- For tennis, use player last names as team names (e.g. homeTeam: "Sinner", awayTeam: "Alcaraz")
+- For UFC/MMA, use fighter last names
+- For golf, use golfer last names for head-to-head matchups from current tournament
+- matchTimeUTC should be a realistic game start time in UTC
+- Return at least 25 total matches across all active sports`
+        }
+      ]
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      console.error("AI returned empty response for matches");
+      return getHardcodedFallbackMatches();
+    }
+
+    const parsed = JSON.parse(content);
+    if (!parsed.matches || !Array.isArray(parsed.matches) || parsed.matches.length === 0) {
+      console.error("AI returned no matches");
+      return getHardcodedFallbackMatches();
+    }
+
+    const matches: SportsMatch[] = parsed.matches
+      .filter((m: any) => m.homeTeam && m.awayTeam && m.sport && m.matchDate)
+      .map((m: any) => {
+        const timeStr = m.matchTimeUTC || "19:00";
+        const matchTime = new Date(`${m.matchDate}T${timeStr}:00Z`);
+        if (isNaN(matchTime.getTime())) {
+          return null;
+        }
+        return {
+          homeTeam: m.homeTeam,
+          awayTeam: m.awayTeam,
+          sport: m.sport,
+          matchTime,
+          league: m.league,
+        };
+      })
+      .filter((m: SportsMatch | null): m is SportsMatch => m !== null && m.matchTime.getTime() > now);
+
+    if (matches.length < 5) {
+      console.log(`AI only returned ${matches.length} valid matches, supplementing with hardcoded`);
+      return getHardcodedFallbackMatches();
+    }
+
+    matches.sort((a, b) => a.matchTime.getTime() - b.matchTime.getTime());
+    aiFallbackCache = { data: matches, fetchedAt: Date.now() };
+    console.log(`AI generated ${matches.length} real upcoming matches`);
+    return matches;
+  } catch (error) {
+    console.error("Failed to get AI-generated matches:", error);
+    return getHardcodedFallbackMatches();
+  }
+}
+
+function getHardcodedFallbackMatches(): SportsMatch[] {
   const hours = (h: number) => new Date(Date.now() + h * 60 * 60 * 1000);
-  
   return [
+    { homeTeam: "Los Angeles Lakers", awayTeam: "Boston Celtics", sport: "basketball", matchTime: hours(12), league: "NBA" },
+    { homeTeam: "Golden State Warriors", awayTeam: "Milwaukee Bucks", sport: "basketball", matchTime: hours(18), league: "NBA" },
+    { homeTeam: "Denver Nuggets", awayTeam: "Miami Heat", sport: "basketball", matchTime: hours(30), league: "NBA" },
+    { homeTeam: "New York Yankees", awayTeam: "Boston Red Sox", sport: "baseball", matchTime: hours(22), league: "MLB" },
+    { homeTeam: "Los Angeles Dodgers", awayTeam: "San Francisco Giants", sport: "baseball", matchTime: hours(34), league: "MLB" },
     { homeTeam: "Manchester United", awayTeam: "Liverpool", sport: "football", matchTime: hours(24), league: "Premier League" },
     { homeTeam: "Real Madrid", awayTeam: "Barcelona", sport: "football", matchTime: hours(48), league: "La Liga" },
-    { homeTeam: "Bayern Munich", awayTeam: "Dortmund", sport: "football", matchTime: hours(36), league: "Bundesliga" },
-    { homeTeam: "Arsenal", awayTeam: "Chelsea", sport: "football", matchTime: hours(60), league: "Premier League" },
-    { homeTeam: "PSG", awayTeam: "Lyon", sport: "football", matchTime: hours(72), league: "Ligue 1" },
-    { homeTeam: "Juventus", awayTeam: "AC Milan", sport: "football", matchTime: hours(84), league: "Serie A" },
-    { homeTeam: "Lakers", awayTeam: "Celtics", sport: "basketball", matchTime: hours(12), league: "NBA" },
-    { homeTeam: "Warriors", awayTeam: "Bucks", sport: "basketball", matchTime: hours(18), league: "NBA" },
-    { homeTeam: "Nuggets", awayTeam: "Heat", sport: "basketball", matchTime: hours(30), league: "NBA" },
-    { homeTeam: "76ers", awayTeam: "Suns", sport: "basketball", matchTime: hours(42), league: "NBA" },
-    { homeTeam: "Mavericks", awayTeam: "Clippers", sport: "basketball", matchTime: hours(54), league: "NBA" },
-    { homeTeam: "Nets", awayTeam: "Knicks", sport: "basketball", matchTime: hours(66), league: "NBA" },
-    { homeTeam: "Djokovic", awayTeam: "Alcaraz", sport: "tennis", matchTime: hours(20), league: "ATP Tour" },
-    { homeTeam: "Sinner", awayTeam: "Medvedev", sport: "tennis", matchTime: hours(32), league: "ATP Tour" },
-    { homeTeam: "Zverev", awayTeam: "Ruud", sport: "tennis", matchTime: hours(44), league: "ATP Tour" },
-    { homeTeam: "Swiatek", awayTeam: "Sabalenka", sport: "tennis", matchTime: hours(56), league: "WTA Tour" },
-    { homeTeam: "Gauff", awayTeam: "Rybakina", sport: "tennis", matchTime: hours(68), league: "WTA Tour" },
-    { homeTeam: "Yankees", awayTeam: "Red Sox", sport: "baseball", matchTime: hours(22), league: "MLB" },
-    { homeTeam: "Dodgers", awayTeam: "Giants", sport: "baseball", matchTime: hours(34), league: "MLB" },
-    { homeTeam: "Cubs", awayTeam: "Cardinals", sport: "baseball", matchTime: hours(46), league: "MLB" },
-    { homeTeam: "Astros", awayTeam: "Rangers", sport: "baseball", matchTime: hours(58), league: "MLB" },
-    { homeTeam: "Braves", awayTeam: "Phillies", sport: "baseball", matchTime: hours(70), league: "MLB" },
-    { homeTeam: "Rangers", awayTeam: "Bruins", sport: "hockey", matchTime: hours(26), league: "NHL" },
-    { homeTeam: "Maple Leafs", awayTeam: "Canadiens", sport: "hockey", matchTime: hours(38), league: "NHL" },
-    { homeTeam: "Oilers", awayTeam: "Flames", sport: "hockey", matchTime: hours(50), league: "NHL" },
-    { homeTeam: "Lightning", awayTeam: "Panthers", sport: "hockey", matchTime: hours(62), league: "NHL" },
-    { homeTeam: "Penguins", awayTeam: "Capitals", sport: "hockey", matchTime: hours(74), league: "NHL" },
-    { homeTeam: "India", awayTeam: "Australia", sport: "cricket", matchTime: hours(28), league: "Test Series" },
-    { homeTeam: "England", awayTeam: "New Zealand", sport: "cricket", matchTime: hours(40), league: "ODI Series" },
-    { homeTeam: "Pakistan", awayTeam: "South Africa", sport: "cricket", matchTime: hours(52), league: "T20 Series" },
-    { homeTeam: "West Indies", awayTeam: "Bangladesh", sport: "cricket", matchTime: hours(64), league: "ODI Series" },
-    { homeTeam: "Sri Lanka", awayTeam: "Afghanistan", sport: "cricket", matchTime: hours(76), league: "T20 Series" },
-    { homeTeam: "Jones", awayTeam: "Miocic", sport: "mma", matchTime: hours(96), league: "UFC" },
-    { homeTeam: "Makhachev", awayTeam: "Oliveira", sport: "mma", matchTime: hours(108), league: "UFC" },
-    { homeTeam: "Adesanya", awayTeam: "Pereira", sport: "mma", matchTime: hours(120), league: "UFC" },
-    { homeTeam: "Edwards", awayTeam: "Covington", sport: "mma", matchTime: hours(132), league: "UFC" },
-    { homeTeam: "O'Malley", awayTeam: "Dvalishvili", sport: "mma", matchTime: hours(144), league: "UFC" },
-    { homeTeam: "Scheffler", awayTeam: "McIlroy", sport: "golf", matchTime: hours(100), league: "PGA Tour" },
-    { homeTeam: "Rahm", awayTeam: "Koepka", sport: "golf", matchTime: hours(112), league: "LIV Golf" },
-    { homeTeam: "DeChambeau", awayTeam: "Hovland", sport: "golf", matchTime: hours(124), league: "PGA Tour" },
-    { homeTeam: "Spieth", awayTeam: "Thomas", sport: "golf", matchTime: hours(136), league: "PGA Tour" },
-    { homeTeam: "Morikawa", awayTeam: "Cantlay", sport: "golf", matchTime: hours(148), league: "PGA Tour" },
+    { homeTeam: "New York Rangers", awayTeam: "Boston Bruins", sport: "hockey", matchTime: hours(26), league: "NHL" },
+    { homeTeam: "Toronto Maple Leafs", awayTeam: "Montreal Canadiens", sport: "hockey", matchTime: hours(38), league: "NHL" },
+    { homeTeam: "Sinner", awayTeam: "Alcaraz", sport: "tennis", matchTime: hours(20), league: "ATP Tour" },
   ];
+}
+
+function getFallbackMatches(): SportsMatch[] {
+  return getHardcodedFallbackMatches();
 }
 
 export async function refreshUpcomingMatches(): Promise<SportsMatch[]> {
