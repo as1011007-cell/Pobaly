@@ -589,7 +589,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       for (const e of entries) {
         await db.execute(sql`
           INSERT INTO predictions (user_id, match_title, sport, match_time, predicted_outcome, probability, confidence, explanation, factors, risk_index, is_live, is_premium, result, created_at, expires_at)
-          VALUES (NULL, ${e.matchTitle}, ${e.sport}, ${e.matchTime}::timestamp, ${e.predictedOutcome}, ${e.probability}, ${e.confidence}, ${e.explanation}, ${JSON.stringify(e.factors)}::jsonb, ${e.riskIndex}, false, false, 'correct', ${e.matchTime}::timestamp - interval '1 hour', ${e.matchTime}::timestamp)
+          VALUES (NULL, ${e.matchTitle}, ${e.sport}, ${e.matchTime}::timestamp, ${e.predictedOutcome}, ${e.probability}, ${e.confidence}, ${e.explanation}, ${JSON.stringify(e.factors)}::jsonb, ${e.riskIndex}, false, false, 'correct', ${e.matchTime}::timestamp, ${e.matchTime}::timestamp)
         `);
         inserted++;
       }
