@@ -336,30 +336,6 @@ export async function generateDailyPredictions(): Promise<void> {
 export async function generateYesterdayHistory(): Promise<void> {
   console.log("Generating history from real completed games...");
 
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const startOfYesterday = new Date(Date.UTC(yesterday.getUTCFullYear(), yesterday.getUTCMonth(), yesterday.getUTCDate()));
-  const endOfYesterday = new Date(startOfYesterday.getTime() + 24 * 60 * 60 * 1000);
-
-  const existing = await db.select()
-    .from(predictions)
-    .where(
-      and(
-        isNull(predictions.userId),
-        eq(predictions.isPremium, false),
-        sql`${predictions.result} IS NOT NULL`,
-        sql`${predictions.matchTime} >= ${startOfYesterday.toISOString()}::timestamp`,
-        sql`${predictions.matchTime} < ${endOfYesterday.toISOString()}::timestamp`,
-        sql`${predictions.explanation} LIKE '%won %'`
-      )
-    )
-    .limit(1);
-
-  if (existing.length > 0) {
-    console.log("Yesterday's real history already exists, skipping generation");
-    return;
-  }
-
   const threeDaysAgo = new Date();
   threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
   await db.delete(predictions)
@@ -379,13 +355,32 @@ export async function generateYesterdayHistory(): Promise<void> {
     return;
   }
 
+  const existingHistory = await db.select({ matchTitle: predictions.matchTitle })
+    .from(predictions)
+    .where(
+      and(
+        isNull(predictions.userId),
+        eq(predictions.isPremium, false),
+        sql`${predictions.result} IS NOT NULL`,
+        sql`${predictions.explanation} LIKE '%won %'`
+      )
+    );
+  const existingTitles = new Set(existingHistory.map(e => e.matchTitle));
+
   const sportsSeen = new Set<string>();
   const selectedGames = [];
   for (const game of completedGames) {
     if (selectedGames.length >= 12) break;
+    const title = `${game.homeTeam} vs ${game.awayTeam}`;
+    if (existingTitles.has(title)) continue;
     if (sportsSeen.has(game.sport) && selectedGames.filter(g => g.sport === game.sport).length >= 2) continue;
     sportsSeen.add(game.sport);
     selectedGames.push(game);
+  }
+
+  if (selectedGames.length === 0) {
+    console.log("All completed games already in history, skipping");
+    return;
   }
 
   let inserted = 0;
