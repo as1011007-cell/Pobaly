@@ -1,5 +1,3 @@
-import OpenAI from "openai";
-
 interface OddsApiGame {
   id: string;
   sport_key: string;
@@ -17,15 +15,10 @@ interface SportsMatch {
   league?: string;
 }
 
-const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-});
-
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 let matchCache: { data: SportsMatch[]; fetchedAt: number } | null = null;
-let aiFallbackCache: { data: SportsMatch[]; fetchedAt: number } | null = null;
-const AI_FALLBACK_CACHE_TTL = 12 * 60 * 60 * 1000; // 12 hours
+let espnFallbackCache: { data: SportsMatch[]; fetchedAt: number } | null = null;
+const ESPN_CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours
 
 const SPORTS_MAP: Record<string, { apiKey: string; sportName: string; league: string }[]> = {
   football: [
@@ -101,11 +94,11 @@ export async function getUpcomingMatchesFromApi(): Promise<SportsMatch[]> {
   const apiKey = process.env.ODDS_API_KEY;
   
   if (!apiKey) {
-    console.log('ODDS_API_KEY not set — using AI to find real upcoming matches');
-    const aiMatches = await getAIGeneratedMatches();
-    matchCache = { data: aiMatches, fetchedAt: Date.now() };
+    console.log('ODDS_API_KEY not set — fetching real matches from ESPN');
+    const espnMatches = await getESPNMatches();
+    matchCache = { data: espnMatches, fetchedAt: Date.now() };
     _usingFallback = true;
-    return aiMatches;
+    return espnMatches;
   }
 
   const allMatches: SportsMatch[] = [];
@@ -142,11 +135,11 @@ export async function getUpcomingMatchesFromApi(): Promise<SportsMatch[]> {
   const apiMatchCount = allMatches.length;
 
   if (apiMatchCount === 0) {
-    console.log('No real games found from sports API — using AI to find real upcoming matches');
-    const aiMatches = await getAIGeneratedMatches();
-    matchCache = { data: aiMatches, fetchedAt: Date.now() };
+    console.log('No real games found from sports API — fetching real matches from ESPN');
+    const espnMatches = await getESPNMatches();
+    matchCache = { data: espnMatches, fetchedAt: Date.now() };
     _usingFallback = true;
-    return aiMatches;
+    return espnMatches;
   }
 
   const golfMatches = getGolfMatchups();
@@ -184,99 +177,84 @@ function getGolfMatchups(): SportsMatch[] {
   }));
 }
 
-async function getAIGeneratedMatches(): Promise<SportsMatch[]> {
+const ESPN_ENDPOINTS: { url: string; sport: string; league: string }[] = [
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard', sport: 'basketball', league: 'NBA' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard', sport: 'baseball', league: 'MLB' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard', sport: 'hockey', league: 'NHL' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard', sport: 'football', league: 'Premier League' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/esp.1/scoreboard', sport: 'football', league: 'La Liga' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/ger.1/scoreboard', sport: 'football', league: 'Bundesliga' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/ita.1/scoreboard', sport: 'football', league: 'Serie A' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/fra.1/scoreboard', sport: 'football', league: 'Ligue 1' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard', sport: 'football', league: 'MLS' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.champions/scoreboard', sport: 'football', league: 'Champions League' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard', sport: 'mma', league: 'UFC' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/tennis/atp/scoreboard', sport: 'tennis', league: 'ATP Tour' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/tennis/wta/scoreboard', sport: 'tennis', league: 'WTA Tour' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/cricket/icc/scoreboard', sport: 'cricket', league: 'ICC' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard', sport: 'golf', league: 'PGA Tour' },
+];
+
+async function getESPNMatches(): Promise<SportsMatch[]> {
   const now = Date.now();
-  if (aiFallbackCache && (now - aiFallbackCache.fetchedAt) < AI_FALLBACK_CACHE_TTL) {
-    const upcoming = aiFallbackCache.data.filter(m => m.matchTime.getTime() > now);
+  if (espnFallbackCache && (now - espnFallbackCache.fetchedAt) < ESPN_CACHE_TTL) {
+    const upcoming = espnFallbackCache.data.filter(m => m.matchTime.getTime() > now);
     if (upcoming.length > 5) {
-      console.log(`Using cached AI-generated matches (${upcoming.length} upcoming)`);
+      console.log(`Using cached ESPN matches (${upcoming.length} upcoming)`);
       return upcoming;
     }
   }
 
-  const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
-  const weekFromNow = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  console.log("Fetching real upcoming matches from ESPN (free API)...");
+  const allMatches: SportsMatch[] = [];
+  const currentTime = new Date();
 
-  try {
-    console.log("Fetching real upcoming matches via AI...");
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      temperature: 0.3,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content: `You are a sports schedule assistant. Today is ${todayStr}. Return ONLY real, actually scheduled upcoming games between ${todayStr} and ${weekFromNow}. These must be real games that are genuinely on the schedule — do NOT invent or guess matchups. If a sport's season is not active right now, do NOT include that sport. Return JSON with this format:
-{
-  "matches": [
-    {
-      "homeTeam": "Full Team Name",
-      "awayTeam": "Full Team Name",
-      "sport": "basketball|football|baseball|hockey|tennis|mma|cricket|golf",
-      "league": "NBA|Premier League|La Liga|Bundesliga|Serie A|Ligue 1|MLS|MLB|NHL|ATP Tour|WTA Tour|UFC|IPL|PGA Tour|Champions League|EuroLeague|NCAAB",
-      "matchDate": "YYYY-MM-DD",
-      "matchTimeUTC": "HH:MM"
-    }
-  ]
-}
+  for (const endpoint of ESPN_ENDPOINTS) {
+    try {
+      const response = await fetch(endpoint.url);
+      if (!response.ok) continue;
 
-Rules:
-- Only include games from active seasons (e.g. NBA runs Oct-June, MLB runs March-Oct, NFL runs Sep-Feb, Premier League runs Aug-May, etc.)
-- Include 4-6 games per active sport
-- Use full official team names (e.g. "Los Angeles Lakers" not "Lakers")
-- For tennis, use player last names as team names (e.g. homeTeam: "Sinner", awayTeam: "Alcaraz")
-- For UFC/MMA, use fighter last names
-- For golf, use golfer last names for head-to-head matchups from current tournament
-- matchTimeUTC should be a realistic game start time in UTC
-- Return at least 25 total matches across all active sports`
-        }
-      ]
-    });
+      const data = await response.json() as any;
+      const events = data.events || [];
 
-    const content = response.choices[0]?.message?.content;
-    if (!content) {
-      console.error("AI returned empty response for matches");
-      return getHardcodedFallbackMatches();
-    }
+      for (const event of events.slice(0, 6)) {
+        const matchTime = new Date(event.date);
+        if (isNaN(matchTime.getTime()) || matchTime < currentTime) continue;
 
-    const parsed = JSON.parse(content);
-    if (!parsed.matches || !Array.isArray(parsed.matches) || parsed.matches.length === 0) {
-      console.error("AI returned no matches");
-      return getHardcodedFallbackMatches();
-    }
+        const competitors = event.competitions?.[0]?.competitors || [];
+        if (competitors.length < 2) continue;
 
-    const matches: SportsMatch[] = parsed.matches
-      .filter((m: any) => m.homeTeam && m.awayTeam && m.sport && m.matchDate)
-      .map((m: any) => {
-        const timeStr = m.matchTimeUTC || "19:00";
-        const matchTime = new Date(`${m.matchDate}T${timeStr}:00Z`);
-        if (isNaN(matchTime.getTime())) {
-          return null;
-        }
-        return {
-          homeTeam: m.homeTeam,
-          awayTeam: m.awayTeam,
-          sport: m.sport,
+        const homeComp = competitors.find((c: any) => c.homeAway === 'home') || competitors[0];
+        const awayComp = competitors.find((c: any) => c.homeAway === 'away') || competitors[1];
+
+        const homeTeam = homeComp.team?.displayName || homeComp.athlete?.displayName || event.name?.split(' vs ')?.[0] || 'TBD';
+        const awayTeam = awayComp.team?.displayName || awayComp.athlete?.displayName || event.name?.split(' vs ')?.[1] || 'TBD';
+
+        if (homeTeam === 'TBD' || awayTeam === 'TBD') continue;
+
+        allMatches.push({
+          homeTeam,
+          awayTeam,
+          sport: endpoint.sport,
           matchTime,
-          league: m.league,
-        };
-      })
-      .filter((m: SportsMatch | null): m is SportsMatch => m !== null && m.matchTime.getTime() > now);
-
-    if (matches.length < 5) {
-      console.log(`AI only returned ${matches.length} valid matches, supplementing with hardcoded`);
-      return getHardcodedFallbackMatches();
+          league: endpoint.league,
+        });
+      }
+    } catch (error) {
+      console.error(`ESPN fetch failed for ${endpoint.league}:`, error);
     }
-
-    matches.sort((a, b) => a.matchTime.getTime() - b.matchTime.getTime());
-    aiFallbackCache = { data: matches, fetchedAt: Date.now() };
-    console.log(`AI generated ${matches.length} real upcoming matches`);
-    return matches;
-  } catch (error) {
-    console.error("Failed to get AI-generated matches:", error);
-    return getHardcodedFallbackMatches();
   }
+
+  allMatches.sort((a, b) => a.matchTime.getTime() - b.matchTime.getTime());
+
+  if (allMatches.length > 0) {
+    espnFallbackCache = { data: allMatches, fetchedAt: Date.now() };
+    console.log(`ESPN: fetched ${allMatches.length} real upcoming matches across ${new Set(allMatches.map(m => m.sport)).size} sports`);
+    return allMatches;
+  }
+
+  console.log("ESPN returned no matches, using hardcoded fallback");
+  return getHardcodedFallbackMatches();
 }
 
 function getHardcodedFallbackMatches(): SportsMatch[] {
@@ -284,14 +262,12 @@ function getHardcodedFallbackMatches(): SportsMatch[] {
   return [
     { homeTeam: "Los Angeles Lakers", awayTeam: "Boston Celtics", sport: "basketball", matchTime: hours(12), league: "NBA" },
     { homeTeam: "Golden State Warriors", awayTeam: "Milwaukee Bucks", sport: "basketball", matchTime: hours(18), league: "NBA" },
-    { homeTeam: "Denver Nuggets", awayTeam: "Miami Heat", sport: "basketball", matchTime: hours(30), league: "NBA" },
     { homeTeam: "New York Yankees", awayTeam: "Boston Red Sox", sport: "baseball", matchTime: hours(22), league: "MLB" },
     { homeTeam: "Los Angeles Dodgers", awayTeam: "San Francisco Giants", sport: "baseball", matchTime: hours(34), league: "MLB" },
     { homeTeam: "Manchester United", awayTeam: "Liverpool", sport: "football", matchTime: hours(24), league: "Premier League" },
     { homeTeam: "Real Madrid", awayTeam: "Barcelona", sport: "football", matchTime: hours(48), league: "La Liga" },
     { homeTeam: "New York Rangers", awayTeam: "Boston Bruins", sport: "hockey", matchTime: hours(26), league: "NHL" },
     { homeTeam: "Toronto Maple Leafs", awayTeam: "Montreal Canadiens", sport: "hockey", matchTime: hours(38), league: "NHL" },
-    { homeTeam: "Sinner", awayTeam: "Alcaraz", sport: "tennis", matchTime: hours(20), league: "ATP Tour" },
   ];
 }
 
@@ -317,11 +293,17 @@ interface CompletedGame {
 
 export async function getRecentCompletedGames(): Promise<CompletedGame[]> {
   const apiKey = process.env.ODDS_API_KEY;
-  if (!apiKey) {
-    console.log('ODDS_API_KEY not set, cannot fetch completed games');
-    return [];
+  
+  if (apiKey) {
+    const oddsApiGames = await fetchCompletedFromOddsApi(apiKey);
+    if (oddsApiGames.length > 0) return oddsApiGames;
   }
 
+  console.log('Odds API unavailable — fetching completed games from ESPN');
+  return fetchCompletedFromESPN();
+}
+
+async function fetchCompletedFromOddsApi(apiKey: string): Promise<CompletedGame[]> {
   const completedGames: CompletedGame[] = [];
   const scoresConfigs: { apiKey: string; sportName: string; league: string }[] = [];
   for (const configs of Object.values(SPORTS_MAP)) {
@@ -365,6 +347,73 @@ export async function getRecentCompletedGames(): Promise<CompletedGame[]> {
   }
 
   completedGames.sort((a, b) => b.matchTime.getTime() - a.matchTime.getTime());
-  console.log(`Fetched ${completedGames.length} real completed games`);
+  console.log(`Fetched ${completedGames.length} real completed games from Odds API`);
+  return completedGames;
+}
+
+const ESPN_SCORES_ENDPOINTS = [
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard', sport: 'basketball', league: 'NBA' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard', sport: 'baseball', league: 'MLB' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard', sport: 'hockey', league: 'NHL' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard', sport: 'football', league: 'Premier League' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/esp.1/scoreboard', sport: 'football', league: 'La Liga' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/ger.1/scoreboard', sport: 'football', league: 'Bundesliga' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/ita.1/scoreboard', sport: 'football', league: 'Serie A' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/fra.1/scoreboard', sport: 'football', league: 'Ligue 1' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard', sport: 'mma', league: 'UFC' },
+];
+
+async function fetchCompletedFromESPN(): Promise<CompletedGame[]> {
+  const completedGames: CompletedGame[] = [];
+
+  for (const endpoint of ESPN_SCORES_ENDPOINTS) {
+    try {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const dateStr = yesterday.toISOString().split('T')[0].replace(/-/g, '');
+      const url = `${endpoint.url}?dates=${dateStr}`;
+
+      const response = await fetch(url);
+      if (!response.ok) continue;
+
+      const data = await response.json() as any;
+      const events = data.events || [];
+
+      for (const event of events) {
+        const status = event.status?.type?.name;
+        if (status !== 'STATUS_FINAL') continue;
+
+        const competitors = event.competitions?.[0]?.competitors || [];
+        if (competitors.length < 2) continue;
+
+        const homeComp = competitors.find((c: any) => c.homeAway === 'home') || competitors[0];
+        const awayComp = competitors.find((c: any) => c.homeAway === 'away') || competitors[1];
+
+        const homeTeam = homeComp.team?.displayName || 'Unknown';
+        const awayTeam = awayComp.team?.displayName || 'Unknown';
+        const homeScore = parseInt(homeComp.score || '0');
+        const awayScore = parseInt(awayComp.score || '0');
+
+        if (homeTeam === 'Unknown' || awayTeam === 'Unknown') continue;
+        if (homeScore === awayScore) continue;
+
+        completedGames.push({
+          homeTeam,
+          awayTeam,
+          sport: endpoint.sport,
+          league: endpoint.league,
+          matchTime: new Date(event.date),
+          homeScore,
+          awayScore,
+          winner: homeComp.winner ? homeTeam : awayTeam,
+        });
+      }
+    } catch (error) {
+      console.error(`ESPN scores fetch failed for ${endpoint.league}:`, error);
+    }
+  }
+
+  completedGames.sort((a, b) => b.matchTime.getTime() - a.matchTime.getTime());
+  console.log(`Fetched ${completedGames.length} completed games from ESPN`);
   return completedGames;
 }
