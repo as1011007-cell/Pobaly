@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import { db } from "../db";
 import { predictions, type InsertPrediction } from "@shared/schema";
-import { eq, and, gte, isNull, desc, sql } from "drizzle-orm";
+import { eq, and, gte, isNull, desc, sql, or } from "drizzle-orm";
 import { getUpcomingMatchesFromApi } from "./sportsApiService";
 
 const openai = new OpenAI({
@@ -575,6 +575,59 @@ async function addSupplementalSportsPredictions(existingTitles: Set<string>): Pr
 export async function getFreeTip() {
   await generateDailyFreePrediction();
   return await getTodaysActiveFreePrediction();
+}
+
+export async function replaceFreeTip(data: {
+  matchTitle: string;
+  sport: string;
+  matchTime?: string;
+  predictedOutcome?: string;
+  probability?: number;
+  confidence?: string;
+  explanation?: string;
+  factors?: any[];
+  sportsbookOdds?: any;
+  riskIndex?: number;
+}) {
+  const startOfToday = getStartOfToday();
+
+  await db.update(predictions)
+    .set({ result: 'incorrect' })
+    .where(
+      and(
+        eq(predictions.isPremium, false),
+        isNull(predictions.userId),
+        or(
+          eq(predictions.result, 'correct'),
+          isNull(predictions.result)
+        ),
+        gte(predictions.createdAt, startOfToday)
+      )
+    );
+
+  const mTime = data.matchTime ? new Date(data.matchTime) : new Date(Date.now() + 6 * 60 * 60 * 1000);
+  const expTime = new Date(mTime.getTime() + 4 * 60 * 60 * 1000);
+
+  const [newTip] = await db.insert(predictions).values({
+    matchTitle: data.matchTitle,
+    sport: data.sport,
+    matchTime: mTime,
+    predictedOutcome: data.predictedOutcome || `${data.matchTitle.split(' vs ')[0]} Win`,
+    probability: data.probability || 72,
+    confidence: data.confidence || 'high',
+    explanation: data.explanation || 'AI prediction based on current form and statistics.',
+    factors: data.factors || [{ title: "Form Analysis", impact: "positive", description: "Strong recent performance." }],
+    sportsbookOdds: data.sportsbookOdds || null,
+    riskIndex: data.riskIndex || 3,
+    isLive: false,
+    isPremium: false,
+    result: null,
+    userId: null,
+    createdAt: new Date(),
+    expiresAt: expTime,
+  }).returning();
+
+  return newTip;
 }
 
 export async function getPremiumPredictions(userId?: string, isPremiumUser?: boolean) {

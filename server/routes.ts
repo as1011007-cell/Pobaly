@@ -21,6 +21,7 @@ import {
   getPredictionById,
   markPredictionResult,
   getSportPredictionCounts,
+  replaceFreeTip,
 } from "./services/predictionService";
 
 const registerSchema = z.object({
@@ -543,6 +544,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await markPredictionResult(id, result);
       res.json({ success: true });
     } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Replace free tip (admin endpoint)
+  app.post("/api/predictions/replace-free-tip", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { matchTitle, sport } = req.body;
+      if (!matchTitle || !sport) {
+        return res.status(400).json({ error: "matchTitle and sport are required" });
+      }
+      const newTip = await replaceFreeTip(req.body);
+      res.json({ success: true, prediction: newTip });
+    } catch (error: any) {
+      console.error("Replace free tip error:", error);
       res.status(500).json({ error: error.message });
     }
   });
