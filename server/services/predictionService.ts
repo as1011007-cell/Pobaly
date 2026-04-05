@@ -64,9 +64,14 @@ async function getUpcomingMatches(): Promise<SportsMatch[]> {
 }
 
 async function generatePredictionForMatch(match: SportsMatch): Promise<PredictionAnalysis> {
-  const prompt = `You are a sports analytics AI. Analyze this upcoming ${match.sport} match and provide a prediction.
+  const today = new Date().toISOString().split('T')[0];
+  const matchDate = match.matchTime.toISOString().split('T')[0];
+  const prompt = `You are a sports analytics AI. Today's date is ${today}. Analyze this upcoming ${match.sport} match and provide a prediction.
+
+IMPORTANT: Use only current, accurate roster information as of ${today}. Do not reference players who have been traded, released, or are injured. If you are unsure about a player's current team, do not mention them by name. Focus on team-level analysis rather than risking outdated player info.
 
 Match: ${match.homeTeam} vs ${match.awayTeam}
+Match Date: ${matchDate}
 League: ${match.league || "Unknown"}
 Sport: ${match.sport}
 
