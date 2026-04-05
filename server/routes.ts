@@ -576,6 +576,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Mark fake predictions with [DEMO] and remove duplicates (admin endpoint)
+  app.post("/api/predictions/cleanup-demos", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const markResult = await db.execute(sql`
+        UPDATE predictions 
+        SET explanation = '[DEMO] ' || explanation
+        WHERE explanation LIKE 'AI analysis suggests%'
+        AND explanation NOT LIKE '[DEMO]%'
+        AND is_premium = true
+        AND user_id IS NULL
+      `);
+      const marked = (markResult as any).rowCount || 0;
+
+      const dupeResult = await db.execute(sql`
+        DELETE FROM predictions
+        WHERE id NOT IN (
+          SELECT MIN(id) FROM predictions
+          WHERE is_premium = true AND user_id IS NULL AND result IS NULL
+          GROUP BY match_title
+        )
+        AND is_premium = true AND user_id IS NULL AND result IS NULL
+      `);
+      const removed = (dupeResult as any).rowCount || 0;
+
+      res.json({ success: true, marked, duplicatesRemoved: removed });
+    } catch (error: any) {
+      console.error("Cleanup demos error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ============ User Preferences Routes ============
 
   // Get user preferences
