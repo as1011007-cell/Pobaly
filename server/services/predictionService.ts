@@ -1018,29 +1018,50 @@ export async function clearExpiredPredictions(): Promise<number> {
   return 0;
 }
 
+async function runWithRetry<T>(
+  fn: () => Promise<T>,
+  label: string,
+  maxRetries: number = 3,
+  delayMs: number = 5000,
+): Promise<T> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      const isConnectionError =
+        error?.code === "CONNECTION_CLOSED" ||
+        error?.code === "CONNECTION_ENDED" ||
+        error?.code === "CONNECT_TIMEOUT" ||
+        error?.message?.includes("CONNECTION_CLOSED") ||
+        error?.message?.includes("connection") ||
+        error?.message?.includes("ECONNRESET");
+
+      if (isConnectionError && attempt < maxRetries) {
+        console.warn(`[${label}] Connection error on attempt ${attempt}/${maxRetries}, retrying in ${delayMs / 1000}s...`);
+        await new Promise(r => setTimeout(r, delayMs));
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error(`[${label}] Exhausted all ${maxRetries} retries`);
+}
+
 // Daily refresh: Clear old predictions and regenerate with fresh data from API
 export async function dailyPredictionRefresh(): Promise<void> {
   console.log("Starting daily prediction refresh...");
   
   try {
-    // 1. Resolve prediction results against completed games
-    await resolvePredictionResults();
-    
-    // 2. Clear expired non-premium predictions
-    await clearExpiredPredictions();
-    
-    // 3. Generate yesterday's history
-    await generateYesterdayHistory();
-    
-    // 4. Generate fresh free prediction for today
-    await generateDailyFreePrediction();
-    
-    // 5. Refresh demo predictions with latest games
-    await refreshDemoPredictions();
+    await runWithRetry(() => resolvePredictionResults(), "resolvePredictionResults");
+    await runWithRetry(() => clearExpiredPredictions(), "clearExpiredPredictions");
+    await runWithRetry(() => generateYesterdayHistory(), "generateYesterdayHistory");
+    await runWithRetry(() => generateDailyFreePrediction(), "generateDailyFreePrediction");
+    await runWithRetry(() => refreshDemoPredictions(), "refreshDemoPredictions");
     
     console.log("Daily prediction refresh completed successfully");
   } catch (error) {
     console.error("Error during daily prediction refresh:", error);
+    throw error;
   }
 }
 
@@ -1082,18 +1103,28 @@ async function refreshDemoPredictions(): Promise<void> {
 // Start daily refresh scheduler (runs every 24 hours)
 export function startDailyRefreshScheduler(): void {
   const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+  const RETRY_DELAY = 5 * 60 * 1000;
   
   console.log("Daily prediction refresh scheduler started");
+
+  async function runRefreshWithRetry() {
+    try {
+      await dailyPredictionRefresh();
+    } catch (err) {
+      console.error("Daily refresh failed, scheduling retry in 5 minutes:", err);
+      setTimeout(async () => {
+        try {
+          await dailyPredictionRefresh();
+        } catch (retryErr) {
+          console.error("Daily refresh retry also failed:", retryErr);
+        }
+      }, RETRY_DELAY);
+    }
+  }
   
-  // Run immediately on startup
-  dailyPredictionRefresh().catch(err => {
-    console.error("Initial daily refresh failed:", err);
-  });
+  runRefreshWithRetry();
   
-  // Then run every 24 hours
   setInterval(() => {
-    dailyPredictionRefresh().catch(err => {
-      console.error("Scheduled daily refresh failed:", err);
-    });
+    runRefreshWithRetry();
   }, TWENTY_FOUR_HOURS);
 }
