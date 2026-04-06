@@ -131,37 +131,20 @@ function getStartOfToday(): Date {
 // Check if a free prediction exists for today (one per day, stays visible all day)
 async function getTodaysActiveFreePrediction() {
   const startOfToday = getStartOfToday();
-  const now = new Date();
 
-  const [won] = await db.select()
+  const [tip] = await db.select()
     .from(predictions)
     .where(
       and(
         eq(predictions.isPremium, false),
         isNull(predictions.userId),
-        eq(predictions.result, 'correct'),
         gte(predictions.createdAt, startOfToday),
         sql`${predictions.createdAt} < ${predictions.matchTime}`
       )
     )
     .orderBy(desc(predictions.createdAt))
     .limit(1);
-  if (won) return won;
-
-  const [pending] = await db.select()
-    .from(predictions)
-    .where(
-      and(
-        eq(predictions.isPremium, false),
-        isNull(predictions.userId),
-        isNull(predictions.result),
-        gte(predictions.createdAt, startOfToday),
-        gte(predictions.matchTime, now)
-      )
-    )
-    .orderBy(desc(predictions.createdAt))
-    .limit(1);
-  return pending || null;
+  return tip || null;
 }
 
 // Generate the daily free prediction (called on first request of day)
@@ -879,12 +862,15 @@ export async function clearExpiredPredictions(): Promise<number> {
   const threeDaysAgo = new Date();
   threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
 
+  const startOfToday = getStartOfToday();
+
   await db.delete(predictions)
     .where(
       and(
         sql`${predictions.matchTime} < ${now.toISOString()}::timestamp`,
         isNull(predictions.result),
-        eq(predictions.isPremium, false)
+        eq(predictions.isPremium, false),
+        sql`${predictions.createdAt} < ${startOfToday.toISOString()}::timestamp`
       )
     );
 
