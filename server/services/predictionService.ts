@@ -369,11 +369,11 @@ export async function generateYesterdayHistory(): Promise<void> {
   const sportsSeen = new Set<string>();
   const selectedGames = [];
   for (const game of completedGames) {
-    if (selectedGames.length >= 20) break;
+    if (selectedGames.length >= 25) break;
     const title = `${game.homeTeam} vs ${game.awayTeam}`;
     if (existingTitles.has(title)) continue;
     const sportCount = selectedGames.filter(g => g.sport === game.sport).length;
-    if (sportCount >= 4) continue;
+    if (sportCount >= 5) continue;
     sportsSeen.add(game.sport);
     selectedGames.push(game);
   }
