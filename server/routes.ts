@@ -294,13 +294,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           expiry.setMonth(expiry.getMonth() + 1);
         }
 
-        // Capture whether this is a new subscription before we update the DB
         const wasAlreadyPremium = user.isPremium === true;
 
-        await storage.updateUserStripeInfo(userId, {
+        const updateData: any = {
           isPremium: true,
           subscriptionExpiry: expiry,
-        });
+        };
+        if (!wasAlreadyPremium) {
+          updateData.premiumSince = new Date();
+        }
+
+        await storage.updateUserStripeInfo(userId, updateData);
         console.log(`RevenueCat sync: user ${userId} → isPremium=true (${isAnnual ? "annual" : "monthly"})`);
 
         if (!wasAlreadyPremium) {
@@ -353,10 +357,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             ? expiry.setFullYear(expiry.getFullYear() + 1)
             : expiry.setMonth(expiry.getMonth() + 1);
         }
-        await storage.updateUserStripeInfo(String(appUserId), {
+        const webhookUpdate: any = {
           isPremium: true,
           subscriptionExpiry: expiry,
-        });
+        };
+        if (!user.isPremium) {
+          webhookUpdate.premiumSince = new Date();
+        }
+        await storage.updateUserStripeInfo(String(appUserId), webhookUpdate);
         console.log(`RevenueCat webhook: ${eventType} → isPremium=true for ${appUserId}`);
 
         // Credit affiliate commission only on the very first purchase — not renewals or restores
@@ -480,7 +488,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/predictions/history", optionalAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.userId as string;
-      const predictions = await getHistoryPredictions(userId);
+      let isPremiumUser = false;
+      let premiumSince: Date | null = null;
+      if (userId) {
+        const u = await storage.getUser(userId);
+        isPremiumUser = u?.isPremium === true;
+        premiumSince = u?.premiumSince || null;
+      }
+      const predictions = await getHistoryPredictions(userId, isPremiumUser, premiumSince);
       res.json({ predictions });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -681,13 +696,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const subscription = await stripeService.getActiveSubscription(user.stripeCustomerId);
       
       if (subscription && subscription.status === "active") {
-        // Restore the subscription
         const expiryDate = new Date((subscription as any).current_period_end * 1000);
-        await storage.updateUserStripeInfo(userId, {
+        const restoreUpdate: any = {
           stripeSubscriptionId: subscription.id,
           isPremium: true,
           subscriptionExpiry: expiryDate,
-        });
+        };
+        if (!user.isPremium) {
+          restoreUpdate.premiumSince = new Date();
+        }
+        await storage.updateUserStripeInfo(userId, restoreUpdate);
         
         return res.json({ restored: true, message: "Subscription restored successfully" });
       }

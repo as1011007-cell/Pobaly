@@ -19,6 +19,7 @@ export interface IStorage {
     stripeCustomerId?: string;
     stripeSubscriptionId?: string;
     isPremium?: boolean;
+    premiumSince?: Date;
     subscriptionExpiry?: Date;
   }): Promise<User | undefined>;
   getUserPreferences(userId: string): Promise<UserPreferences | undefined>;
@@ -60,6 +61,7 @@ export class DatabaseStorage implements IStorage {
     stripeCustomerId?: string;
     stripeSubscriptionId?: string;
     isPremium?: boolean;
+    premiumSince?: Date;
     subscriptionExpiry?: Date;
   }): Promise<User | undefined> {
     const [user] = await db.update(users).set(stripeInfo).where(eq(users.id, userId)).returning();

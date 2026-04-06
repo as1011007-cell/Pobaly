@@ -13,8 +13,9 @@ export const users = pgTable("users", {
   stripeCustomerId: text("stripe_customer_id"),
   stripeSubscriptionId: text("stripe_subscription_id"),
   isPremium: boolean("is_premium").default(false),
+  premiumSince: timestamp("premium_since"),
   subscriptionExpiry: timestamp("subscription_expiry"),
-  referredByCode: varchar("referred_by_code", { length: 20 }), // Affiliate code that referred this user
+  referredByCode: varchar("referred_by_code", { length: 20 }),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

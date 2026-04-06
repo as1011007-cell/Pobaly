@@ -37,14 +37,14 @@ async function seedTestUser() {
         password: hashedPassword,
         name: "Probaly Tester",
         isPremium: true,
+        premiumSince: new Date(),
         subscriptionExpiry: PREMIUM_EXPIRY,
       });
       log(`✓ Test user created with premium: ${TEST_EMAIL}`);
     } else {
-      // Always ensure the test user has premium access
       await db
         .update(users)
-        .set({ isPremium: true, subscriptionExpiry: PREMIUM_EXPIRY, name: "Probaly Tester" })
+        .set({ isPremium: true, subscriptionExpiry: PREMIUM_EXPIRY, name: "Probaly Tester", premiumSince: existing[0].premiumSince || new Date() })
         .where(eq(users.email, TEST_EMAIL));
       log(`✓ Test user premium access refreshed: ${TEST_EMAIL}`);
     }
