@@ -814,18 +814,89 @@ export async function getSportPredictionCounts(userId?: string, isPremiumUser?: 
   return counts;
 }
 
-// Clear expired predictions (matches that have already started)
+export async function resolvePremiumPredictionResults(): Promise<void> {
+  const now = new Date();
+
+  const unresolvedPremium = await db.select()
+    .from(predictions)
+    .where(
+      and(
+        eq(predictions.isPremium, true),
+        isNull(predictions.result),
+        sql`${predictions.matchTime} < ${now.toISOString()}::timestamp`
+      )
+    );
+
+  if (unresolvedPremium.length === 0) {
+    console.log("No premium predictions to resolve");
+    return;
+  }
+
+  const completedGames = await getRecentCompletedGames();
+  if (completedGames.length === 0) {
+    console.log("No completed games to resolve against");
+    return;
+  }
+
+  let correct = 0;
+  let incorrect = 0;
+
+  for (const pred of unresolvedPremium) {
+    const parts = pred.matchTitle.split(" vs ");
+    if (parts.length < 2) continue;
+
+    const matchedGame = completedGames.find(g => {
+      const title1 = `${g.homeTeam} vs ${g.awayTeam}`;
+      const title2 = `${g.awayTeam} vs ${g.homeTeam}`;
+      return pred.matchTitle === title1 || pred.matchTitle === title2;
+    });
+
+    if (!matchedGame) continue;
+
+    const predictedWinner = pred.predictedOutcome.replace(/ Win$/i, '').trim();
+    const isCorrect = matchedGame.winner.toLowerCase().includes(predictedWinner.toLowerCase()) ||
+      predictedWinner.toLowerCase().includes(matchedGame.winner.toLowerCase());
+
+    const result = isCorrect ? "correct" : "incorrect";
+    const scoreLine = `${matchedGame.winner} won ${matchedGame.homeScore}-${matchedGame.awayScore}`;
+
+    await db.update(predictions)
+      .set({
+        result,
+        explanation: `${scoreLine}. ${isCorrect ? 'Our AI correctly predicted this outcome.' : 'The outcome did not match our prediction.'}`,
+      })
+      .where(eq(predictions.id, pred.id));
+
+    if (isCorrect) correct++;
+    else incorrect++;
+  }
+
+  console.log(`Resolved premium predictions: ${correct} correct, ${incorrect} incorrect out of ${unresolvedPremium.length}`);
+}
+
 export async function clearExpiredPredictions(): Promise<number> {
   const now = new Date();
-  
-  const result = await db.delete(predictions)
+  const threeDaysAgo = new Date();
+  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+
+  await db.delete(predictions)
     .where(
       and(
         sql`${predictions.matchTime} < ${now.toISOString()}::timestamp`,
-        isNull(predictions.result)
+        isNull(predictions.result),
+        eq(predictions.isPremium, false)
       )
     );
-  
+
+  await db.delete(predictions)
+    .where(
+      and(
+        eq(predictions.isPremium, true),
+        sql`${predictions.result} IS NOT NULL`,
+        sql`${predictions.matchTime} < ${threeDaysAgo.toISOString()}::timestamp`
+      )
+    );
+
   console.log(`Cleared expired predictions`);
   return 0;
 }
@@ -835,16 +906,19 @@ export async function dailyPredictionRefresh(): Promise<void> {
   console.log("Starting daily prediction refresh...");
   
   try {
-    // 1. Clear expired predictions
+    // 1. Resolve premium prediction results against completed games
+    await resolvePremiumPredictionResults();
+    
+    // 2. Clear expired non-premium predictions
     await clearExpiredPredictions();
     
-    // 2. Generate yesterday's history
+    // 3. Generate yesterday's history
     await generateYesterdayHistory();
     
-    // 3. Generate fresh free prediction for today
+    // 4. Generate fresh free prediction for today
     await generateDailyFreePrediction();
     
-    // 4. Refresh demo predictions with latest games
+    // 5. Refresh demo predictions with latest games
     await refreshDemoPredictions();
     
     console.log("Daily prediction refresh completed successfully");
@@ -864,6 +938,7 @@ async function refreshDemoPredictions(): Promise<void> {
       and(
         eq(predictions.isPremium, true),
         isNull(predictions.userId),
+        isNull(predictions.result),
         sql`${predictions.matchTime} < ${now.toISOString()}::timestamp`
       )
     );
