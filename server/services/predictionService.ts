@@ -359,21 +359,21 @@ export async function generateYesterdayHistory(): Promise<void> {
     .from(predictions)
     .where(
       and(
-        isNull(predictions.userId),
-        eq(predictions.isPremium, false),
         sql`${predictions.result} IS NOT NULL`,
-        sql`${predictions.explanation} LIKE '%won %'`
+        eq(predictions.result, "correct")
       )
     );
   const existingTitles = new Set(existingHistory.map(e => e.matchTitle));
+  console.log(`Found ${existingTitles.size} existing history titles, ${completedGames.length} completed games to check`);
 
   const sportsSeen = new Set<string>();
   const selectedGames = [];
   for (const game of completedGames) {
-    if (selectedGames.length >= 12) break;
+    if (selectedGames.length >= 20) break;
     const title = `${game.homeTeam} vs ${game.awayTeam}`;
     if (existingTitles.has(title)) continue;
-    if (sportsSeen.has(game.sport) && selectedGames.filter(g => g.sport === game.sport).length >= 2) continue;
+    const sportCount = selectedGames.filter(g => g.sport === game.sport).length;
+    if (sportCount >= 4) continue;
     sportsSeen.add(game.sport);
     selectedGames.push(game);
   }

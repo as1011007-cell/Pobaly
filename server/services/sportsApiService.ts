@@ -321,17 +321,26 @@ const ESPN_SCORES_ENDPOINTS = [
   { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/ger.1/scoreboard', sport: 'football', league: 'Bundesliga' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/ita.1/scoreboard', sport: 'football', league: 'Serie A' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/fra.1/scoreboard', sport: 'football', league: 'Ligue 1' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard', sport: 'football', league: 'MLS' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard', sport: 'mma', league: 'UFC' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/tennis/atp/scoreboard', sport: 'tennis', league: 'ATP Tour' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/tennis/wta/scoreboard', sport: 'tennis', league: 'WTA Tour' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/cricket/icc/scoreboard', sport: 'cricket', league: 'ICC' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard', sport: 'golf', league: 'PGA Tour' },
 ];
 
 async function fetchCompletedFromESPN(): Promise<CompletedGame[]> {
   const completedGames: CompletedGame[] = [];
 
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const todayStr = today.toISOString().split('T')[0].replace(/-/g, '');
+  const yesterdayStr = yesterday.toISOString().split('T')[0].replace(/-/g, '');
+
   for (const endpoint of ESPN_SCORES_ENDPOINTS) {
+    for (const dateStr of [yesterdayStr, todayStr]) {
     try {
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const dateStr = yesterday.toISOString().split('T')[0].replace(/-/g, '');
       const url = `${endpoint.url}?dates=${dateStr}`;
 
       const response = await fetch(url);
@@ -345,6 +354,47 @@ async function fetchCompletedFromESPN(): Promise<CompletedGame[]> {
         if (status !== 'STATUS_FINAL') continue;
 
         const competitors = event.competitions?.[0]?.competitors || [];
+
+        if (endpoint.sport === 'golf') {
+          if (competitors.length < 1) continue;
+          const winnerComp = competitors.find((c: any) => c.winner) || competitors[0];
+          const runnerUp = competitors[1];
+          const winnerName = winnerComp?.athlete?.displayName || winnerComp?.team?.displayName;
+          const runnerName = runnerUp?.athlete?.displayName || runnerUp?.team?.displayName;
+          if (!winnerName || !runnerName) continue;
+          completedGames.push({
+            homeTeam: winnerName,
+            awayTeam: runnerName,
+            sport: endpoint.sport,
+            league: endpoint.league,
+            matchTime: new Date(event.date),
+            homeScore: 1,
+            awayScore: 0,
+            winner: winnerName,
+          });
+          continue;
+        }
+
+        if (endpoint.sport === 'tennis') {
+          if (competitors.length < 2) continue;
+          const winnerComp = competitors.find((c: any) => c.winner) || competitors[0];
+          const loserComp = competitors.find((c: any) => !c.winner) || competitors[1];
+          const winnerName = winnerComp?.athlete?.displayName || winnerComp?.team?.displayName;
+          const loserName = loserComp?.athlete?.displayName || loserComp?.team?.displayName;
+          if (!winnerName || !loserName) continue;
+          completedGames.push({
+            homeTeam: winnerName,
+            awayTeam: loserName,
+            sport: endpoint.sport,
+            league: endpoint.league,
+            matchTime: new Date(event.date),
+            homeScore: 1,
+            awayScore: 0,
+            winner: winnerName,
+          });
+          continue;
+        }
+
         if (competitors.length < 2) continue;
 
         const homeComp = competitors.find((c: any) => c.homeAway === 'home') || competitors[0];
@@ -371,6 +421,7 @@ async function fetchCompletedFromESPN(): Promise<CompletedGame[]> {
       }
     } catch (error) {
       console.error(`ESPN scores fetch failed for ${endpoint.league}:`, error);
+    }
     }
   }
 
