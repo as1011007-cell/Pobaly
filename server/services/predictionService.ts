@@ -649,6 +649,13 @@ async function addSupplementalDemoPredictions(existingTitles: Set<string>): Prom
     );
   }
 
+  if (!sportsWithPredictions.has('basketball')) {
+    supplementalMatches.push(
+      { homeTeam: "Celtics", awayTeam: "Lakers", sport: "basketball", hoursFromNow: 18, league: "NBA" },
+      { homeTeam: "Nuggets", awayTeam: "Suns", sport: "basketball", hoursFromNow: 30, league: "NBA" },
+    );
+  }
+
   for (const match of supplementalMatches) {
     const matchTitle = `${match.homeTeam} vs ${match.awayTeam}`;
     if (existingTitles.has(matchTitle)) continue;
@@ -678,6 +685,37 @@ async function addSupplementalDemoPredictions(existingTitles: Set<string>): Prom
         expiresAt: new Date(matchTime.getTime() + 3 * 60 * 60 * 1000),
       });
       existingTitles.add(matchTitle);
+
+      if (match.sport === 'basketball') {
+        const ouTitle = `${matchTitle} (O/U)`;
+        if (!existingTitles.has(ouTitle)) {
+          const ouAnalysis = await generatePredictionForMatch({
+            homeTeam: match.homeTeam,
+            awayTeam: match.awayTeam,
+            sport: match.sport,
+            matchTime,
+            league: match.league,
+          }, "overunder");
+
+          await db.insert(predictions).values({
+            userId: null,
+            matchTitle: ouTitle,
+            sport: match.sport,
+            matchTime,
+            predictedOutcome: ouAnalysis.predictedOutcome,
+            probability: ouAnalysis.probability,
+            confidence: ouAnalysis.confidence,
+            explanation: `[DEMO] ${ouAnalysis.explanation}`,
+            factors: ouAnalysis.factors,
+            riskIndex: ouAnalysis.riskIndex,
+            isLive: false,
+            isPremium: true,
+            result: null,
+            expiresAt: new Date(matchTime.getTime() + 3 * 60 * 60 * 1000),
+          });
+          existingTitles.add(ouTitle);
+        }
+      }
     } catch (error) {
       console.error(`Failed supplemental prediction for ${matchTitle}:`, error);
     }
