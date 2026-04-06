@@ -739,32 +739,17 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
   const yesterdayStart = new Date();
   yesterdayStart.setDate(yesterdayStart.getDate() - 1);
   yesterdayStart.setHours(0, 0, 0, 0);
-  const yesterdayEnd = new Date(yesterdayStart);
-  yesterdayEnd.setDate(yesterdayEnd.getDate() + 1);
-
-  const yesterdayPredictions = await db.select()
-    .from(predictions)
-    .where(
-      and(
-        eq(predictions.result, "correct"),
-        isNull(predictions.userId),
-        sql`${predictions.matchTime} >= ${yesterdayStart.toISOString()}::timestamp`,
-        sql`${predictions.matchTime} < ${yesterdayEnd.toISOString()}::timestamp`
-      )
-    );
-
-  const limit = Math.max(yesterdayPredictions.length, 1);
 
   return db.select()
     .from(predictions)
     .where(
       and(
         eq(predictions.result, "correct"),
-        isNull(predictions.userId)
+        isNull(predictions.userId),
+        sql`${predictions.matchTime} >= ${yesterdayStart.toISOString()}::timestamp`
       )
     )
-    .orderBy(desc(predictions.matchTime))
-    .limit(limit);
+    .orderBy(desc(predictions.matchTime));
 }
 
 export async function getPredictionsBySport(sport: string, userId?: string, isPremiumUser?: boolean) {
