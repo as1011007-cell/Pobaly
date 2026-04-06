@@ -732,12 +732,16 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
       .orderBy(desc(predictions.matchTime));
   }
 
+  const oneDayAgo = new Date();
+  oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+
   return db.select()
     .from(predictions)
     .where(
       and(
         eq(predictions.result, "correct"),
-        isNull(predictions.userId)
+        isNull(predictions.userId),
+        sql`${predictions.matchTime} >= ${oneDayAgo.toISOString()}::timestamp`
       )
     )
     .orderBy(desc(predictions.matchTime));
