@@ -336,15 +336,12 @@ export async function generateDailyPredictions(): Promise<void> {
 export async function generateYesterdayHistory(): Promise<void> {
   console.log("Generating history from real completed games...");
 
-  const threeDaysAgo = new Date();
-  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
   await db.delete(predictions)
     .where(
       and(
         isNull(predictions.userId),
         eq(predictions.isPremium, false),
-        sql`${predictions.result} IS NOT NULL`,
-        sql`${predictions.matchTime} < ${threeDaysAgo.toISOString()}::timestamp`
+        sql`${predictions.result} IS NOT NULL`
       )
     );
 
@@ -355,31 +352,16 @@ export async function generateYesterdayHistory(): Promise<void> {
     return;
   }
 
-  const existingHistory = await db.select({ matchTitle: predictions.matchTitle })
-    .from(predictions)
-    .where(
-      and(
-        sql`${predictions.result} IS NOT NULL`,
-        eq(predictions.result, "correct")
-      )
-    );
-  const existingTitles = new Set(existingHistory.map(e => e.matchTitle));
-  console.log(`Found ${existingTitles.size} existing history titles, ${completedGames.length} completed games to check`);
-
-  const sportsSeen = new Set<string>();
   const selectedGames = [];
   for (const game of completedGames) {
     if (selectedGames.length >= 25) break;
-    const title = `${game.homeTeam} vs ${game.awayTeam}`;
-    if (existingTitles.has(title)) continue;
     const sportCount = selectedGames.filter(g => g.sport === game.sport).length;
     if (sportCount >= 5) continue;
-    sportsSeen.add(game.sport);
     selectedGames.push(game);
   }
 
   if (selectedGames.length === 0) {
-    console.log("All completed games already in history, skipping");
+    console.log("No completed games to add to history");
     return;
   }
 
