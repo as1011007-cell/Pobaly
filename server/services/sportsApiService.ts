@@ -142,9 +142,6 @@ export async function getUpcomingMatchesFromApi(): Promise<SportsMatch[]> {
     return espnMatches;
   }
 
-  const golfMatches = getGolfMatchups();
-  allMatches.push(...golfMatches);
-
   allMatches.sort((a, b) => a.matchTime.getTime() - b.matchTime.getTime());
   
   matchCache = { data: allMatches, fetchedAt: Date.now() };
@@ -157,24 +154,6 @@ let _usingFallback = false;
 
 export function isUsingFallbackData(): boolean {
   return _usingFallback;
-}
-
-function getGolfMatchups(): SportsMatch[] {
-  const hours = (h: number) => new Date(Date.now() + h * 60 * 60 * 1000);
-  const golfers = [
-    ["Scottie Scheffler", "Rory McIlroy"],
-    ["Jon Rahm", "Brooks Koepka"],
-    ["Bryson DeChambeau", "Viktor Hovland"],
-    ["Jordan Spieth", "Justin Thomas"],
-    ["Collin Morikawa", "Patrick Cantlay"],
-  ];
-  return golfers.map((pair, i) => ({
-    homeTeam: pair[0],
-    awayTeam: pair[1],
-    sport: "golf",
-    matchTime: hours(24 + i * 12),
-    league: "PGA Tour",
-  }));
 }
 
 const ESPN_ENDPOINTS: { url: string; sport: string; league: string }[] = [
@@ -253,26 +232,8 @@ async function getESPNMatches(): Promise<SportsMatch[]> {
     return allMatches;
   }
 
-  console.log("ESPN returned no matches, using hardcoded fallback");
-  return getHardcodedFallbackMatches();
-}
-
-function getHardcodedFallbackMatches(): SportsMatch[] {
-  const hours = (h: number) => new Date(Date.now() + h * 60 * 60 * 1000);
-  return [
-    { homeTeam: "Los Angeles Lakers", awayTeam: "Boston Celtics", sport: "basketball", matchTime: hours(12), league: "NBA" },
-    { homeTeam: "Golden State Warriors", awayTeam: "Milwaukee Bucks", sport: "basketball", matchTime: hours(18), league: "NBA" },
-    { homeTeam: "New York Yankees", awayTeam: "Boston Red Sox", sport: "baseball", matchTime: hours(22), league: "MLB" },
-    { homeTeam: "Los Angeles Dodgers", awayTeam: "San Francisco Giants", sport: "baseball", matchTime: hours(34), league: "MLB" },
-    { homeTeam: "Manchester United", awayTeam: "Liverpool", sport: "football", matchTime: hours(24), league: "Premier League" },
-    { homeTeam: "Real Madrid", awayTeam: "Barcelona", sport: "football", matchTime: hours(48), league: "La Liga" },
-    { homeTeam: "New York Rangers", awayTeam: "Boston Bruins", sport: "hockey", matchTime: hours(26), league: "NHL" },
-    { homeTeam: "Toronto Maple Leafs", awayTeam: "Montreal Canadiens", sport: "hockey", matchTime: hours(38), league: "NHL" },
-  ];
-}
-
-function getFallbackMatches(): SportsMatch[] {
-  return getHardcodedFallbackMatches();
+  console.log("ESPN returned no matches");
+  return [];
 }
 
 export async function refreshUpcomingMatches(): Promise<SportsMatch[]> {
