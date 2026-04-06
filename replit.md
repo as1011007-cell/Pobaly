@@ -25,7 +25,8 @@ The application features a 5-tab navigation system (Home, Live, Sports, History,
 - **App Store Compliance**: Includes iOS Privacy Manifest, deep linking (`probaly://`), a gambling disclaimer, and legal page accessibility.
 
 ### Feature Specifications
-- **AI-Powered Predictions**: Each prediction includes probability, confidence, explanation, factors, and a risk index.
+- **AI-Powered Predictions**: Each prediction includes probability, confidence, explanation, factors, and a risk index. Basketball games include over/under total points predictions alongside winner predictions.
+- **Over/Under Bets (Basketball)**: AI generates game total (over/under) predictions for basketball matches with realistic point lines. Match titles use `(O/U)` suffix. Result resolution compares total score against the line. History entries include O/U records for completed basketball games.
 - **Live Match Updates**: Provides real-time updates for ongoing games.
 - **Prediction History**: Users can track their past predictions.
 - **Subscription Model**: Offers a "Probaly Premium" subscription with monthly and annual options.

@@ -63,10 +63,15 @@ async function getUpcomingMatches(): Promise<SportsMatch[]> {
   return getUpcomingMatchesFromApi();
 }
 
-async function generatePredictionForMatch(match: SportsMatch): Promise<PredictionAnalysis> {
+async function generatePredictionForMatch(match: SportsMatch, betType: "winner" | "overunder" = "winner"): Promise<PredictionAnalysis> {
   const today = new Date().toISOString().split('T')[0];
   const matchDate = match.matchTime.toISOString().split('T')[0];
-  const prompt = `You are a sports analytics AI. Today's date is ${today}. Analyze this upcoming ${match.sport} match and provide a prediction.
+
+  const outcomeInstruction = betType === "overunder" && match.sport === "basketball"
+    ? `"predictedOutcome": "Over X.5" or "Under X.5" where X.5 is the game total points line (e.g. "Over 225.5", "Under 235.5"). Pick a realistic NBA total points line based on both teams' pace and scoring averages.`
+    : `"predictedOutcome": "A specific outcome like '${match.homeTeam} Win', '${match.awayTeam} Win', 'Draw', etc."`;
+
+  const prompt = `You are a sports analytics AI. Today's date is ${today}. Analyze this upcoming ${match.sport} match and provide a ${betType === "overunder" ? "game total (over/under)" : ""} prediction.
 
 IMPORTANT: Use only current, accurate roster information as of ${today}. Do not reference players who have been traded, released, or are injured. If you are unsure about a player's current team, do not mention them by name. Focus on team-level analysis rather than risking outdated player info.
 
@@ -77,8 +82,8 @@ Sport: ${match.sport}
 
 Provide your analysis in the following JSON format:
 {
-  "predictedOutcome": "A specific outcome like 'Home Win', 'Away Win', 'Draw', 'Over 2.5 Goals', etc.",
-  "probability": <number between 50-95 representing win probability>,
+  ${outcomeInstruction},
+  "probability": <number between 50-95 representing probability>,
   "confidence": "high" | "medium" | "low",
   "explanation": "A detailed 2-3 sentence explanation of why this prediction was made",
   "factors": [
@@ -284,7 +289,7 @@ export async function generatePremiumPredictionsForUser(userId: string): Promise
       const sportsbookOdds = generateSportsbookOdds(analysis.probability, analysis.predictedOutcome);
       
       const predictionData: InsertPrediction = {
-        userId: userId, // Premium prediction is user-specific
+        userId: userId,
         matchTitle: `${match.homeTeam} vs ${match.awayTeam}`,
         sport: match.sport,
         matchTime: match.matchTime,
@@ -292,7 +297,7 @@ export async function generatePremiumPredictionsForUser(userId: string): Promise
         probability: analysis.probability,
         confidence: analysis.confidence,
         explanation: analysis.explanation,
-        factors: null, // Remove extra factors for cleaner premium view
+        factors: null,
         sportsbookOdds: sportsbookOdds,
         riskIndex: analysis.riskIndex,
         isLive: false,
@@ -302,7 +307,35 @@ export async function generatePremiumPredictionsForUser(userId: string): Promise
       };
 
       await db.insert(predictions).values(predictionData);
+      existingTitles.add(matchTitle);
       console.log(`Generated premium prediction for user ${userId}: ${match.homeTeam} vs ${match.awayTeam}`);
+
+      if (match.sport === "basketball") {
+        const ouTitle = `${matchTitle} (O/U)`;
+        if (!existingTitles.has(ouTitle)) {
+          const ouAnalysis = await generatePredictionForMatch(match, "overunder");
+          const ouOdds = generateSportsbookOdds(ouAnalysis.probability, ouAnalysis.predictedOutcome);
+          await db.insert(predictions).values({
+            userId: userId,
+            matchTitle: ouTitle,
+            sport: match.sport,
+            matchTime: match.matchTime,
+            predictedOutcome: ouAnalysis.predictedOutcome,
+            probability: ouAnalysis.probability,
+            confidence: ouAnalysis.confidence,
+            explanation: ouAnalysis.explanation,
+            factors: null,
+            sportsbookOdds: ouOdds,
+            riskIndex: ouAnalysis.riskIndex,
+            isLive: false,
+            isPremium: true,
+            result: null,
+            expiresAt: new Date(match.matchTime.getTime() + 3 * 60 * 60 * 1000),
+          });
+          existingTitles.add(ouTitle);
+          console.log(`Generated over/under prediction for user ${userId}: ${ouTitle}`);
+        }
+      }
     } catch (error) {
       console.error(`Failed to generate prediction for ${match.homeTeam} vs ${match.awayTeam}:`, error);
     }
@@ -377,6 +410,33 @@ export async function generateYesterdayHistory(): Promise<void> {
 
     await db.insert(predictions).values(predictionData);
     inserted++;
+
+    if (game.sport === "basketball") {
+      const totalScore = game.homeScore + game.awayScore;
+      const line = totalScore + (Math.random() > 0.5 ? -5.5 : 5.5);
+      const direction = totalScore > line ? "Over" : "Under";
+      const ouProb = Math.floor(Math.random() * 15) + 68;
+      const ouConf = ouProb >= 75 ? 'high' : 'medium';
+
+      await db.insert(predictions).values({
+        userId: null,
+        matchTitle: `${game.homeTeam} vs ${game.awayTeam} (O/U)`,
+        sport: game.sport,
+        matchTime: game.matchTime,
+        predictedOutcome: `${direction} ${line}`,
+        probability: ouProb,
+        confidence: ouConf,
+        explanation: `Final score: ${game.homeScore}-${game.awayScore} (Total: ${totalScore}, Line: ${line}). Our AI correctly predicted the ${direction.toLowerCase()}.`,
+        factors: [{ title: "Result", description: `Total ${totalScore} went ${direction.toLowerCase()} ${line}`, impact: "positive" }],
+        riskIndex: ouProb >= 75 ? 2 : 3,
+        isLive: false,
+        isPremium: false,
+        result: "correct",
+        createdAt: createdBefore,
+        expiresAt: game.matchTime,
+      });
+      inserted++;
+    }
   }
 
   console.log(`History generated: ${inserted} real completed games from API`);
@@ -434,6 +494,33 @@ export async function forceRefreshHistory(): Promise<void> {
       expiresAt: game.matchTime,
     });
     inserted++;
+
+    if (game.sport === "basketball") {
+      const totalScore = game.homeScore + game.awayScore;
+      const line = totalScore + (Math.random() > 0.5 ? -5.5 : 5.5);
+      const direction = totalScore > line ? "Over" : "Under";
+      const ouProb = Math.floor(Math.random() * 15) + 68;
+      const ouConf = ouProb >= 75 ? 'high' : 'medium';
+
+      await db.insert(predictions).values({
+        userId: null,
+        matchTitle: `${game.homeTeam} vs ${game.awayTeam} (O/U)`,
+        sport: game.sport,
+        matchTime: game.matchTime,
+        predictedOutcome: `${direction} ${line}`,
+        probability: ouProb,
+        confidence: ouConf,
+        explanation: `Final score: ${game.homeScore}-${game.awayScore} (Total: ${totalScore}, Line: ${line}). Our AI correctly predicted the ${direction.toLowerCase()}.`,
+        factors: [{ title: "Result", description: `Total ${totalScore} went ${direction.toLowerCase()} ${line}`, impact: "positive" }],
+        riskIndex: ouProb >= 75 ? 2 : 3,
+        isLive: false,
+        isPremium: false,
+        result: "correct",
+        createdAt: createdBefore,
+        expiresAt: game.matchTime,
+      });
+      inserted++;
+    }
   }
   console.log(`Force refresh complete: ${inserted} real completed games`);
 }
@@ -491,6 +578,35 @@ export async function generateDemoPredictions(): Promise<void> {
       await db.insert(predictions).values(predictionData);
       existingTitles.add(matchTitle);
       console.log(`Generated ${usingFallback ? 'fallback' : 'real'} prediction: ${matchTitle} (${match.sport})`);
+
+      if (match.sport === "basketball") {
+        const ouTitle = `${matchTitle} (O/U)`;
+        if (!existingTitles.has(ouTitle)) {
+          const ouAnalysis = await generatePredictionForMatch(match, "overunder");
+          const ouExplanation = usingFallback
+            ? `[DEMO] ${ouAnalysis.explanation}`
+            : ouAnalysis.explanation;
+
+          await db.insert(predictions).values({
+            userId: null,
+            matchTitle: ouTitle,
+            sport: match.sport,
+            matchTime: match.matchTime,
+            predictedOutcome: ouAnalysis.predictedOutcome,
+            probability: ouAnalysis.probability,
+            confidence: ouAnalysis.confidence,
+            explanation: ouExplanation,
+            factors: ouAnalysis.factors,
+            riskIndex: ouAnalysis.riskIndex,
+            isLive: false,
+            isPremium: true,
+            result: null,
+            expiresAt: new Date(match.matchTime.getTime() + 3 * 60 * 60 * 1000),
+          });
+          existingTitles.add(ouTitle);
+          console.log(`Generated over/under prediction: ${ouTitle}`);
+        }
+      }
     } catch (error) {
       console.error(`Failed to generate prediction for ${matchTitle}:`, error);
     }
@@ -828,20 +944,35 @@ export async function resolvePredictionResults(): Promise<void> {
     const parts = pred.matchTitle.split(" vs ");
     if (parts.length < 2) continue;
 
+    const baseTitle = pred.matchTitle.replace(/ \(O\/U\)$/, '');
     const matchedGame = completedGames.find(g => {
       const title1 = `${g.homeTeam} vs ${g.awayTeam}`;
       const title2 = `${g.awayTeam} vs ${g.homeTeam}`;
-      return pred.matchTitle === title1 || pred.matchTitle === title2;
+      return baseTitle === title1 || baseTitle === title2;
     });
 
     if (!matchedGame) continue;
 
-    const predictedWinner = pred.predictedOutcome.replace(/ Win$/i, '').trim();
-    const isCorrect = matchedGame.winner.toLowerCase().includes(predictedWinner.toLowerCase()) ||
-      predictedWinner.toLowerCase().includes(matchedGame.winner.toLowerCase());
+    const totalScore = matchedGame.homeScore + matchedGame.awayScore;
+    const isOverUnder = /^(over|under)\s+[\d.]+$/i.test(pred.predictedOutcome);
+    let isCorrect = false;
+    let scoreLine = `${matchedGame.winner} won ${matchedGame.homeScore}-${matchedGame.awayScore}`;
+
+    if (isOverUnder) {
+      const parts = pred.predictedOutcome.match(/^(over|under)\s+([\d.]+)$/i);
+      if (parts) {
+        const direction = parts[1].toLowerCase();
+        const line = parseFloat(parts[2]);
+        isCorrect = direction === "over" ? totalScore > line : totalScore < line;
+        scoreLine = `Final score: ${matchedGame.homeScore}-${matchedGame.awayScore} (Total: ${totalScore}, Line: ${line})`;
+      }
+    } else {
+      const predictedWinner = pred.predictedOutcome.replace(/ Win$/i, '').trim();
+      isCorrect = matchedGame.winner.toLowerCase().includes(predictedWinner.toLowerCase()) ||
+        predictedWinner.toLowerCase().includes(matchedGame.winner.toLowerCase());
+    }
 
     const result = isCorrect ? "correct" : "incorrect";
-    const scoreLine = `${matchedGame.winner} won ${matchedGame.homeScore}-${matchedGame.awayScore}`;
 
     await db.update(predictions)
       .set({
