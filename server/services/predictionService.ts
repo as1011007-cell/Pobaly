@@ -700,9 +700,10 @@ export async function getLivePredictions(userId?: string, isPremiumUser?: boolea
 }
 
 export async function getHistoryPredictions(userId?: string, isPremiumUser?: boolean, premiumSince?: Date | null) {
+  const threeDaysAgo = new Date();
+  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+
   if (isPremiumUser && userId) {
-    const threeDaysAgo = new Date();
-    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
     const startDate = premiumSince && premiumSince > threeDaysAgo ? premiumSince : threeDaysAgo;
 
     return db.select()
@@ -710,7 +711,6 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
       .where(
         and(
           eq(predictions.result, "correct"),
-          eq(predictions.isPremium, true),
           sql`(${predictions.userId} = ${userId} OR ${predictions.userId} IS NULL)`,
           sql`${predictions.matchTime} >= ${startDate.toISOString()}::timestamp`
         )
