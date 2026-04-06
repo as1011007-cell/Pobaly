@@ -711,6 +711,7 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
       .where(
         and(
           eq(predictions.result, "correct"),
+          eq(predictions.isPremium, true),
           sql`(${predictions.userId} = ${userId} OR ${predictions.userId} IS NULL)`,
           sql`${predictions.matchTime} >= ${startDate.toISOString()}::timestamp`
         )
