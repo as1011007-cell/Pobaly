@@ -718,24 +718,13 @@ export async function getLivePredictions(userId?: string, isPremiumUser?: boolea
 }
 
 export async function getHistoryPredictions(userId?: string, isPremiumUser?: boolean, premiumSince?: Date | null) {
-  if (!userId) {
-    return db.select()
-      .from(predictions)
-      .where(
-        and(
-          sql`${predictions.result} IS NOT NULL`,
-          isNull(predictions.userId)
-        )
-      )
-      .orderBy(desc(predictions.matchTime));
-  }
-  
-  if (isPremiumUser && premiumSince) {
+  if (isPremiumUser && userId && premiumSince) {
     return db.select()
       .from(predictions)
       .where(
         and(
           eq(predictions.result, "correct"),
+          eq(predictions.isPremium, true),
           sql`(${predictions.userId} = ${userId} OR ${predictions.userId} IS NULL)`,
           sql`${predictions.matchTime} >= ${premiumSince.toISOString()}::timestamp`
         )
@@ -747,8 +736,8 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
     .from(predictions)
     .where(
       and(
-        sql`${predictions.result} IS NOT NULL`,
-        sql`(${predictions.userId} = ${userId} OR ${predictions.userId} IS NULL)`
+        eq(predictions.result, "correct"),
+        isNull(predictions.userId)
       )
     )
     .orderBy(desc(predictions.matchTime));
