@@ -1018,6 +1018,28 @@ export async function clearExpiredPredictions(): Promise<number> {
   return 0;
 }
 
+function isConnectionError(error: unknown): boolean {
+  if (error instanceof Error) {
+    const code = (error as Error & { code?: string }).code;
+    if (
+      code === "CONNECTION_CLOSED" ||
+      code === "CONNECTION_ENDED" ||
+      code === "CONNECT_TIMEOUT"
+    ) {
+      return true;
+    }
+    if (
+      error.message.includes("CONNECTION_CLOSED") ||
+      error.message.includes("ECONNRESET") ||
+      error.message.includes("ECONNREFUSED") ||
+      error.message.includes("write CONNECTION_CLOSED")
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 async function runWithRetry<T>(
   fn: () => Promise<T>,
   label: string,
@@ -1027,16 +1049,8 @@ async function runWithRetry<T>(
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
-    } catch (error: any) {
-      const isConnectionError =
-        error?.code === "CONNECTION_CLOSED" ||
-        error?.code === "CONNECTION_ENDED" ||
-        error?.code === "CONNECT_TIMEOUT" ||
-        error?.message?.includes("CONNECTION_CLOSED") ||
-        error?.message?.includes("connection") ||
-        error?.message?.includes("ECONNRESET");
-
-      if (isConnectionError && attempt < maxRetries) {
+    } catch (error: unknown) {
+      if (isConnectionError(error) && attempt < maxRetries) {
         console.warn(`[${label}] Connection error on attempt ${attempt}/${maxRetries}, retrying in ${delayMs / 1000}s...`);
         await new Promise(r => setTimeout(r, delayMs));
         continue;
