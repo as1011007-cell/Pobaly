@@ -128,7 +128,7 @@ function getStartOfToday(): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 }
 
-// Check if a free prediction exists for today (one per day, stays visible all day)
+// Check if a free prediction exists for today (keeps winning tip, replaces losing tip)
 async function getTodaysActiveFreePrediction() {
   const startOfToday = getStartOfToday();
 
@@ -139,7 +139,8 @@ async function getTodaysActiveFreePrediction() {
         eq(predictions.isPremium, false),
         isNull(predictions.userId),
         gte(predictions.createdAt, startOfToday),
-        sql`${predictions.createdAt} < ${predictions.matchTime}`
+        sql`${predictions.createdAt} < ${predictions.matchTime}`,
+        sql`(${predictions.result} IS NULL OR ${predictions.result} = 'correct')`
       )
     )
     .orderBy(desc(predictions.createdAt))
@@ -797,21 +798,20 @@ export async function getSportPredictionCounts(userId?: string, isPremiumUser?: 
   return counts;
 }
 
-export async function resolvePremiumPredictionResults(): Promise<void> {
+export async function resolvePredictionResults(): Promise<void> {
   const now = new Date();
 
-  const unresolvedPremium = await db.select()
+  const unresolved = await db.select()
     .from(predictions)
     .where(
       and(
-        eq(predictions.isPremium, true),
         isNull(predictions.result),
         sql`${predictions.matchTime} < ${now.toISOString()}::timestamp`
       )
     );
 
-  if (unresolvedPremium.length === 0) {
-    console.log("No premium predictions to resolve");
+  if (unresolved.length === 0) {
+    console.log("No predictions to resolve");
     return;
   }
 
@@ -824,7 +824,7 @@ export async function resolvePremiumPredictionResults(): Promise<void> {
   let correct = 0;
   let incorrect = 0;
 
-  for (const pred of unresolvedPremium) {
+  for (const pred of unresolved) {
     const parts = pred.matchTitle.split(" vs ");
     if (parts.length < 2) continue;
 
@@ -854,7 +854,7 @@ export async function resolvePremiumPredictionResults(): Promise<void> {
     else incorrect++;
   }
 
-  console.log(`Resolved premium predictions: ${correct} correct, ${incorrect} incorrect out of ${unresolvedPremium.length}`);
+  console.log(`Resolved predictions: ${correct} correct, ${incorrect} incorrect out of ${unresolved.length}`);
 }
 
 export async function clearExpiredPredictions(): Promise<number> {
@@ -892,8 +892,8 @@ export async function dailyPredictionRefresh(): Promise<void> {
   console.log("Starting daily prediction refresh...");
   
   try {
-    // 1. Resolve premium prediction results against completed games
-    await resolvePremiumPredictionResults();
+    // 1. Resolve prediction results against completed games
+    await resolvePredictionResults();
     
     // 2. Clear expired non-premium predictions
     await clearExpiredPredictions();
