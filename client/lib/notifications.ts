@@ -22,7 +22,7 @@ const PREMIUM_PROMO_MESSAGES = [
   },
   {
     title: "See What the Pros See",
-    body: "Premium includes sportsbook consensus odds from DraftKings, FanDuel, BetMGM and more. Upgrade today!",
+    body: "Premium includes unlimited AI predictions across all sports with detailed analysis. Upgrade today!",
   },
   {
     title: "Don't Miss Today's Picks",

@@ -20,7 +20,6 @@ interface ApiPrediction {
   result: string | null;
   createdAt: string;
   expiresAt: string | null;
-  sportsbookOdds?: any;
 }
 
 function mapApiPrediction(apiPred: ApiPrediction): Prediction {
@@ -38,7 +37,6 @@ function mapApiPrediction(apiPred: ApiPrediction): Prediction {
     isLive: apiPred.isLive || false,
     isPremium: apiPred.isPremium || false,
     result: apiPred.result as "correct" | "incorrect" | undefined,
-    sportsbookOdds: apiPred.sportsbookOdds,
   };
 }
 

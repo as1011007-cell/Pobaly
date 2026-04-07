@@ -15,7 +15,6 @@ import { ConfidenceBadge } from "@/components/ConfidenceBadge";
 import { SportIcon } from "@/components/SportIcon";
 import { ProbabilityBar } from "@/components/ProbabilityBar";
 import { LiveBadge } from "@/components/LiveBadge";
-import { SportsbookOddsDisplay } from "@/components/SportsbookOddsDisplay";
 import { useTheme } from "@/hooks/useTheme";
 import { BorderRadius, Spacing, Typography } from "@/constants/theme";
 import { Prediction } from "@/types";
@@ -190,10 +189,7 @@ export function PredictionCard({
         )}
       </View>
 
-      {!isCompact && !isLocked && prediction.sportsbookOdds ? (
-        <SportsbookOddsDisplay odds={prediction.sportsbookOdds} />
-      ) : (
-        !isCompact && prediction.explanation && (
+      {!isCompact && prediction.explanation && !isLocked ? (
           <ThemedText
             type="small"
             style={[
@@ -204,8 +200,7 @@ export function PredictionCard({
           >
             {prediction.explanation}
           </ThemedText>
-        )
-      )}
+      ) : null}
 
       {isHero && (
         <View style={styles.heroFooter}>

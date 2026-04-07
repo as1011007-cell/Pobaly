@@ -12,16 +12,6 @@ export type Sport =
 
 export type ConfidenceLevel = "low" | "medium" | "high";
 
-export interface SportsbookOdds {
-  consensus: number;
-  outcome: string;
-  books: Array<{
-    name: string;
-    odds: number;
-    impliedProb: number;
-  }>;
-}
-
 export interface Prediction {
   id: string;
   matchTitle: string;
@@ -34,7 +24,6 @@ export interface Prediction {
   isLive: boolean;
   isPremium: boolean;
   factors?: PredictionFactor[];
-  sportsbookOdds?: SportsbookOdds;
   riskIndex?: number;
   result?: "correct" | "incorrect" | "pending";
 }

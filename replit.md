@@ -32,7 +32,6 @@ The application features a 5-tab navigation system (Home, Live, Sports, History,
 - **Prediction History**: Users can track their past predictions.
 - **Subscription Model**: Offers a "Probaly Premium" subscription with monthly and annual options.
 - **Sports Data Fallback**: Automatically switches to ESPN's free public API if The Odds API quota is exhausted, ensuring continuous data availability.
-- **Sportsbook Consensus Odds**: Displays odds from major sportsbooks (DraftKings, FanDuel, BetMGM, Caesars, PointsBet) in American format with implied probability and consensus percentages.
 
 ## External Dependencies
 - **OpenAI**: Used for AI-powered sports predictions (GPT-4o).
