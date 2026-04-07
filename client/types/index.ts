@@ -45,6 +45,19 @@ export interface PredictionFactor {
   impact: "positive" | "negative" | "neutral";
 }
 
+export interface LiveMatch {
+  homeTeam: string;
+  awayTeam: string;
+  sport: Sport;
+  league: string;
+  matchTime: string;
+  homeScore: number;
+  awayScore: number;
+  status: string;
+  clock?: string;
+  period?: string;
+}
+
 export interface User {
   id: string;
   email: string;

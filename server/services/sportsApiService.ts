@@ -252,6 +252,96 @@ interface CompletedGame {
   winner: string;
 }
 
+export interface LiveMatch {
+  homeTeam: string;
+  awayTeam: string;
+  sport: string;
+  league: string;
+  matchTime: Date;
+  homeScore: number;
+  awayScore: number;
+  status: string;
+  clock?: string;
+  period?: string;
+}
+
+const LIVE_CACHE_TTL = 2 * 60 * 1000; // 2 minutes
+let liveMatchCache: { data: LiveMatch[]; fetchedAt: number } | null = null;
+
+export async function getLiveMatches(): Promise<LiveMatch[]> {
+  if (liveMatchCache && Date.now() - liveMatchCache.fetchedAt < LIVE_CACHE_TTL) {
+    return liveMatchCache.data;
+  }
+
+  const liveMatches: LiveMatch[] = [];
+
+  for (const endpoint of ESPN_SCORES_ENDPOINTS) {
+    try {
+      const response = await fetch(endpoint.url);
+      if (!response.ok) continue;
+
+      const data = await response.json() as any;
+      const events = data.events || [];
+
+      for (const event of events) {
+        const statusType = event.status?.type?.name;
+        if (statusType !== 'STATUS_IN_PROGRESS' && statusType !== 'STATUS_HALFTIME' && statusType !== 'STATUS_END_PERIOD') continue;
+
+        const competitors = event.competitions?.[0]?.competitors || [];
+        if (competitors.length < 2) continue;
+
+        if (endpoint.sport === 'golf' || endpoint.sport === 'tennis') {
+          const comp1 = competitors[0];
+          const comp2 = competitors[1];
+          const name1 = comp1?.athlete?.displayName || comp1?.team?.displayName || 'Unknown';
+          const name2 = comp2?.athlete?.displayName || comp2?.team?.displayName || 'Unknown';
+          if (name1 === 'Unknown' || name2 === 'Unknown') continue;
+
+          liveMatches.push({
+            homeTeam: name1,
+            awayTeam: name2,
+            sport: endpoint.sport,
+            league: endpoint.league,
+            matchTime: new Date(event.date),
+            homeScore: parseInt(comp1.score || '0'),
+            awayScore: parseInt(comp2.score || '0'),
+            status: event.status?.type?.shortDetail || 'Live',
+            clock: event.status?.displayClock,
+            period: event.status?.period?.toString(),
+          });
+          continue;
+        }
+
+        const homeComp = competitors.find((c: any) => c.homeAway === 'home') || competitors[0];
+        const awayComp = competitors.find((c: any) => c.homeAway === 'away') || competitors[1];
+
+        const homeTeam = homeComp.team?.displayName || 'Unknown';
+        const awayTeam = awayComp.team?.displayName || 'Unknown';
+        if (homeTeam === 'Unknown' || awayTeam === 'Unknown') continue;
+
+        liveMatches.push({
+          homeTeam,
+          awayTeam,
+          sport: endpoint.sport,
+          league: endpoint.league,
+          matchTime: new Date(event.date),
+          homeScore: parseInt(homeComp.score || '0'),
+          awayScore: parseInt(awayComp.score || '0'),
+          status: event.status?.type?.shortDetail || 'Live',
+          clock: event.status?.displayClock,
+          period: event.status?.period?.toString(),
+        });
+      }
+    } catch (error) {
+      console.error(`ESPN live fetch failed for ${endpoint.league}:`, error);
+    }
+  }
+
+  liveMatchCache = { data: liveMatches, fetchedAt: Date.now() };
+  console.log(`Fetched ${liveMatches.length} live matches from ESPN`);
+  return liveMatches;
+}
+
 export async function getRecentCompletedGames(): Promise<CompletedGame[]> {
   const apiKey = process.env.ODDS_API_KEY;
   

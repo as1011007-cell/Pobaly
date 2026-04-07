@@ -1,5 +1,5 @@
 import { getApiUrl } from "./query-client";
-import type { Prediction } from "@/types";
+import type { Prediction, LiveMatch } from "@/types";
 
 const apiUrl = getApiUrl();
 
@@ -77,6 +77,29 @@ export async function fetchLivePredictions(userId?: string): Promise<Prediction[
     return (data.predictions || []).map(mapApiPrediction);
   } catch (error) {
     console.error("Error fetching live predictions:", error);
+    return [];
+  }
+}
+
+export async function fetchLiveMatches(): Promise<LiveMatch[]> {
+  try {
+    const url = new URL("/api/live-matches", apiUrl);
+    const response = await fetch(url.toString());
+    const data = await response.json();
+    return (data.matches || []).map((m: any) => ({
+      homeTeam: m.homeTeam,
+      awayTeam: m.awayTeam,
+      sport: m.sport,
+      league: m.league,
+      matchTime: m.matchTime,
+      homeScore: m.homeScore,
+      awayScore: m.awayScore,
+      status: m.status,
+      clock: m.clock,
+      period: m.period,
+    }));
+  } catch (error) {
+    console.error("Error fetching live matches:", error);
     return [];
   }
 }

@@ -26,6 +26,7 @@ import {
   replaceFreeTip,
   forceRefreshHistory,
 } from "./services/predictionService";
+import { getLiveMatches } from "./services/sportsApiService";
 
 const registerSchema = z.object({
   email: z.string().email().max(254),
@@ -479,6 +480,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const predictions = await getLivePredictions(userId, isPremiumUser);
       res.json({ predictions });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/live-matches", async (_req: Request, res: Response) => {
+    try {
+      const matches = await getLiveMatches();
+      res.json({ matches });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
