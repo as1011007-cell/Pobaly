@@ -332,14 +332,15 @@ const ESPN_SCORES_ENDPOINTS = [
 async function fetchCompletedFromESPN(): Promise<CompletedGame[]> {
   const completedGames: CompletedGame[] = [];
 
-  const today = new Date();
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const todayStr = today.toISOString().split('T')[0].replace(/-/g, '');
-  const yesterdayStr = yesterday.toISOString().split('T')[0].replace(/-/g, '');
+  const dateStrs: string[] = [];
+  for (let i = 0; i <= 3; i++) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    dateStrs.push(d.toISOString().split('T')[0].replace(/-/g, ''));
+  }
 
   for (const endpoint of ESPN_SCORES_ENDPOINTS) {
-    for (const dateStr of [yesterdayStr, todayStr]) {
+    for (const dateStr of dateStrs) {
     try {
       const url = `${endpoint.url}?dates=${dateStr}`;
 

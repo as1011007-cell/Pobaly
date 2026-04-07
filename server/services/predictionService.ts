@@ -353,7 +353,20 @@ export async function generateDailyPredictions(): Promise<void> {
 export async function generateYesterdayHistory(): Promise<void> {
   console.log("Generating history from real completed games...");
 
+  const fiveDaysAgo = new Date();
+  fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
   await db.delete(predictions)
+    .where(
+      and(
+        isNull(predictions.userId),
+        eq(predictions.isPremium, false),
+        sql`${predictions.result} IS NOT NULL`,
+        sql`${predictions.matchTime} < ${fiveDaysAgo.toISOString()}::timestamp`
+      )
+    );
+
+  const existingHistory = await db.select({ matchTitle: predictions.matchTitle, matchTime: predictions.matchTime })
+    .from(predictions)
     .where(
       and(
         isNull(predictions.userId),
@@ -361,24 +374,29 @@ export async function generateYesterdayHistory(): Promise<void> {
         sql`${predictions.result} IS NOT NULL`
       )
     );
+  const existingKeys = new Set(
+    existingHistory.map(e => `${e.matchTitle}|${e.matchTime?.toISOString()}`)
+  );
 
   const completedGames = await getRecentCompletedGames();
 
   if (completedGames.length === 0) {
-    console.log("No real completed games found from API");
+    console.log("No real completed games found from API — keeping existing history");
     return;
   }
 
   const selectedGames = [];
   for (const game of completedGames) {
-    if (selectedGames.length >= 25) break;
+    if (selectedGames.length >= 30) break;
     const sportCount = selectedGames.filter(g => g.sport === game.sport).length;
-    if (sportCount >= 5) continue;
+    if (sportCount >= 6) continue;
+    const key = `${game.homeTeam} vs ${game.awayTeam}|${game.matchTime.toISOString()}`;
+    if (existingKeys.has(key)) continue;
     selectedGames.push(game);
   }
 
   if (selectedGames.length === 0) {
-    console.log("No completed games to add to history");
+    console.log(`No new completed games to add (${existingHistory.length} existing history entries kept)`);
     return;
   }
 
@@ -439,7 +457,7 @@ export async function generateYesterdayHistory(): Promise<void> {
     }
   }
 
-  console.log(`History generated: ${inserted} real completed games from API`);
+  console.log(`History: added ${inserted} new entries, ${existingHistory.length} existing kept`);
 }
 
 export async function forceRefreshHistory(): Promise<void> {
@@ -451,7 +469,20 @@ export async function forceRefreshHistory(): Promise<void> {
     return;
   }
 
+  const fiveDaysAgo = new Date();
+  fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
   await db.delete(predictions)
+    .where(
+      and(
+        isNull(predictions.userId),
+        eq(predictions.isPremium, false),
+        sql`${predictions.result} IS NOT NULL`,
+        sql`${predictions.matchTime} < ${fiveDaysAgo.toISOString()}::timestamp`
+      )
+    );
+
+  const existingHistory = await db.select({ matchTitle: predictions.matchTitle, matchTime: predictions.matchTime })
+    .from(predictions)
     .where(
       and(
         isNull(predictions.userId),
@@ -459,13 +490,17 @@ export async function forceRefreshHistory(): Promise<void> {
         sql`${predictions.result} IS NOT NULL`
       )
     );
+  const existingKeys = new Set(
+    existingHistory.map(e => `${e.matchTitle}|${e.matchTime?.toISOString()}`)
+  );
 
-  const sportsSeen = new Set<string>();
   const selectedGames = [];
   for (const game of completedGames) {
-    if (selectedGames.length >= 12) break;
-    if (sportsSeen.has(game.sport) && selectedGames.filter(g => g.sport === game.sport).length >= 2) continue;
-    sportsSeen.add(game.sport);
+    if (selectedGames.length >= 30) break;
+    const sportCount = selectedGames.filter(g => g.sport === game.sport).length;
+    if (sportCount >= 6) continue;
+    const key = `${game.homeTeam} vs ${game.awayTeam}|${game.matchTime.toISOString()}`;
+    if (existingKeys.has(key)) continue;
     selectedGames.push(game);
   }
 
@@ -731,11 +766,11 @@ export async function getLivePredictions(userId?: string, isPremiumUser?: boolea
 }
 
 export async function getHistoryPredictions(userId?: string, isPremiumUser?: boolean, premiumSince?: Date | null) {
-  const threeDaysAgo = new Date();
-  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+  const fiveDaysAgo = new Date();
+  fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
 
   if (isPremiumUser && userId) {
-    const startDate = premiumSince && premiumSince > threeDaysAgo ? premiumSince : threeDaysAgo;
+    const startDate = premiumSince && premiumSince > fiveDaysAgo ? premiumSince : fiveDaysAgo;
 
     return db.select()
       .from(predictions)
@@ -756,7 +791,7 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
       and(
         eq(predictions.result, "correct"),
         isNull(predictions.userId),
-        sql`${predictions.matchTime} >= ${threeDaysAgo.toISOString()}::timestamp`
+        sql`${predictions.matchTime} >= ${fiveDaysAgo.toISOString()}::timestamp`
       )
     )
     .orderBy(desc(predictions.matchTime));
