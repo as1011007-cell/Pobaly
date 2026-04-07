@@ -432,23 +432,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
 
-  app.post("/api/internal/force-refresh", async (req: Request, res: Response) => {
-    const key = req.headers["x-internal-key"];
-    if (key !== "refresh-2026-prod") return res.status(403).json({ error: "Forbidden" });
-    try {
-      const { db: database } = await import("./db");
-      const schema = await import("@shared/schema");
-      const { eq, and, isNull } = await import("drizzle-orm");
-      await database.delete(schema.predictions).where(
-        and(eq(schema.predictions.isPremium, true), isNull(schema.predictions.userId), isNull(schema.predictions.result))
-      );
-      await generateDemoPredictions();
-      res.json({ success: true });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-
   // Get free tip of the day
   app.get("/api/predictions/free-tip", async (_req: Request, res: Response) => {
     try {
