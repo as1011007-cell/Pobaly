@@ -3,7 +3,12 @@ import { User } from "@/types";
 import { storage } from "@/lib/storage";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { loginRevenueCat, logoutRevenueCat } from "@/lib/revenuecat";
-import { registerPushTokenWithServer } from "@/lib/notifications";
+import {
+  registerPushTokenWithServer,
+  schedulePremiumPromoNotifications,
+  cancelPremiumPromoNotifications,
+  resetPromoScheduleFlag,
+} from "@/lib/notifications";
 
 interface AuthContextType {
   user: User | null;
@@ -36,6 +41,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (token) {
           registerPushTokenWithServer(token).catch(() => {});
         }
+        if (savedUser.isPremium) {
+          cancelPremiumPromoNotifications().catch(() => {});
+        } else {
+          schedulePremiumPromoNotifications().catch(() => {});
+        }
       }
     } catch (error) {
       console.error("Failed to load user:", error);
@@ -63,6 +73,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(newUser);
       loginRevenueCat(String(data.user.id));
       registerPushTokenWithServer(data.token).catch(() => {});
+      if (newUser.isPremium) {
+        cancelPremiumPromoNotifications().catch(() => {});
+      } else {
+        resetPromoScheduleFlag().catch(() => {});
+        schedulePremiumPromoNotifications().catch(() => {});
+      }
     } finally {
       setIsLoading(false);
     }
@@ -88,6 +104,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(newUser);
       loginRevenueCat(String(data.user.id));
       registerPushTokenWithServer(data.token).catch(() => {});
+      schedulePremiumPromoNotifications().catch(() => {});
     } finally {
       setIsLoading(false);
     }
@@ -96,8 +113,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = async () => {
     setIsLoading(true);
     try {
-      // Unlink RevenueCat identity so purchases aren't shared between accounts
       logoutRevenueCat();
+      cancelPremiumPromoNotifications().catch(() => {});
       await storage.clearAll();
       setUser(null);
     } finally {
@@ -111,7 +128,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const response = await apiRequest("GET", `/api/subscription/${user.id}`);
       const data = await response.json();
 
-      // Always update local state to reflect the latest premium status and expiry
       const updatedUser: User = {
         ...user,
         isPremium: data.isPremium ?? user.isPremium,
@@ -119,6 +135,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
       await storage.setUser(updatedUser);
       setUser(updatedUser);
+
+      if (updatedUser.isPremium && !user.isPremium) {
+        cancelPremiumPromoNotifications().catch(() => {});
+      }
     } catch (error) {
       console.error("Failed to refresh user:", error);
     }
