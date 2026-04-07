@@ -776,21 +776,7 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
   const fiveDaysAgo = new Date();
   fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
 
-  if (isPremiumUser && userId) {
-    const startDate = premiumSince && premiumSince > fiveDaysAgo ? premiumSince : fiveDaysAgo;
-
-    const rows = await db.select()
-      .from(predictions)
-      .where(
-        and(
-          eq(predictions.result, "correct"),
-          eq(predictions.isPremium, true),
-          sql`(${predictions.userId} = ${userId} OR ${predictions.userId} IS NULL)`,
-          sql`${predictions.matchTime} >= ${startDate.toISOString()}::timestamp`
-        )
-      )
-      .orderBy(desc(predictions.matchTime));
-
+  const dedup = (rows: any[]) => {
     const seen = new Set<string>();
     return rows.filter(r => {
       const clean = r.matchTitle.replace(' (O/U)', '');
@@ -799,6 +785,37 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
       seen.add(key);
       return true;
     });
+  };
+
+  if (isPremiumUser && userId) {
+    const startDate = premiumSince && premiumSince > fiveDaysAgo ? premiumSince : fiveDaysAgo;
+
+    const userRows = await db.select()
+      .from(predictions)
+      .where(
+        and(
+          eq(predictions.result, "correct"),
+          eq(predictions.userId, userId),
+          sql`${predictions.matchTime} >= ${startDate.toISOString()}::timestamp`
+        )
+      )
+      .orderBy(desc(predictions.matchTime));
+
+    const publicRows = await db.select()
+      .from(predictions)
+      .where(
+        and(
+          eq(predictions.result, "correct"),
+          isNull(predictions.userId),
+          sql`${predictions.matchTime} >= ${startDate.toISOString()}::timestamp`
+        )
+      )
+      .orderBy(desc(predictions.matchTime));
+
+    const combined = [...userRows, ...publicRows]
+      .sort((a, b) => new Date(b.matchTime).getTime() - new Date(a.matchTime).getTime());
+
+    return dedup(combined);
   }
 
   const rows = await db.select()
@@ -807,19 +824,13 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
       and(
         eq(predictions.result, "correct"),
         isNull(predictions.userId),
+        eq(predictions.isPremium, false),
         sql`${predictions.matchTime} >= ${fiveDaysAgo.toISOString()}::timestamp`
       )
     )
     .orderBy(desc(predictions.matchTime));
 
-  const seen = new Set<string>();
-  return rows.filter(r => {
-    const clean = r.matchTitle.replace(' (O/U)', '');
-    const key = clean.split(' vs ').map(s => s.trim()).sort().join('|');
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  return dedup(rows);
 }
 
 export async function getPredictionsBySport(sport: string, userId?: string, isPremiumUser?: boolean) {
@@ -992,12 +1003,14 @@ export async function clearExpiredPredictions(): Promise<number> {
       )
     );
 
+  const fiveDaysAgo = new Date();
+  fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
   await db.delete(predictions)
     .where(
       and(
         eq(predictions.isPremium, true),
         sql`${predictions.result} IS NOT NULL`,
-        sql`${predictions.matchTime} < ${threeDaysAgo.toISOString()}::timestamp`
+        sql`${predictions.matchTime} < ${fiveDaysAgo.toISOString()}::timestamp`
       )
     );
 
