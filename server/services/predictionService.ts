@@ -787,6 +787,18 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
     });
   };
 
+  const freeRows = await db.select()
+    .from(predictions)
+    .where(
+      and(
+        eq(predictions.result, "correct"),
+        isNull(predictions.userId),
+        eq(predictions.isPremium, false),
+        sql`${predictions.matchTime} >= ${fiveDaysAgo.toISOString()}::timestamp`
+      )
+    )
+    .orderBy(desc(predictions.matchTime));
+
   if (isPremiumUser && userId) {
     const startDate = premiumSince && premiumSince > fiveDaysAgo ? premiumSince : fiveDaysAgo;
 
@@ -814,23 +826,11 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
       )
       .orderBy(desc(predictions.matchTime));
 
-    const combined = [...userPremiumRows, ...sharedPremiumRows]
+    const combined = [...freeRows, ...userPremiumRows, ...sharedPremiumRows]
       .sort((a, b) => new Date(b.matchTime).getTime() - new Date(a.matchTime).getTime());
 
     return dedup(combined);
   }
-
-  const freeRows = await db.select()
-    .from(predictions)
-    .where(
-      and(
-        eq(predictions.result, "correct"),
-        isNull(predictions.userId),
-        eq(predictions.isPremium, false),
-        sql`${predictions.matchTime} >= ${fiveDaysAgo.toISOString()}::timestamp`
-      )
-    )
-    .orderBy(desc(predictions.matchTime));
 
   return dedup(freeRows);
 }
