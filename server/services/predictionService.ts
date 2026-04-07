@@ -1075,6 +1075,9 @@ export async function dailyPredictionRefresh(): Promise<void> {
     await runWithRetry(() => refreshDemoPredictions(), "refreshDemoPredictions");
     
     console.log("Daily prediction refresh completed successfully");
+
+    const { notifyDailyFreePredictionReady } = await import("./pushNotificationService");
+    await notifyDailyFreePredictionReady();
   } catch (error) {
     console.error("Error during daily prediction refresh:", error);
     throw error;

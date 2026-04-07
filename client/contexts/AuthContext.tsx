@@ -3,6 +3,7 @@ import { User } from "@/types";
 import { storage } from "@/lib/storage";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { loginRevenueCat, logoutRevenueCat } from "@/lib/revenuecat";
+import { registerPushTokenWithServer } from "@/lib/notifications";
 
 interface AuthContextType {
   user: User | null;
@@ -30,9 +31,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const savedUser = await storage.getUser();
       if (savedUser) {
         setUser(savedUser);
-        // Re-link RevenueCat to this user on every app restart so purchases are
-        // always attributed to the correct account, not the anonymous session.
         loginRevenueCat(String(savedUser.id));
+        const token = await storage.getAuthToken();
+        if (token) {
+          registerPushTokenWithServer(token).catch(() => {});
+        }
       }
     } catch (error) {
       console.error("Failed to load user:", error);
@@ -58,8 +61,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await storage.setUser(newUser);
       await storage.setAuthToken(data.token);
       setUser(newUser);
-      // Link this user to RevenueCat so purchases are attributed correctly
       loginRevenueCat(String(data.user.id));
+      registerPushTokenWithServer(data.token).catch(() => {});
     } finally {
       setIsLoading(false);
     }
@@ -83,8 +86,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await storage.setAuthToken(data.token);
       await storage.setOnboardingComplete();
       setUser(newUser);
-      // Link this user to RevenueCat so purchases are attributed correctly
       loginRevenueCat(String(data.user.id));
+      registerPushTokenWithServer(data.token).catch(() => {});
     } finally {
       setIsLoading(false);
     }

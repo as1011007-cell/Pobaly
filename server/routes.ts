@@ -686,6 +686,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ============ Push Notification Token Registration ============
+  app.post("/api/push-token", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.userId!;
+      const { token, platform } = req.body;
+      if (!token || typeof token !== "string") {
+        return res.status(400).json({ error: "Push token is required" });
+      }
+      const { registerPushToken } = await import("./services/pushNotificationService");
+      await registerPushToken(userId, token, platform || "unknown");
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/push-token", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { token } = req.body;
+      if (!token || typeof token !== "string") {
+        return res.status(400).json({ error: "Push token is required" });
+      }
+      const { removePushToken } = await import("./services/pushNotificationService");
+      await removePushToken(token);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ============ Restore Purchases Route ============
 
   app.post("/api/restore-purchases", requireAuth, async (req: Request, res: Response) => {

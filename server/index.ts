@@ -432,6 +432,10 @@ function setupErrorHandler(app: express.Application) {
       // Seed test user for development/testing
       await seedTestUser();
       
+      // Initialize push notification tokens table
+      const { initPushTokensTable } = await import("./services/pushNotificationService");
+      await initPushTokensTable();
+
       // Start daily prediction refresh scheduler (runs on startup and every 24 hours)
       startDailyRefreshScheduler();
     },

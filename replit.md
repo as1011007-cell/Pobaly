@@ -18,7 +18,8 @@ The application features a 5-tab navigation system (Home, Live, Sports, History,
 - **Authentication**: Email/password with bcrypt for hashing and JWT for session management (30-day expiry).
 - **AI Integration**: OpenAI GPT-4o powers the sports predictions, integrated via Replit AI Integrations.
 - **Payment Processing**: RevenueCat handles in-app purchases for iOS and Android. Stripe is used exclusively for affiliate payouts.
-- **Data Refresh**: A daily scheduler refreshes predictions, clears expired entries, fetches new games, and regenerates AI predictions.
+- **Data Refresh**: A daily scheduler refreshes predictions, clears expired entries, fetches new games, and regenerates AI predictions. After refresh, push notifications are sent to all registered devices to alert users that the daily free tip is ready.
+- **Push Notifications**: Uses Expo Push Notifications API. Client registers push tokens on login/signup/app restart. Server stores tokens in `push_tokens` table and sends via Expo's push API. Respects user notification preferences.
 - **Premium History Filtering**: Premium members only see winning predictions from their subscription start date onwards, while non-premium members see all predictions.
 - **Affiliate Program**: Includes referral code generation, commission tracking (40% of subscription revenue), a 14-day clearance period, and manual payout approval via Stripe Connect.
 - **Security**: Implements real JWT authentication, role-based access control (`requireAuth`, `requireAdmin`), per-route rate limiting, security headers, and tightened CORS policies.
