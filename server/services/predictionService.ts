@@ -385,6 +385,15 @@ export async function generateYesterdayHistory(): Promise<void> {
     return;
   }
 
+  const normalizeMatchup = (t: string) => {
+    const clean = t.replace(' (O/U)', '');
+    return clean.split(' vs ').map(s => s.trim()).sort().join('|');
+  };
+  const existingNormalized = new Set<string>();
+  for (const t of existingTitles) {
+    existingNormalized.add(normalizeMatchup(t));
+  }
+
   const selectedGames = [];
   const seenMatchups = new Set<string>();
   for (const game of completedGames) {
@@ -392,9 +401,10 @@ export async function generateYesterdayHistory(): Promise<void> {
     const sportCount = selectedGames.filter(g => g.sport === game.sport).length;
     if (sportCount >= 6) continue;
     const title = `${game.homeTeam} vs ${game.awayTeam}`;
-    if (existingTitles.has(title) || existingTitles.has(`${title} (O/U)`)) continue;
-    if (seenMatchups.has(title)) continue;
-    seenMatchups.add(title);
+    const normalized = normalizeMatchup(title);
+    if (existingNormalized.has(normalized)) continue;
+    if (seenMatchups.has(normalized)) continue;
+    seenMatchups.add(normalized);
     selectedGames.push(game);
   }
 
@@ -497,6 +507,15 @@ export async function forceRefreshHistory(): Promise<void> {
     existingHistory.map(e => e.matchTitle)
   );
 
+  const normalizeMatchup2 = (t: string) => {
+    const clean = t.replace(' (O/U)', '');
+    return clean.split(' vs ').map(s => s.trim()).sort().join('|');
+  };
+  const existingNormalized2 = new Set<string>();
+  for (const t of existingTitles) {
+    existingNormalized2.add(normalizeMatchup2(t));
+  }
+
   const selectedGames = [];
   const seenMatchups = new Set<string>();
   for (const game of completedGames) {
@@ -504,9 +523,10 @@ export async function forceRefreshHistory(): Promise<void> {
     const sportCount = selectedGames.filter(g => g.sport === game.sport).length;
     if (sportCount >= 6) continue;
     const title = `${game.homeTeam} vs ${game.awayTeam}`;
-    if (existingTitles.has(title) || existingTitles.has(`${title} (O/U)`)) continue;
-    if (seenMatchups.has(title)) continue;
-    seenMatchups.add(title);
+    const normalized = normalizeMatchup2(title);
+    if (existingNormalized2.has(normalized)) continue;
+    if (seenMatchups.has(normalized)) continue;
+    seenMatchups.add(normalized);
     selectedGames.push(game);
   }
 
@@ -778,29 +798,47 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
   if (isPremiumUser && userId) {
     const startDate = premiumSince && premiumSince > fiveDaysAgo ? premiumSince : fiveDaysAgo;
 
-    return db.select()
+    const rows = await db.select()
       .from(predictions)
       .where(
         and(
           eq(predictions.result, "correct"),
           eq(predictions.isPremium, true),
           sql`(${predictions.userId} = ${userId} OR ${predictions.userId} IS NULL)`,
-          sql`${predictions.matchTime} >= ${startDate.toISOString()}::timestamp`
+          sql`${predictions.matchTime} >= ${startDate.toISOString()}::timestamp`,
+          sql`${predictions.matchTitle} NOT LIKE '% (O/U)'`
         )
       )
       .orderBy(desc(predictions.matchTime));
+
+    const seen = new Set<string>();
+    return rows.filter(r => {
+      const key = r.matchTitle.split(' vs ').map(s => s.trim()).sort().join('|');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   }
 
-  return db.select()
+  const rows = await db.select()
     .from(predictions)
     .where(
       and(
         eq(predictions.result, "correct"),
         isNull(predictions.userId),
-        sql`${predictions.matchTime} >= ${fiveDaysAgo.toISOString()}::timestamp`
+        sql`${predictions.matchTime} >= ${fiveDaysAgo.toISOString()}::timestamp`,
+        sql`${predictions.matchTitle} NOT LIKE '% (O/U)'`
       )
     )
     .orderBy(desc(predictions.matchTime));
+
+  const seen = new Set<string>();
+  return rows.filter(r => {
+    const key = r.matchTitle.split(' vs ').map(s => s.trim()).sort().join('|');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 export async function getPredictionsBySport(sport: string, userId?: string, isPremiumUser?: boolean) {
