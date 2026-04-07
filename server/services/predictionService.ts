@@ -133,7 +133,6 @@ function getStartOfToday(): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 }
 
-// Check if a free prediction exists for today (keeps winning tip, replaces losing tip)
 async function getTodaysActiveFreePrediction() {
   const startOfToday = getStartOfToday();
 
@@ -143,9 +142,9 @@ async function getTodaysActiveFreePrediction() {
       and(
         eq(predictions.isPremium, false),
         isNull(predictions.userId),
-        isNull(predictions.result),
         gte(predictions.createdAt, startOfToday),
-        sql`${predictions.createdAt} < ${predictions.matchTime}`
+        sql`${predictions.matchTime} > ${predictions.createdAt} + interval '30 minutes'`,
+        sql`(${predictions.result} IS NULL OR ${predictions.result} = 'correct')`
       )
     )
     .orderBy(desc(predictions.createdAt))
@@ -1285,7 +1284,6 @@ async function checkAndReplaceFreeTip(): Promise<void> {
 }
 
 export function startDailyRefreshScheduler(): void {
-  const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
   const TWO_HOURS = 2 * 60 * 60 * 1000;
   const RETRY_DELAY = 5 * 60 * 1000;
   
@@ -1307,10 +1305,18 @@ export function startDailyRefreshScheduler(): void {
   }
   
   runRefreshWithRetry();
-  
-  setInterval(() => {
-    runRefreshWithRetry();
-  }, TWENTY_FOUR_HOURS);
+
+  function scheduleMidnightRefresh() {
+    const now = new Date();
+    const nextMidnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0));
+    const msUntilMidnight = nextMidnight.getTime() - now.getTime();
+    console.log(`Next daily refresh scheduled at midnight UTC (in ${Math.round(msUntilMidnight / 60000)} minutes)`);
+    setTimeout(() => {
+      runRefreshWithRetry();
+      scheduleMidnightRefresh();
+    }, msUntilMidnight);
+  }
+  scheduleMidnightRefresh();
 
   setInterval(() => {
     checkAndReplaceFreeTip();
