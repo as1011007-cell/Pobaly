@@ -143,7 +143,7 @@ async function getTodaysActiveFreePrediction() {
         eq(predictions.isPremium, false),
         isNull(predictions.userId),
         gte(predictions.createdAt, startOfToday),
-        sql`${predictions.matchTime} > ${predictions.createdAt} + interval '30 minutes'`,
+        sql`${predictions.expiresAt} > ${predictions.matchTime}`,
         sql`(${predictions.result} IS NULL OR ${predictions.result} = 'correct')`
       )
     )
@@ -152,15 +152,29 @@ async function getTodaysActiveFreePrediction() {
   return tip || null;
 }
 
-// Generate the daily free prediction (called on first request of day)
-// Only shows high probability predictions (70%+) to attract subscribers
+let isGeneratingFreeTip = false;
+
 export async function generateDailyFreePrediction(): Promise<void> {
+  if (isGeneratingFreeTip) {
+    console.log("Free tip generation already in progress, skipping");
+    return;
+  }
+
   const activeTip = await getTodaysActiveFreePrediction();
   if (activeTip) {
     console.log("Today's free prediction already exists, skipping generation");
     return;
   }
 
+  isGeneratingFreeTip = true;
+  try {
+    await _generateDailyFreeTip();
+  } finally {
+    isGeneratingFreeTip = false;
+  }
+}
+
+async function _generateDailyFreeTip(): Promise<void> {
   console.log("Generating daily free prediction with high probability...");
   
   const matches = await getUpcomingMatches();
