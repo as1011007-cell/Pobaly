@@ -1,4 +1,5 @@
 import { getApiUrl } from "./query-client";
+import { storage } from "./storage";
 import type { Prediction, LiveMatch } from "@/types";
 
 const apiUrl = getApiUrl();
@@ -19,6 +20,7 @@ interface ApiPrediction {
   result: string | null;
   createdAt: string;
   expiresAt: string | null;
+  sportsbookOdds?: any;
 }
 
 function mapApiPrediction(apiPred: ApiPrediction): Prediction {
@@ -36,7 +38,18 @@ function mapApiPrediction(apiPred: ApiPrediction): Prediction {
     isLive: apiPred.isLive || false,
     isPremium: apiPred.isPremium || false,
     result: apiPred.result as "correct" | "incorrect" | undefined,
+    sportsbookOdds: apiPred.sportsbookOdds,
   };
+}
+
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  try {
+    const token = await storage.getAuthToken();
+    if (token) {
+      return { Authorization: `Bearer ${token}` };
+    }
+  } catch {}
+  return {};
 }
 
 export async function fetchFreeTip(): Promise<Prediction | null> {
@@ -57,7 +70,8 @@ export async function fetchPremiumPredictions(userId?: string, isPremium?: boole
       url.searchParams.set("userId", userId);
     }
     url.searchParams.set("isPremium", isPremium ? "true" : "false");
-    const response = await fetch(url.toString());
+    const headers = await getAuthHeaders();
+    const response = await fetch(url.toString(), { headers });
     const data = await response.json();
     return (data.predictions || []).map(mapApiPrediction);
   } catch (error) {
@@ -72,7 +86,8 @@ export async function fetchLivePredictions(userId?: string): Promise<Prediction[
     if (userId) {
       url.searchParams.set("userId", userId);
     }
-    const response = await fetch(url.toString());
+    const headers = await getAuthHeaders();
+    const response = await fetch(url.toString(), { headers });
     const data = await response.json();
     return (data.predictions || []).map(mapApiPrediction);
   } catch (error) {
@@ -107,10 +122,8 @@ export async function fetchLiveMatches(): Promise<LiveMatch[]> {
 export async function fetchHistoryPredictions(userId?: string): Promise<Prediction[]> {
   try {
     const url = new URL("/api/predictions/history", apiUrl);
-    if (userId) {
-      url.searchParams.set("userId", userId);
-    }
-    const response = await fetch(url.toString());
+    const headers = await getAuthHeaders();
+    const response = await fetch(url.toString(), { headers });
     const data = await response.json();
     return (data.predictions || []).map(mapApiPrediction);
   } catch (error) {
@@ -126,7 +139,8 @@ export async function fetchPredictionsBySport(sport: string, userId?: string, is
       url.searchParams.set("userId", userId);
     }
     url.searchParams.set("isPremium", isPremium ? "true" : "false");
-    const response = await fetch(url.toString());
+    const headers = await getAuthHeaders();
+    const response = await fetch(url.toString(), { headers });
     const data = await response.json();
     return (data.predictions || []).map(mapApiPrediction);
   } catch (error) {
@@ -137,7 +151,8 @@ export async function fetchPredictionsBySport(sport: string, userId?: string, is
 
 export async function fetchPredictionById(id: string): Promise<Prediction | null> {
   try {
-    const response = await fetch(new URL(`/api/predictions/${id}`, apiUrl).toString());
+    const headers = await getAuthHeaders();
+    const response = await fetch(new URL(`/api/predictions/${id}`, apiUrl).toString(), { headers });
     const data = await response.json();
     return data.prediction ? mapApiPrediction(data.prediction) : null;
   } catch (error) {
@@ -161,9 +176,10 @@ export async function generatePredictions(): Promise<boolean> {
 
 export async function generatePremiumPredictionsForUser(userId: string): Promise<boolean> {
   try {
+    const headers = await getAuthHeaders();
     const response = await fetch(new URL("/api/predictions/generate-premium", apiUrl).toString(), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify({ userId }),
     });
     const data = await response.json();
@@ -181,7 +197,8 @@ export async function fetchSportPredictionCounts(userId?: string, isPremium?: bo
       url.searchParams.set("userId", userId);
     }
     url.searchParams.set("isPremium", isPremium ? "true" : "false");
-    const response = await fetch(url.toString());
+    const headers = await getAuthHeaders();
+    const response = await fetch(url.toString(), { headers });
     const data = await response.json();
     return data.counts || {};
   } catch (error) {

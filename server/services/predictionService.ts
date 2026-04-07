@@ -820,7 +820,7 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
     return dedup(combined);
   }
 
-  const rows = await db.select()
+  const freeRows = await db.select()
     .from(predictions)
     .where(
       and(
@@ -832,7 +832,7 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
     )
     .orderBy(desc(predictions.matchTime));
 
-  return dedup(rows);
+  return dedup(freeRows);
 }
 
 export async function getPredictionsBySport(sport: string, userId?: string, isPremiumUser?: boolean) {
