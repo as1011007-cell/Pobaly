@@ -750,17 +750,13 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
       .orderBy(desc(predictions.matchTime));
   }
 
-  const yesterdayStart = new Date();
-  yesterdayStart.setDate(yesterdayStart.getDate() - 1);
-  yesterdayStart.setHours(0, 0, 0, 0);
-
   return db.select()
     .from(predictions)
     .where(
       and(
         eq(predictions.result, "correct"),
         isNull(predictions.userId),
-        sql`${predictions.matchTime} >= ${yesterdayStart.toISOString()}::timestamp`
+        sql`${predictions.matchTime} >= ${threeDaysAgo.toISOString()}::timestamp`
       )
     )
     .orderBy(desc(predictions.matchTime));
