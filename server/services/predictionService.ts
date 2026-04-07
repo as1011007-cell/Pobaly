@@ -143,9 +143,9 @@ async function getTodaysActiveFreePrediction() {
       and(
         eq(predictions.isPremium, false),
         isNull(predictions.userId),
+        isNull(predictions.result),
         gte(predictions.createdAt, startOfToday),
-        sql`${predictions.createdAt} < ${predictions.matchTime}`,
-        sql`(${predictions.result} IS NULL OR ${predictions.result} = 'correct')`
+        sql`${predictions.createdAt} < ${predictions.matchTime}`
       )
     )
     .orderBy(desc(predictions.createdAt))
