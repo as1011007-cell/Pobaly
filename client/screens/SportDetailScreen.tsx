@@ -93,7 +93,7 @@ export default function SportDetailScreen() {
         ]}
       >
         <EmptyState
-          image={require("../../assets/images/empty-home.png")}
+          icon="bar-chart-2"
           title="No predictions available"
           description="Check back later for predictions in this sport"
         />

@@ -103,7 +103,7 @@ export default function HistoryScreen() {
         ]}
       >
         <EmptyState
-          image={require("../../assets/images/empty-history.png")}
+          icon="clock"
           title="No prediction history yet"
           description="Your past predictions and their outcomes will appear here"
         />

@@ -150,7 +150,7 @@ export default function HomeScreen() {
     return (
       <View style={[styles.emptyContainer, { backgroundColor: theme.backgroundRoot }]}>
         <EmptyState
-          image={require("../../assets/images/empty-home.png")}
+          icon="trending-up"
           title="No predictions available"
           description="Check back later for AI-powered sports predictions"
         />

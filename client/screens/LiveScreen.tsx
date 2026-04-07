@@ -93,7 +93,7 @@ export default function LiveScreen() {
         ]}
       >
         <EmptyState
-          image={require("../../assets/images/empty-live.png")}
+          icon="radio"
           title="No live events right now"
           description="Check back during live matches for real-time score updates"
         />
