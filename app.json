@@ -20,7 +20,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "app.probaly.logic",
-      "buildNumber": "1",
+      "buildNumber": "2",
       "icon": "./assets/images/probaly-logo.png",
       "config": {
         "usesNonExemptEncryption": false
