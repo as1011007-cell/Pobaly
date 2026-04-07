@@ -426,7 +426,15 @@ async function fetchCompletedFromESPN(): Promise<CompletedGame[]> {
     }
   }
 
-  completedGames.sort((a, b) => b.matchTime.getTime() - a.matchTime.getTime());
-  console.log(`Fetched ${completedGames.length} completed games from ESPN`);
-  return completedGames;
+  const seen = new Set<string>();
+  const dedupedGames = completedGames
+    .sort((a, b) => b.matchTime.getTime() - a.matchTime.getTime())
+    .filter(g => {
+      const key = `${g.homeTeam} vs ${g.awayTeam}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  console.log(`Fetched ${dedupedGames.length} completed games from ESPN (${completedGames.length} before dedup)`);
+  return dedupedGames;
 }

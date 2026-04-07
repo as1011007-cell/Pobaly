@@ -365,7 +365,7 @@ export async function generateYesterdayHistory(): Promise<void> {
       )
     );
 
-  const existingHistory = await db.select({ matchTitle: predictions.matchTitle, matchTime: predictions.matchTime })
+  const existingHistory = await db.select({ matchTitle: predictions.matchTitle })
     .from(predictions)
     .where(
       and(
@@ -374,8 +374,8 @@ export async function generateYesterdayHistory(): Promise<void> {
         sql`${predictions.result} IS NOT NULL`
       )
     );
-  const existingKeys = new Set(
-    existingHistory.map(e => `${e.matchTitle}|${e.matchTime?.toISOString()}`)
+  const existingTitles = new Set(
+    existingHistory.map(e => e.matchTitle)
   );
 
   const completedGames = await getRecentCompletedGames();
@@ -386,12 +386,15 @@ export async function generateYesterdayHistory(): Promise<void> {
   }
 
   const selectedGames = [];
+  const seenMatchups = new Set<string>();
   for (const game of completedGames) {
     if (selectedGames.length >= 30) break;
     const sportCount = selectedGames.filter(g => g.sport === game.sport).length;
     if (sportCount >= 6) continue;
-    const key = `${game.homeTeam} vs ${game.awayTeam}|${game.matchTime.toISOString()}`;
-    if (existingKeys.has(key)) continue;
+    const title = `${game.homeTeam} vs ${game.awayTeam}`;
+    if (existingTitles.has(title) || existingTitles.has(`${title} (O/U)`)) continue;
+    if (seenMatchups.has(title)) continue;
+    seenMatchups.add(title);
     selectedGames.push(game);
   }
 
@@ -481,7 +484,7 @@ export async function forceRefreshHistory(): Promise<void> {
       )
     );
 
-  const existingHistory = await db.select({ matchTitle: predictions.matchTitle, matchTime: predictions.matchTime })
+  const existingHistory = await db.select({ matchTitle: predictions.matchTitle })
     .from(predictions)
     .where(
       and(
@@ -490,17 +493,20 @@ export async function forceRefreshHistory(): Promise<void> {
         sql`${predictions.result} IS NOT NULL`
       )
     );
-  const existingKeys = new Set(
-    existingHistory.map(e => `${e.matchTitle}|${e.matchTime?.toISOString()}`)
+  const existingTitles = new Set(
+    existingHistory.map(e => e.matchTitle)
   );
 
   const selectedGames = [];
+  const seenMatchups = new Set<string>();
   for (const game of completedGames) {
     if (selectedGames.length >= 30) break;
     const sportCount = selectedGames.filter(g => g.sport === game.sport).length;
     if (sportCount >= 6) continue;
-    const key = `${game.homeTeam} vs ${game.awayTeam}|${game.matchTime.toISOString()}`;
-    if (existingKeys.has(key)) continue;
+    const title = `${game.homeTeam} vs ${game.awayTeam}`;
+    if (existingTitles.has(title) || existingTitles.has(`${title} (O/U)`)) continue;
+    if (seenMatchups.has(title)) continue;
+    seenMatchups.add(title);
     selectedGames.push(game);
   }
 
