@@ -431,6 +431,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+
   // Get free tip of the day
   app.get("/api/predictions/free-tip", async (_req: Request, res: Response) => {
     try {
