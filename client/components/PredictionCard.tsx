@@ -91,7 +91,7 @@ export function PredictionCard({
             <View
               style={[
                 styles.lockedOverlay,
-                { backgroundColor: isDark ? "rgba(17,24,39,0.96)" : "rgba(255,255,255,0.96)" },
+                { backgroundColor: isDark ? "#111827" : "#F3F4F6" },
               ]}
             />
           )}

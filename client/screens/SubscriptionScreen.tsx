@@ -193,7 +193,7 @@ export default function SubscriptionScreen() {
       if (hasActiveSubscription) {
         Alert.alert("Purchases restored", "Your subscription has been restored successfully.", [{ text: "OK" }]);
       } else {
-        Alert.alert("No purchases found", "We could not find any previous purchases on this Apple ID.", [{ text: "OK" }]);
+        Alert.alert("No purchases found", Platform.OS === "android" ? "We could not find any previous purchases on this Google account." : "We could not find any previous purchases on this Apple ID.", [{ text: "OK" }]);
       }
     } catch (error: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
