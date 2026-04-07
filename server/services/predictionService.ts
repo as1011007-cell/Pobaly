@@ -986,6 +986,20 @@ export async function resolvePredictionResults(): Promise<void> {
   }
 
   console.log(`Resolved predictions: ${correct} correct, ${incorrect} incorrect out of ${unresolved.length}`);
+
+  const activeTip = await getTodaysActiveFreePrediction();
+  if (!activeTip) {
+    console.log("Free tip was lost or expired — auto-generating replacement...");
+    try {
+      await generateDailyFreePrediction();
+      const newTip = await getTodaysActiveFreePrediction();
+      if (newTip) {
+        console.log(`Replacement free tip generated: ${newTip.matchTitle}`);
+      }
+    } catch (err) {
+      console.error("Failed to auto-replace lost free tip:", err);
+    }
+  }
 }
 
 export async function clearExpiredPredictions(): Promise<number> {
@@ -1119,9 +1133,31 @@ async function refreshDemoPredictions(): Promise<void> {
   await generateDemoPredictions();
 }
 
-// Start daily refresh scheduler (runs every 24 hours)
+async function checkAndReplaceFreeTip(): Promise<void> {
+  try {
+    await resolvePredictionResults();
+  } catch (err) {
+    console.error("Error during free tip resolution check:", err);
+  }
+
+  try {
+    const activeTip = await getTodaysActiveFreePrediction();
+    if (!activeTip) {
+      console.log("Periodic check: no active free tip found — generating replacement...");
+      await generateDailyFreePrediction();
+      const newTip = await getTodaysActiveFreePrediction();
+      if (newTip) {
+        console.log(`Periodic replacement free tip generated: ${newTip.matchTitle}`);
+      }
+    }
+  } catch (err) {
+    console.error("Error during periodic free tip replacement:", err);
+  }
+}
+
 export function startDailyRefreshScheduler(): void {
   const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+  const TWO_HOURS = 2 * 60 * 60 * 1000;
   const RETRY_DELAY = 5 * 60 * 1000;
   
   console.log("Daily prediction refresh scheduler started");
@@ -1146,4 +1182,8 @@ export function startDailyRefreshScheduler(): void {
   setInterval(() => {
     runRefreshWithRetry();
   }, TWENTY_FOUR_HOURS);
+
+  setInterval(() => {
+    checkAndReplaceFreeTip();
+  }, TWO_HOURS);
 }
