@@ -790,29 +790,31 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
   if (isPremiumUser && userId) {
     const startDate = premiumSince && premiumSince > fiveDaysAgo ? premiumSince : fiveDaysAgo;
 
-    const userRows = await db.select()
+    const userPremiumRows = await db.select()
       .from(predictions)
       .where(
         and(
           eq(predictions.result, "correct"),
+          eq(predictions.isPremium, true),
           eq(predictions.userId, userId),
           sql`${predictions.matchTime} >= ${startDate.toISOString()}::timestamp`
         )
       )
       .orderBy(desc(predictions.matchTime));
 
-    const publicRows = await db.select()
+    const sharedPremiumRows = await db.select()
       .from(predictions)
       .where(
         and(
           eq(predictions.result, "correct"),
+          eq(predictions.isPremium, true),
           isNull(predictions.userId),
           sql`${predictions.matchTime} >= ${startDate.toISOString()}::timestamp`
         )
       )
       .orderBy(desc(predictions.matchTime));
 
-    const combined = [...userRows, ...publicRows]
+    const combined = [...userPremiumRows, ...sharedPremiumRows]
       .sort((a, b) => new Date(b.matchTime).getTime() - new Date(a.matchTime).getTime());
 
     return dedup(combined);
