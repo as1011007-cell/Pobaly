@@ -379,7 +379,7 @@ export default function SubscriptionScreen() {
 
         <View style={styles.footer}>
           <ThemedText type="small" style={{ color: theme.textSecondary, textAlign: "center", lineHeight: 20 }}>
-            For entertainment purposes only. Must be 18+. By subscribing, you agree to our{" "}
+            Must be 18+. By subscribing, you agree to our{" "}
             <ThemedText
               type="small"
               style={{ color: theme.accent, textDecorationLine: "underline" }}
