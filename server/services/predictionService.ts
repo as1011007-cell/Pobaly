@@ -1219,11 +1219,28 @@ async function runWithRetry<T>(
   throw new Error(`[${label}] Exhausted all ${maxRetries} retries`);
 }
 
-// Daily refresh: Clear old predictions and regenerate with fresh data from API
+async function fixPrematurelyResolvedPredictions(): Promise<void> {
+  const resetted = await db.update(predictions)
+    .set({ result: null })
+    .where(
+      and(
+        sql`${predictions.result} IS NOT NULL`,
+        sql`${predictions.expiresAt} > ${predictions.matchTime}`,
+        sql`extract(epoch from (${predictions.createdAt} - ${predictions.matchTime})) BETWEEN -3600 AND 3600`
+      )
+    )
+    .returning({ id: predictions.id, matchTitle: predictions.matchTitle });
+
+  if (resetted.length > 0) {
+    console.log(`Reset ${resetted.length} prematurely resolved predictions: ${resetted.map(r => r.matchTitle).join(', ')}`);
+  }
+}
+
 export async function dailyPredictionRefresh(): Promise<void> {
   console.log("Starting daily prediction refresh...");
   
   try {
+    await runWithRetry(() => fixPrematurelyResolvedPredictions(), "fixPrematurelyResolvedPredictions");
     await runWithRetry(() => resolvePredictionResults(), "resolvePredictionResults");
     await runWithRetry(() => clearExpiredPredictions(), "clearExpiredPredictions");
     await runWithRetry(() => generateYesterdayHistory(), "generateYesterdayHistory");
