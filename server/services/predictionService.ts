@@ -948,7 +948,8 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
           eq(predictions.result, "correct"),
           eq(predictions.isPremium, true),
           eq(predictions.userId, userId),
-          sql`${predictions.matchTime} >= ${startDate.toISOString()}::timestamp`
+          sql`${predictions.matchTime} >= ${startDate.toISOString()}::timestamp`,
+          sql`${predictions.expiresAt} > ${predictions.matchTime}`
         )
       )
       .orderBy(desc(predictions.matchTime));
@@ -960,7 +961,8 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
           eq(predictions.result, "correct"),
           eq(predictions.isPremium, true),
           isNull(predictions.userId),
-          sql`${predictions.matchTime} >= ${startDate.toISOString()}::timestamp`
+          sql`${predictions.matchTime} >= ${startDate.toISOString()}::timestamp`,
+          sql`${predictions.expiresAt} > ${predictions.matchTime}`
         )
       )
       .orderBy(desc(predictions.matchTime));
@@ -1254,6 +1256,21 @@ async function fixPrematurelyResolvedPredictions(): Promise<void> {
   if (removed.length > 0) {
     console.log(`Removed ${removed.length} incorrect predictions: ${removed.map(r => r.matchTitle).join(', ')}`);
   }
+
+  const fabricated = await db.delete(predictions)
+    .where(
+      and(
+        eq(predictions.isPremium, true),
+        sql`${predictions.result} IS NOT NULL`,
+        sql`${predictions.expiresAt} = ${predictions.matchTime}`,
+        sql`${predictions.createdAt} = ${predictions.matchTime}`
+      )
+    )
+    .returning({ id: predictions.id });
+
+  if (fabricated.length > 0) {
+    console.log(`Removed ${fabricated.length} fabricated premium history entries`);
+  }
 }
 
 export async function dailyPredictionRefresh(): Promise<void> {
@@ -1264,7 +1281,7 @@ export async function dailyPredictionRefresh(): Promise<void> {
     await runWithRetry(() => resolvePredictionResults(), "resolvePredictionResults");
     await runWithRetry(() => clearExpiredPredictions(), "clearExpiredPredictions");
     await runWithRetry(() => generateYesterdayHistory(), "generateYesterdayHistory");
-    await runWithRetry(() => generatePremiumHistory(), "generatePremiumHistory");
+    // Premium history builds organically from resolved predictions — no fabrication needed
     await runWithRetry(() => generateDailyFreePrediction(), "generateDailyFreePrediction");
     await runWithRetry(() => refreshDemoPredictions(), "refreshDemoPredictions");
     
