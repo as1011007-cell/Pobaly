@@ -78,36 +78,6 @@ export function PredictionCard({
         animatedStyle,
       ]}
     >
-      {isLocked && (
-        <>
-          {Platform.OS === "ios" ? (
-            <BlurView
-              intensity={98}
-              tint={isDark ? "dark" : "light"}
-              style={styles.lockedOverlay}
-            />
-          ) : (
-            <View
-              style={[
-                styles.lockedOverlay,
-                { backgroundColor: isDark ? "#111827" : "#F3F4F6" },
-              ]}
-            />
-          )}
-          <View style={styles.lockContainer}>
-            <View style={[styles.lockIconBox, { backgroundColor: theme.primary }]}>
-              <Feather name="lock" size={20} color="#FFFFFF" />
-            </View>
-            <ThemedText type="body" style={[styles.lockText, { color: theme.text }]}>
-              Premium Only
-            </ThemedText>
-            <ThemedText type="small" style={{ color: theme.textSecondary, textAlign: "center" }}>
-              Subscribe to unlock this prediction
-            </ThemedText>
-          </View>
-        </>
-      )}
-
       <View style={styles.header}>
         <View style={styles.sportBadge}>
           <SportIcon
@@ -209,6 +179,36 @@ export function PredictionCard({
             <Feather name="chevron-right" size={16} color="#FFFFFF" />
           </View>
         </View>
+      )}
+
+      {isLocked && (
+        <>
+          {Platform.OS === "ios" ? (
+            <BlurView
+              intensity={98}
+              tint={isDark ? "dark" : "light"}
+              style={styles.lockedOverlay}
+            />
+          ) : (
+            <View
+              style={[
+                styles.lockedOverlay,
+                { backgroundColor: isDark ? "#111827" : "#F3F4F6" },
+              ]}
+            />
+          )}
+          <View style={styles.lockContainer}>
+            <View style={[styles.lockIconBox, { backgroundColor: theme.primary }]}>
+              <Feather name="lock" size={20} color="#FFFFFF" />
+            </View>
+            <ThemedText type="body" style={[styles.lockText, { color: theme.text }]}>
+              Premium Only
+            </ThemedText>
+            <ThemedText type="small" style={{ color: theme.textSecondary, textAlign: "center" }}>
+              Subscribe to unlock this prediction
+            </ThemedText>
+          </View>
+        </>
       )}
     </AnimatedPressable>
   );
