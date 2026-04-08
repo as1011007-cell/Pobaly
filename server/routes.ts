@@ -617,6 +617,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/predictions/reset-premature", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const now = new Date();
+      const threeHoursAgo = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+      const result = await db.update(predictions)
+        .set({ result: null, explanation: null })
+        .where(
+          and(
+            sql`${predictions.result} IS NOT NULL`,
+            sql`${predictions.matchTime} >= ${threeHoursAgo.toISOString()}::timestamp`,
+            sql`${predictions.expiresAt} > ${predictions.matchTime}`
+          )
+        )
+        .returning({ id: predictions.id, matchTitle: predictions.matchTitle });
+      res.json({ success: true, reset: result.length, predictions: result });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Add manual history entry (admin endpoint)
   app.post("/api/predictions/add-history", requireAdmin, async (req: Request, res: Response) => {
     try {

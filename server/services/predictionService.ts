@@ -1057,13 +1057,14 @@ export async function getSportPredictionCounts(userId?: string, isPremiumUser?: 
 
 export async function resolvePredictionResults(): Promise<void> {
   const now = new Date();
+  const threeHoursAgo = new Date(now.getTime() - 3 * 60 * 60 * 1000);
 
   const unresolved = await db.select()
     .from(predictions)
     .where(
       and(
         isNull(predictions.result),
-        sql`${predictions.matchTime} < ${now.toISOString()}::timestamp`
+        sql`${predictions.matchTime} < ${threeHoursAgo.toISOString()}::timestamp`
       )
     );
 
