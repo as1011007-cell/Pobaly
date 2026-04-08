@@ -48,13 +48,13 @@ export function LiveMatchCard({ match, onPress }: LiveMatchCardProps) {
       <View style={styles.header}>
         <View style={styles.sportBadge}>
           <Feather name={sportIcon} size={12} color={theme.accent} />
-          <ThemedText type="caption" style={{ color: theme.accent, marginLeft: 4 }}>
+          <ThemedText type="small" style={{ color: theme.accent, marginLeft: 4 }}>
             {match.league}
           </ThemedText>
         </View>
         <View style={[styles.liveBadge, { backgroundColor: theme.accent }]}>
           <View style={styles.liveDot} />
-          <ThemedText type="caption" style={{ color: "#FFFFFF", fontWeight: "700", fontSize: 10 }}>
+          <ThemedText type="small" style={{ color: "#FFFFFF", fontWeight: "700", fontSize: 10 }}>
             LIVE
           </ThemedText>
         </View>
@@ -65,7 +65,7 @@ export function LiveMatchCard({ match, onPress }: LiveMatchCardProps) {
           <ThemedText
             type="body"
             numberOfLines={2}
-            style={[styles.teamName, { color: theme.textPrimary }]}
+            style={[styles.teamName, { color: theme.text }]}
           >
             {match.homeTeam}
           </ThemedText>
@@ -73,13 +73,13 @@ export function LiveMatchCard({ match, onPress }: LiveMatchCardProps) {
 
         <View style={styles.scoreSection}>
           <View style={styles.scoreBox}>
-            <ThemedText type="h3" style={[styles.score, { color: theme.textPrimary }]}>
+            <ThemedText type="h3" style={[styles.score, { color: theme.text }]}>
               {match.homeScore}
             </ThemedText>
-            <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
               -
             </ThemedText>
-            <ThemedText type="h3" style={[styles.score, { color: theme.textPrimary }]}>
+            <ThemedText type="h3" style={[styles.score, { color: theme.text }]}>
               {match.awayScore}
             </ThemedText>
           </View>
@@ -89,7 +89,7 @@ export function LiveMatchCard({ match, onPress }: LiveMatchCardProps) {
           <ThemedText
             type="body"
             numberOfLines={2}
-            style={[styles.teamName, { color: theme.textPrimary, textAlign: "right" }]}
+            style={[styles.teamName, { color: theme.text, textAlign: "right" }]}
           >
             {match.awayTeam}
           </ThemedText>
@@ -97,11 +97,11 @@ export function LiveMatchCard({ match, onPress }: LiveMatchCardProps) {
       </View>
 
       <View style={styles.footer}>
-        <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+        <ThemedText type="small" style={{ color: theme.textSecondary }}>
           {match.status}
         </ThemedText>
         {match.clock ? (
-          <ThemedText type="caption" style={{ color: theme.accent, fontWeight: "600" }}>
+          <ThemedText type="small" style={{ color: theme.accent, fontWeight: "600" }}>
             {match.clock}
           </ThemedText>
         ) : null}

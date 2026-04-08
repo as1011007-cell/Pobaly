@@ -79,11 +79,11 @@ export default function LiveScreen() {
           },
         ]}
       >
-        <View style={[styles.premiumCard, { backgroundColor: theme.card }]}>
+        <View style={[styles.premiumCard, { backgroundColor: theme.backgroundDefault }]}>
           <View style={styles.lockIconContainer}>
             <Feather name="lock" size={32} color={theme.accent} />
           </View>
-          <ThemedText type="subtitle" style={styles.premiumTitle}>
+          <ThemedText type="h3" style={styles.premiumTitle}>
             Live Events
           </ThemedText>
           <ThemedText

@@ -20,7 +20,7 @@ export function EmptyState({ image, icon, title, description }: EmptyStateProps)
       {image ? (
         <Image source={image} style={styles.image} resizeMode="contain" />
       ) : icon ? (
-        <View style={[styles.iconContainer, { backgroundColor: theme.backgroundElevated }]}>
+        <View style={[styles.iconContainer, { backgroundColor: theme.backgroundSecondary }]}>
           <Feather name={icon} size={48} color={theme.textSecondary} />
         </View>
       ) : null}
