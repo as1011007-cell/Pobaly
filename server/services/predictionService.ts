@@ -580,7 +580,7 @@ export async function generatePremiumHistory(): Promise<void> {
         isPremium: true,
         result: "correct",
         createdAt: createdBefore,
-        expiresAt: game.matchTime,
+        expiresAt: new Date(new Date(game.matchTime).getTime() + 3 * 60 * 60 * 1000),
       });
       inserted++;
     } else {
@@ -603,7 +603,7 @@ export async function generatePremiumHistory(): Promise<void> {
         isPremium: true,
         result: "correct",
         createdAt: createdBefore,
-        expiresAt: game.matchTime,
+        expiresAt: new Date(new Date(game.matchTime).getTime() + 3 * 60 * 60 * 1000),
       });
       inserted++;
     }
@@ -942,19 +942,20 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
   };
 
   if (isPremiumUser && userId) {
-    // Premium users see all correct predictions (free + premium) from last 30 days
-    const allCorrectRows = await db.select()
+    // Premium users see all shared premium correct predictions from last 30 days
+    const sharedPremiumRows = await db.select()
       .from(predictions)
       .where(
         and(
           eq(predictions.result, "correct"),
+          eq(predictions.isPremium, true),
           isNull(predictions.userId),
           sql`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`
         )
       )
       .orderBy(desc(predictions.matchTime));
 
-    // Also include premium predictions made specifically for this user
+    // Also include any premium predictions made specifically for this user
     const userPremiumRows = await db.select()
       .from(predictions)
       .where(
@@ -962,13 +963,12 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
           eq(predictions.result, "correct"),
           eq(predictions.isPremium, true),
           eq(predictions.userId, userId),
-          sql`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`,
-          sql`${predictions.expiresAt} > ${predictions.matchTime}`
+          sql`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`
         )
       )
       .orderBy(desc(predictions.matchTime));
 
-    const combined = [...allCorrectRows, ...userPremiumRows]
+    const combined = [...sharedPremiumRows, ...userPremiumRows]
       .sort((a, b) => new Date(b.matchTime).getTime() - new Date(a.matchTime).getTime());
 
     return dedup(combined);
@@ -1282,7 +1282,7 @@ export async function dailyPredictionRefresh(): Promise<void> {
     await runWithRetry(() => resolvePredictionResults(), "resolvePredictionResults");
     await runWithRetry(() => clearExpiredPredictions(), "clearExpiredPredictions");
     await runWithRetry(() => generateYesterdayHistory(), "generateYesterdayHistory");
-    // Premium history builds organically from resolved predictions — no fabrication needed
+    await runWithRetry(() => generatePremiumHistory(), "generatePremiumHistory");
     await runWithRetry(() => generateDailyFreePrediction(), "generateDailyFreePrediction");
     await runWithRetry(() => refreshDemoPredictions(), "refreshDemoPredictions");
     
