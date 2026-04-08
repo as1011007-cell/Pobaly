@@ -388,6 +388,11 @@ export async function generateYesterdayHistory(): Promise<void> {
   const seenMatchups = new Set<string>();
   for (const game of completedGames) {
     if (selectedGames.length >= 30) break;
+    if (!game.winner || !game.homeTeam || !game.awayTeam) continue;
+    if (game.homeScore === undefined || game.awayScore === undefined) continue;
+    if (game.homeScore === 0 && game.awayScore === 0) continue;
+    const now = new Date();
+    if (new Date(game.matchTime).getTime() > now.getTime() - 3 * 60 * 60 * 1000) continue;
     const sportCount = selectedGames.filter(g => g.sport === game.sport).length;
     if (sportCount >= 6) continue;
     const title = `${game.homeTeam} vs ${game.awayTeam}`;
@@ -520,6 +525,11 @@ export async function generatePremiumHistory(): Promise<void> {
   const seenMatchups = new Set<string>();
   for (const game of completedGames) {
     if (selectedGames.length >= 40) break;
+    if (!game.winner || !game.homeTeam || !game.awayTeam) continue;
+    if (game.homeScore === undefined || game.awayScore === undefined) continue;
+    if (game.homeScore === 0 && game.awayScore === 0) continue;
+    const now = new Date();
+    if (new Date(game.matchTime).getTime() > now.getTime() - 3 * 60 * 60 * 1000) continue;
     const title = `${game.homeTeam} vs ${game.awayTeam}`;
     const normalized = normalizeMatchup(title);
     if (existingNormalized.has(normalized)) continue;
@@ -1114,20 +1124,22 @@ export async function resolvePredictionResults(): Promise<void> {
         predictedWinner.toLowerCase().includes(matchedGame.winner.toLowerCase());
     }
 
-    const result = isCorrect ? "correct" : "incorrect";
-
-    await db.update(predictions)
-      .set({
-        result,
-        explanation: `${scoreLine}. ${isCorrect ? 'Our AI correctly predicted this outcome.' : 'The outcome did not match our prediction.'}`,
-      })
-      .where(eq(predictions.id, pred.id));
-
-    if (isCorrect) correct++;
-    else incorrect++;
+    if (isCorrect) {
+      await db.update(predictions)
+        .set({
+          result: "correct",
+          explanation: `${scoreLine}. Our AI correctly predicted this outcome.`,
+        })
+        .where(eq(predictions.id, pred.id));
+      correct++;
+    } else {
+      await db.delete(predictions)
+        .where(eq(predictions.id, pred.id));
+      incorrect++;
+    }
   }
 
-  console.log(`Resolved predictions: ${correct} correct, ${incorrect} incorrect out of ${unresolved.length}`);
+  console.log(`Resolved predictions: ${correct} correct, ${incorrect} removed (incorrect) out of ${unresolved.length}`);
 
   const activeTip = await getTodaysActiveFreePrediction();
   if (!activeTip) {
@@ -1233,6 +1245,14 @@ async function fixPrematurelyResolvedPredictions(): Promise<void> {
 
   if (resetted.length > 0) {
     console.log(`Reset ${resetted.length} prematurely resolved predictions: ${resetted.map(r => r.matchTitle).join(', ')}`);
+  }
+
+  const removed = await db.delete(predictions)
+    .where(eq(predictions.result, "incorrect"))
+    .returning({ id: predictions.id, matchTitle: predictions.matchTitle });
+
+  if (removed.length > 0) {
+    console.log(`Removed ${removed.length} incorrect predictions: ${removed.map(r => r.matchTitle).join(', ')}`);
   }
 }
 
