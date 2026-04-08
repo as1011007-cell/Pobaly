@@ -927,6 +927,9 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
   const fiveDaysAgo = new Date();
   fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
 
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
   const dedup = (rows: any[]) => {
     const seen = new Set<string>();
     return rows.filter(r => {
@@ -939,8 +942,19 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
   };
 
   if (isPremiumUser && userId) {
-    const startDate = premiumSince && premiumSince > fiveDaysAgo ? premiumSince : fiveDaysAgo;
+    // Premium users see all correct predictions (free + premium) from last 30 days
+    const allCorrectRows = await db.select()
+      .from(predictions)
+      .where(
+        and(
+          eq(predictions.result, "correct"),
+          isNull(predictions.userId),
+          sql`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`
+        )
+      )
+      .orderBy(desc(predictions.matchTime));
 
+    // Also include premium predictions made specifically for this user
     const userPremiumRows = await db.select()
       .from(predictions)
       .where(
@@ -948,26 +962,13 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
           eq(predictions.result, "correct"),
           eq(predictions.isPremium, true),
           eq(predictions.userId, userId),
-          sql`${predictions.matchTime} >= ${startDate.toISOString()}::timestamp`,
+          sql`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`,
           sql`${predictions.expiresAt} > ${predictions.matchTime}`
         )
       )
       .orderBy(desc(predictions.matchTime));
 
-    const sharedPremiumRows = await db.select()
-      .from(predictions)
-      .where(
-        and(
-          eq(predictions.result, "correct"),
-          eq(predictions.isPremium, true),
-          isNull(predictions.userId),
-          sql`${predictions.matchTime} >= ${startDate.toISOString()}::timestamp`,
-          sql`${predictions.expiresAt} > ${predictions.matchTime}`
-        )
-      )
-      .orderBy(desc(predictions.matchTime));
-
-    const combined = [...userPremiumRows, ...sharedPremiumRows]
+    const combined = [...allCorrectRows, ...userPremiumRows]
       .sort((a, b) => new Date(b.matchTime).getTime() - new Date(a.matchTime).getTime());
 
     return dedup(combined);
@@ -1387,7 +1388,13 @@ export function startDailyRefreshScheduler(): void {
   }
   scheduleMidnightRefresh();
 
-  setInterval(() => {
+  setInterval(async () => {
+    // Resolve completed games and replace any incorrect free tip
+    try {
+      await resolvePredictionResults();
+    } catch (err) {
+      console.error("Intraday resolution check failed:", err);
+    }
     checkAndReplaceFreeTip();
   }, TWO_HOURS);
 }
