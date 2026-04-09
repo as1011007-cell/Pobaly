@@ -27,6 +27,7 @@ import {
   forceRefreshHistory,
   generatePremiumHistory,
   forceNewFreeTip,
+  dailyPredictionRefresh,
 } from "./services/predictionService";
 import { getLiveMatches } from "./services/sportsApiService";
 
@@ -429,6 +430,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, message: "Demo predictions generated successfully" });
     } catch (error: any) {
       console.error("Error generating demo predictions:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Trigger full daily prediction refresh (admin endpoint)
+  app.post("/api/predictions/trigger-refresh", requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      res.json({ success: true, message: "Daily refresh started in background" });
+      dailyPredictionRefresh().catch(err => console.error("Background refresh error:", err));
+    } catch (error: any) {
+      console.error("Error triggering refresh:", error);
       res.status(500).json({ error: error.message });
     }
   });
