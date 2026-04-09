@@ -1000,33 +1000,34 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
   };
 
   if (isPremiumUser && userId) {
-    // Premium users see all shared premium correct predictions from last 30 days
-    const sharedPremiumRows = await db.select()
+    // Premium users see all correctly resolved predictions from the last 30 days
+    // Only show real AI-generated predictions (exclude retroactively created fake history)
+    const rows = await db.select()
       .from(predictions)
       .where(
         and(
           eq(predictions.result, "correct"),
-          eq(predictions.isPremium, true),
           isNull(predictions.userId),
-          sql`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`
+          sql`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`,
+          sql`${predictions.explanation} NOT LIKE '%Our AI correctly predicted this outcome%'`,
+          sql`${predictions.explanation} NOT LIKE 'Final score:%'`
         )
       )
       .orderBy(desc(predictions.matchTime));
 
-    // Also include any premium predictions made specifically for this user
-    const userPremiumRows = await db.select()
+    // Also include any predictions made specifically for this user
+    const userRows = await db.select()
       .from(predictions)
       .where(
         and(
           eq(predictions.result, "correct"),
-          eq(predictions.isPremium, true),
           eq(predictions.userId, userId),
           sql`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`
         )
       )
       .orderBy(desc(predictions.matchTime));
 
-    const combined = [...sharedPremiumRows, ...userPremiumRows]
+    const combined = [...rows, ...userRows]
       .sort((a, b) => new Date(b.matchTime).getTime() - new Date(a.matchTime).getTime());
 
     return dedup(combined);
@@ -1187,10 +1188,7 @@ export async function resolvePredictionResults(): Promise<void> {
 
     if (isCorrect) {
       await db.update(predictions)
-        .set({
-          result: "correct",
-          explanation: `${scoreLine}. Our AI correctly predicted this outcome.`,
-        })
+        .set({ result: "correct" })
         .where(eq(predictions.id, pred.id));
       correct++;
     } else {
@@ -1332,15 +1330,27 @@ async function fixPrematurelyResolvedPredictions(): Promise<void> {
   }
 }
 
+async function purgeFakeHistoryEntries(): Promise<void> {
+  const result = await db.delete(predictions)
+    .where(
+      and(
+        isNull(predictions.userId),
+        sql`${predictions.result} IS NOT NULL`,
+        sql`(${predictions.explanation} LIKE '%Our AI correctly predicted this outcome%' OR ${predictions.explanation} LIKE 'Final score:%')`
+      )
+    );
+  console.log("Purged fake history entries");
+}
+
 export async function dailyPredictionRefresh(): Promise<void> {
   console.log("Starting daily prediction refresh...");
   
   try {
+    await runWithRetry(() => purgeFakeHistoryEntries(), "purgeFakeHistoryEntries");
     await runWithRetry(() => fixPrematurelyResolvedPredictions(), "fixPrematurelyResolvedPredictions");
     await runWithRetry(() => resolvePredictionResults(), "resolvePredictionResults");
     await runWithRetry(() => clearExpiredPredictions(), "clearExpiredPredictions");
     await runWithRetry(() => generateYesterdayHistory(), "generateYesterdayHistory");
-    await runWithRetry(() => generatePremiumHistory(), "generatePremiumHistory");
     await runWithRetry(() => generateDailyFreePrediction(), "generateDailyFreePrediction");
     await runWithRetry(() => refreshDemoPredictions(), "refreshDemoPredictions");
     

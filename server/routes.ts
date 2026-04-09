@@ -622,7 +622,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/predictions/refresh-history", requireAdmin, async (req: Request, res: Response) => {
     try {
       await forceRefreshHistory();
-      await generatePremiumHistory();
       const history = await getHistoryPredictions();
       res.json({ success: true, count: history.length });
     } catch (error: any) {
@@ -633,7 +632,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/predictions/refresh-premium-history", requireAdmin, async (req: Request, res: Response) => {
     try {
-      await generatePremiumHistory();
       const history = await getHistoryPredictions(undefined, true);
       res.json({ success: true, premiumHistoryCount: history.length });
     } catch (error: any) {
