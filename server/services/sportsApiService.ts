@@ -187,40 +187,69 @@ async function getESPNMatches(): Promise<SportsMatch[]> {
   console.log("Fetching real upcoming matches from ESPN (free API)...");
   const allMatches: SportsMatch[] = [];
   const currentTime = new Date();
+  const seenMatchups = new Set<string>();
 
+  // Helper to parse ESPN events into SportsMatch entries
+  function parseESPNEvents(events: any[], sport: string, league: string): SportsMatch[] {
+    const results: SportsMatch[] = [];
+    for (const event of events.slice(0, 10)) {
+      const matchTime = new Date(event.date);
+      if (isNaN(matchTime.getTime()) || matchTime < currentTime) continue;
+      const competitors = event.competitions?.[0]?.competitors || [];
+      if (competitors.length < 2) continue;
+      const homeComp = competitors.find((c: any) => c.homeAway === 'home') || competitors[0];
+      const awayComp = competitors.find((c: any) => c.homeAway === 'away') || competitors[1];
+      const homeTeam = homeComp.team?.displayName || homeComp.athlete?.displayName || event.name?.split(' vs ')?.[0] || 'TBD';
+      const awayTeam = awayComp.team?.displayName || awayComp.athlete?.displayName || event.name?.split(' vs ')?.[1] || 'TBD';
+      if (homeTeam === 'TBD' || awayTeam === 'TBD') continue;
+      const key = `${homeTeam}|${awayTeam}|${sport}`;
+      if (seenMatchups.has(key)) continue;
+      seenMatchups.add(key);
+      results.push({ homeTeam, awayTeam, sport, matchTime, league });
+    }
+    return results;
+  }
+
+  // Fetch today's scoreboard for all endpoints
   for (const endpoint of ESPN_ENDPOINTS) {
     try {
       const response = await fetch(endpoint.url);
       if (!response.ok) continue;
-
       const data = await response.json() as any;
-      const events = data.events || [];
-
-      for (const event of events.slice(0, 6)) {
-        const matchTime = new Date(event.date);
-        if (isNaN(matchTime.getTime()) || matchTime < currentTime) continue;
-
-        const competitors = event.competitions?.[0]?.competitors || [];
-        if (competitors.length < 2) continue;
-
-        const homeComp = competitors.find((c: any) => c.homeAway === 'home') || competitors[0];
-        const awayComp = competitors.find((c: any) => c.homeAway === 'away') || competitors[1];
-
-        const homeTeam = homeComp.team?.displayName || homeComp.athlete?.displayName || event.name?.split(' vs ')?.[0] || 'TBD';
-        const awayTeam = awayComp.team?.displayName || awayComp.athlete?.displayName || event.name?.split(' vs ')?.[1] || 'TBD';
-
-        if (homeTeam === 'TBD' || awayTeam === 'TBD') continue;
-
-        allMatches.push({
-          homeTeam,
-          awayTeam,
-          sport: endpoint.sport,
-          matchTime,
-          league: endpoint.league,
-        });
-      }
+      allMatches.push(...parseESPNEvents(data.events || [], endpoint.sport, endpoint.league));
     } catch (error) {
       console.error(`ESPN fetch failed for ${endpoint.league}:`, error);
+    }
+  }
+
+  // Also fetch next 3 days for key leagues to ensure enough upcoming games
+  const keyScheduleEndpoints = [
+    { base: 'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard', sport: 'basketball', league: 'NBA' },
+    { base: 'https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard', sport: 'baseball', league: 'MLB' },
+    { base: 'https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard', sport: 'hockey', league: 'NHL' },
+    { base: 'https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard', sport: 'football', league: 'Premier League' },
+    { base: 'https://site.api.espn.com/apis/site/v2/sports/soccer/esp.1/scoreboard', sport: 'football', league: 'La Liga' },
+    { base: 'https://site.api.espn.com/apis/site/v2/sports/soccer/ger.1/scoreboard', sport: 'football', league: 'Bundesliga' },
+    { base: 'https://site.api.espn.com/apis/site/v2/sports/soccer/ita.1/scoreboard', sport: 'football', league: 'Serie A' },
+    { base: 'https://site.api.espn.com/apis/site/v2/sports/soccer/fra.1/scoreboard', sport: 'football', league: 'Ligue 1' },
+    { base: 'https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard', sport: 'mma', league: 'UFC' },
+    { base: 'https://site.api.espn.com/apis/site/v2/sports/tennis/atp/scoreboard', sport: 'tennis', league: 'ATP Tour' },
+    { base: 'https://site.api.espn.com/apis/site/v2/sports/cricket/icc/scoreboard', sport: 'cricket', league: 'ICC' },
+  ];
+
+  for (let dayOffset = 1; dayOffset <= 3; dayOffset++) {
+    const d = new Date(currentTime);
+    d.setUTCDate(d.getUTCDate() + dayOffset);
+    const dateStr = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
+    for (const ep of keyScheduleEndpoints) {
+      try {
+        const response = await fetch(`${ep.base}?dates=${dateStr}`);
+        if (!response.ok) continue;
+        const data = await response.json() as any;
+        allMatches.push(...parseESPNEvents(data.events || [], ep.sport, ep.league));
+      } catch {
+        // silently skip schedule fetches that fail
+      }
     }
   }
 

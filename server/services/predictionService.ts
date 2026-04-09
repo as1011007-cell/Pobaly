@@ -67,40 +67,68 @@ async function generatePredictionForMatch(match: SportsMatch, betType: "winner" 
   const today = new Date().toISOString().split('T')[0];
   const matchDate = match.matchTime.toISOString().split('T')[0];
 
-  const outcomeInstruction = betType === "overunder" && match.sport === "basketball"
-    ? `"predictedOutcome": "Over X.5" or "Under X.5" where X.5 is the game total points line (e.g. "Over 225.5", "Under 235.5"). Pick a realistic NBA total points line based on both teams' pace and scoring averages.`
-    : `"predictedOutcome": "A specific outcome like '${match.homeTeam} Win', '${match.awayTeam} Win', 'Draw', etc."`;
+  const isOU = betType === "overunder";
 
-  const prompt = `You are a sports analytics AI. Today's date is ${today}. Analyze this upcoming ${match.sport} match and provide a ${betType === "overunder" ? "game total (over/under)" : ""} prediction.
+  const ouLineGuide: Record<string, string> = {
+    basketball: "NBA game total typically 210–240 points (e.g. 'Over 224.5', 'Under 231.5')",
+    baseball: "MLB game total typically 7–11 runs (e.g. 'Over 8.5', 'Under 9.5')",
+    hockey: "NHL game total typically 5–7 goals (e.g. 'Over 5.5', 'Under 6.5')",
+  };
 
-IMPORTANT: Use only current, accurate roster information as of ${today}. Do not reference players who have been traded, released, or are injured. If you are unsure about a player's current team, do not mention them by name. Focus on team-level analysis rather than risking outdated player info.
+  const sportFactorGuide: Record<string, string> = {
+    basketball: "Consider: offensive/defensive efficiency ratings, pace of play, three-point shooting, home court advantage, back-to-back fatigue, recent scoring streaks.",
+    football: "Consider: form over last 5 matches, home/away record, goals scored/conceded, head-to-head history, key absences/suspensions, tactical matchup.",
+    baseball: "Consider: starting pitcher ERA and recent outings, bullpen strength, batting average vs. left/right-handed pitching, ballpark factors, home/away splits.",
+    hockey: "Consider: goaltender save percentage, power play and penalty kill efficiency, recent form, home ice advantage, shots on goal averages.",
+    tennis: "Consider: current tournament form, head-to-head record, surface preference, recent match load, break point conversion rate.",
+    cricket: "Consider: pitch conditions, batting lineup depth, bowling attack, recent series form, home advantage, weather conditions.",
+    mma: "Consider: striking accuracy, grappling efficiency, recent finish rate, fight camp preparation, reach and size advantages, opponent's weaknesses.",
+    golf: "Consider: current world ranking, course history, recent tournament finishes, driving distance and accuracy, putting statistics.",
+  };
 
-Match: ${match.homeTeam} vs ${match.awayTeam}
-Match Date: ${matchDate}
-League: ${match.league || "Unknown"}
-Sport: ${match.sport}
+  const outcomeInstruction = isOU
+    ? `"predictedOutcome": "Over X.5" or "Under X.5" where X.5 is a realistic game total line. ${ouLineGuide[match.sport] || "Pick a realistic line."}`
+    : `"predictedOutcome": "Exact predicted outcome such as '${match.homeTeam} Win', '${match.awayTeam} Win'${match.sport === 'football' ? ", 'Draw'" : ''}"`;
 
-Provide your analysis in the following JSON format:
+  const prompt = `You are an elite sports analytics AI used by premium subscribers who expect high-quality, data-driven predictions. Today's date is ${today}.
+
+CRITICAL RULES:
+- Only use verified, current information as of ${today}
+- Never mention players who may have been traded, released, or injured — focus on team-level analysis
+- Be precise with probabilities (avoid clustering at round numbers like 70%, 75%)
+- Premium subscribers want specific, insightful analysis — not generic statements
+
+MATCH TO ANALYZE:
+Sport: ${match.sport.toUpperCase()} | League: ${match.league || "Unknown"}
+Home: ${match.homeTeam}
+Away: ${match.awayTeam}
+Date: ${matchDate}
+Prediction type: ${isOU ? "Game Total (Over/Under)" : "Match Winner"}
+
+ANALYSIS FOCUS FOR ${match.sport.toUpperCase()}:
+${sportFactorGuide[match.sport] || "Consider current form, head-to-head record, home advantage, and recent performance trends."}
+
+Respond ONLY with this JSON object (no markdown, no extra text):
 {
   ${outcomeInstruction},
-  "probability": <number between 50-95 representing probability>,
+  "probability": <integer 52-91, be precise — e.g. 67, 73, 81>,
   "confidence": "high" | "medium" | "low",
-  "explanation": "A detailed 2-3 sentence explanation of why this prediction was made",
+  "explanation": "3-4 sentences of specific, insight-rich analysis covering why this outcome is favored, key matchup dynamics, and any edge the predicted side holds.",
   "factors": [
-    {"title": "Factor name", "description": "Brief description", "impact": "positive" | "negative" | "neutral"},
-    {"title": "Factor name", "description": "Brief description", "impact": "positive" | "negative" | "neutral"},
-    {"title": "Factor name", "description": "Brief description", "impact": "positive" | "negative" | "neutral"}
+    {"title": "Factor 1", "description": "Specific detail — cite stats, streaks or tactical patterns", "impact": "positive" | "negative" | "neutral"},
+    {"title": "Factor 2", "description": "Specific detail", "impact": "positive" | "negative" | "neutral"},
+    {"title": "Factor 3", "description": "Specific detail", "impact": "positive" | "negative" | "neutral"},
+    {"title": "Factor 4", "description": "Specific detail", "impact": "positive" | "negative" | "neutral"},
+    {"title": "Factor 5", "description": "Specific detail — include any risk or counter-argument", "impact": "positive" | "negative" | "neutral"}
   ],
-  "riskIndex": <number between 10-50 representing risk level, lower is safer>
-}
-
-Be realistic with probabilities. Respond with ONLY the JSON object, no additional text.`;
+  "riskIndex": <integer 5-45, lower = safer bet>
+}`;
 
   const response = await openai.chat.completions.create({
     model: "gpt-4o",
     messages: [{ role: "user", content: prompt }],
-    max_tokens: 1000,
-    temperature: 0.7,
+    max_tokens: 1200,
+    temperature: 0.65,
   });
 
   const content = response.choices[0]?.message?.content || "{}";
@@ -280,18 +308,21 @@ export async function generatePremiumPredictionsForUser(userId: string): Promise
   const existingTitles = new Set(existingPredictions.map(p => p.matchTitle));
   
   // Generate predictions for all matches (skip first one which is free)
-  const upcomingBasketball = matches.slice(1).filter(m => m.sport === "basketball");
+  const ouSportsUser = ["basketball", "baseball", "hockey"];
   const premOuSet = new Set<string>();
-  const premShuffled = upcomingBasketball.sort(() => Math.random() - 0.5);
-  for (let i = 0; i < Math.min(3, premShuffled.length); i++) {
-    premOuSet.add(`${premShuffled[i].homeTeam} vs ${premShuffled[i].awayTeam}`);
+  for (const sport of ouSportsUser) {
+    const sportMatches = matches.slice(1).filter(m => m.sport === sport);
+    const shuffled = [...sportMatches].sort(() => Math.random() - 0.5);
+    const maxOU = sport === "basketball" ? 4 : 2;
+    for (let i = 0; i < Math.min(maxOU, shuffled.length); i++) {
+      premOuSet.add(`${shuffled[i].homeTeam} vs ${shuffled[i].awayTeam}`);
+    }
   }
 
   for (let i = 1; i < matches.length; i++) {
     const match = matches[i];
     const matchTitle = `${match.homeTeam} vs ${match.awayTeam}`;
-    const isBasketball = match.sport === "basketball";
-    const useOU = isBasketball && premOuSet.has(matchTitle);
+    const useOU = ouSportsUser.includes(match.sport) && premOuSet.has(matchTitle);
     const effectiveTitle = useOU ? `${matchTitle} (O/U)` : matchTitle;
     
     if (existingTitles.has(effectiveTitle)) {
@@ -761,26 +792,38 @@ export async function generateDemoPredictions(): Promise<void> {
   
   const existingTitles = new Set(existingDemo.map(p => p.matchTitle));
   
-  const demoBasketball = matches.filter(m => m.sport === "basketball");
+  // Randomly select O/U candidates for basketball, baseball, and hockey
+  const ouSports = ["basketball", "baseball", "hockey"];
   const demoOuSet = new Set<string>();
-  const demoShuffled = [...demoBasketball].sort(() => Math.random() - 0.5);
-  for (let i = 0; i < Math.min(3, demoShuffled.length); i++) {
-    demoOuSet.add(`${demoShuffled[i].homeTeam} vs ${demoShuffled[i].awayTeam}`);
+  for (const sport of ouSports) {
+    const sportMatches = matches.filter(m => m.sport === sport);
+    const shuffled = [...sportMatches].sort(() => Math.random() - 0.5);
+    const maxOU = sport === "basketball" ? 4 : 2;
+    for (let i = 0; i < Math.min(maxOU, shuffled.length); i++) {
+      demoOuSet.add(`${shuffled[i].homeTeam} vs ${shuffled[i].awayTeam}`);
+    }
   }
 
   for (const match of matches) {
     const matchTitle = `${match.homeTeam} vs ${match.awayTeam}`;
-    const isBasketball = match.sport === "basketball";
-    const useOU = isBasketball && demoOuSet.has(matchTitle);
+    const useOU = ouSports.includes(match.sport) && demoOuSet.has(matchTitle);
     const effectiveTitle = useOU ? `${matchTitle} (O/U)` : matchTitle;
     
     if (existingTitles.has(effectiveTitle)) continue;
     
     try {
       const analysis = await generatePredictionForMatch(match, useOU ? "overunder" : undefined);
+
+      if (analysis.probability < 65) {
+        console.log(`Skipping low-confidence prediction (${analysis.probability}%): ${effectiveTitle}`);
+        continue;
+      }
+
       const explanation = usingFallback 
         ? `[DEMO] ${analysis.explanation}` 
         : analysis.explanation;
+
+      const sportsbookOdds = generateSportsbookOdds(analysis.probability, analysis.predictedOutcome);
       
       await db.insert(predictions).values({
         userId: null,
@@ -792,6 +835,7 @@ export async function generateDemoPredictions(): Promise<void> {
         confidence: analysis.confidence,
         explanation: explanation,
         factors: analysis.factors,
+        sportsbookOdds: sportsbookOdds,
         riskIndex: analysis.riskIndex,
         isLive: false,
         isPremium: true,
@@ -1322,7 +1366,7 @@ async function refreshDemoPredictions(): Promise<void> {
       )
     );
 
-  if (existing.length >= 10) {
+  if (existing.length >= 30) {
     console.log(`Premium predictions sufficient: ${existing.length} real games available`);
     return;
   }
