@@ -1331,15 +1331,16 @@ async function fixPrematurelyResolvedPredictions(): Promise<void> {
 }
 
 async function purgeFakeHistoryEntries(): Promise<void> {
-  const result = await db.delete(predictions)
+  await db.delete(predictions)
     .where(
       and(
         isNull(predictions.userId),
+        eq(predictions.isPremium, true),
         sql`${predictions.result} IS NOT NULL`,
         sql`(${predictions.explanation} LIKE '%Our AI correctly predicted this outcome%' OR ${predictions.explanation} LIKE 'Final score:%')`
       )
     );
-  console.log("Purged fake history entries");
+  console.log("Purged fake premium history entries");
 }
 
 export async function dailyPredictionRefresh(): Promise<void> {
