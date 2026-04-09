@@ -857,6 +857,20 @@ export async function getFreeTip() {
   return await getTodaysActiveFreePrediction();
 }
 
+export async function forceNewFreeTip(): Promise<void> {
+  const startOfToday = getStartOfToday();
+  await db.delete(predictions).where(
+    and(
+      eq(predictions.isPremium, false),
+      isNull(predictions.userId),
+      gte(predictions.createdAt, startOfToday)
+    )
+  );
+  console.log("Deleted today's free tip — generating fresh one...");
+  isGeneratingFreeTip = false;
+  await _generateDailyFreeTip();
+}
+
 export async function replaceFreeTip(data: {
   matchTitle: string;
   sport: string;

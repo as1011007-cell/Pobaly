@@ -26,6 +26,7 @@ import {
   replaceFreeTip,
   forceRefreshHistory,
   generatePremiumHistory,
+  forceNewFreeTip,
 } from "./services/predictionService";
 import { getLiveMatches } from "./services/sportsApiService";
 
@@ -589,6 +590,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, prediction: newTip });
     } catch (error: any) {
       console.error("Replace free tip error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Force delete and regenerate today's free tip (admin endpoint)
+  app.post("/api/predictions/force-new-free-tip", requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      await forceNewFreeTip();
+      const tip = await getFreeTip();
+      res.json({ success: true, prediction: tip });
+    } catch (error: any) {
+      console.error("Force new free tip error:", error);
       res.status(500).json({ error: error.message });
     }
   });
