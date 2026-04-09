@@ -1380,12 +1380,24 @@ async function refreshDemoPredictions(): Promise<void> {
       )
     );
 
-  if (existing.length >= 30) {
+  // Check per-sport coverage — regenerate if total is low OR any sport has zero predictions
+  const allSports = ["football", "basketball", "tennis", "baseball", "hockey", "cricket", "mma", "golf"];
+  const sportCounts: Record<string, number> = {};
+  for (const sport of allSports) {
+    sportCounts[sport] = existing.filter(p => p.sport === sport).length;
+  }
+  const sportsWithZero = allSports.filter(s => sportCounts[s] === 0);
+
+  if (existing.length >= 30 && sportsWithZero.length === 0) {
     console.log(`Premium predictions sufficient: ${existing.length} real games available`);
     return;
   }
 
-  console.log(`Only ${existing.length} premium predictions, fetching more real games from API...`);
+  if (sportsWithZero.length > 0) {
+    console.log(`Sports with no predictions: ${sportsWithZero.join(', ')} — regenerating...`);
+  } else {
+    console.log(`Only ${existing.length} premium predictions, fetching more real games from API...`);
+  }
   await generateDemoPredictions();
 }
 
