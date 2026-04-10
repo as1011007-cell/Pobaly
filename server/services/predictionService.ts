@@ -869,6 +869,12 @@ export async function forceNewFreeTip(): Promise<void> {
   console.log("Deleted today's free tip — generating fresh one...");
   isGeneratingFreeTip = false;
   await _generateDailyFreeTip();
+  try {
+    const { notifyDailyFreePredictionReady } = await import("./pushNotificationService");
+    await notifyDailyFreePredictionReady();
+  } catch (err) {
+    console.error("Failed to send push notification for forced new tip:", err);
+  }
 }
 
 export async function replaceFreeTip(data: {
@@ -1443,6 +1449,12 @@ async function checkAndReplaceFreeTip(): Promise<void> {
       const newTip = await getTodaysActiveFreePrediction();
       if (newTip) {
         console.log(`Periodic replacement free tip generated: ${newTip.matchTitle}`);
+        try {
+          const { notifyDailyFreePredictionReady } = await import("./pushNotificationService");
+          await notifyDailyFreePredictionReady();
+        } catch (err) {
+          console.error("Failed to send push notification for replacement tip:", err);
+        }
       }
     }
   } catch (err) {
