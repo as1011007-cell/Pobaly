@@ -1343,6 +1343,21 @@ async function purgeFakeHistoryEntries(): Promise<void> {
   console.log("Purged fake premium history entries");
 }
 
+async function resetAndGenerateDailyFreeTip(): Promise<void> {
+  const startOfToday = getStartOfToday();
+  // Delete any free tip from before today (wins and unresolved alike) — full midnight reset
+  await db.delete(predictions).where(
+    and(
+      eq(predictions.isPremium, false),
+      isNull(predictions.userId),
+      sql`${predictions.createdAt} < ${startOfToday.toISOString()}::timestamp`
+    )
+  );
+  console.log("Midnight reset: cleared previous day's free tip");
+  isGeneratingFreeTip = false;
+  await _generateDailyFreeTip();
+}
+
 export async function dailyPredictionRefresh(): Promise<void> {
   console.log("Starting daily prediction refresh...");
   
@@ -1352,7 +1367,8 @@ export async function dailyPredictionRefresh(): Promise<void> {
     await runWithRetry(() => resolvePredictionResults(), "resolvePredictionResults");
     await runWithRetry(() => clearExpiredPredictions(), "clearExpiredPredictions");
     await runWithRetry(() => generateYesterdayHistory(), "generateYesterdayHistory");
-    await runWithRetry(() => generateDailyFreePrediction(), "generateDailyFreePrediction");
+    // Always reset free tip at midnight — delete previous day's tip (win or lose) then generate fresh one
+    await runWithRetry(() => resetAndGenerateDailyFreeTip(), "resetAndGenerateDailyFreeTip");
     await runWithRetry(() => refreshDemoPredictions(), "refreshDemoPredictions");
     
     console.log("Daily prediction refresh completed successfully");
@@ -1435,7 +1451,7 @@ async function checkAndReplaceFreeTip(): Promise<void> {
 }
 
 export function startDailyRefreshScheduler(): void {
-  const TWO_HOURS = 2 * 60 * 60 * 1000;
+  const ONE_HOUR = 60 * 60 * 1000;
   const RETRY_DELAY = 5 * 60 * 1000;
   
   console.log("Daily prediction refresh scheduler started");
@@ -1477,5 +1493,5 @@ export function startDailyRefreshScheduler(): void {
       console.error("Intraday resolution check failed:", err);
     }
     checkAndReplaceFreeTip();
-  }, TWO_HOURS);
+  }, ONE_HOUR);
 }
