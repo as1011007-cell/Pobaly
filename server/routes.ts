@@ -618,6 +618,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Send push notification to all users (admin endpoint)
+  app.post("/api/notifications/send-free-tip", requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const { notifyDailyFreePredictionReady } = await import("./services/pushNotificationService");
+      await notifyDailyFreePredictionReady();
+      res.json({ success: true, message: "Push notification sent to all registered devices" });
+    } catch (error: any) {
+      console.error("Send notification error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Force refresh prediction history (admin endpoint)
   app.post("/api/predictions/refresh-history", requireAdmin, async (req: Request, res: Response) => {
     try {
