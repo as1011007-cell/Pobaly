@@ -40,6 +40,12 @@ export async function removeUserPushTokens(userId: string): Promise<void> {
   await db.execute(sql`DELETE FROM push_tokens WHERE user_id = ${userId}`);
 }
 
+export async function clearAllPushTokens(): Promise<number> {
+  const result = await db.execute(sql`DELETE FROM push_tokens RETURNING id`);
+  const rows = (result as any)?.rows ?? Array.from(result ?? []);
+  return rows.length;
+}
+
 async function getAllPushTokens(): Promise<string[]> {
   const result = await db.execute(sql`
     SELECT DISTINCT pt.token
@@ -104,21 +110,33 @@ async function sendPushNotifications(messages: PushMessage[]): Promise<void> {
       }
 
       const result = await response.json();
-      const tickets = result.data || [];
-      const errors = tickets.filter((t: any) => t.status === "error");
-      if (errors.length > 0) {
-        console.warn(`Push notification errors: ${errors.length}/${tickets.length}`);
-        for (const err of errors) {
-          if (err.details?.error === "DeviceNotRegistered" && err.message) {
-            const tokenMatch = chunk.find((m) => m.to === err.expoPushToken);
-            if (tokenMatch) {
-              await removePushToken(tokenMatch.to);
-            }
+      const tickets: any[] = result.data || [];
+      let successCount = 0;
+      let removedCount = 0;
+
+      for (let i = 0; i < tickets.length; i++) {
+        const ticket = tickets[i];
+        if (ticket.status === "ok") {
+          successCount++;
+        } else if (ticket.status === "error") {
+          if (ticket.details?.error === "DeviceNotRegistered") {
+            // Tickets are returned in the same order as messages — match by index
+            await removePushToken(chunk[i].to);
+            removedCount++;
           }
         }
       }
 
-      console.log(`Sent ${chunk.length} push notifications (${tickets.length - errors.length} succeeded)`);
+      if (removedCount > 0) {
+        console.log(`Removed ${removedCount} stale push tokens (DeviceNotRegistered)`);
+      }
+
+      const errorCount = tickets.length - successCount - removedCount;
+      if (errorCount > 0) {
+        console.warn(`Push notification errors: ${errorCount}/${tickets.length}`);
+      }
+
+      console.log(`Sent ${chunk.length} push notifications (${successCount} succeeded)`);
     } catch (error) {
       console.error("Failed to send push notifications:", error);
     }

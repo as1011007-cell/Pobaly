@@ -630,6 +630,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Clear all stale push tokens (admin endpoint)
+  app.delete("/api/notifications/clear-tokens", requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const { clearAllPushTokens } = await import("./services/pushNotificationService");
+      const count = await clearAllPushTokens();
+      res.json({ success: true, message: `Cleared ${count} push tokens` });
+    } catch (error: any) {
+      console.error("Clear tokens error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Force refresh prediction history (admin endpoint)
   app.post("/api/predictions/refresh-history", requireAdmin, async (req: Request, res: Response) => {
     try {
