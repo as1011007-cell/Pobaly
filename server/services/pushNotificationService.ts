@@ -41,9 +41,11 @@ export async function removeUserPushTokens(userId: string): Promise<void> {
 }
 
 export async function clearAllPushTokens(): Promise<number> {
-  const result = await db.execute(sql`DELETE FROM push_tokens RETURNING id`);
-  const rows = (result as any)?.rows ?? Array.from(result ?? []);
-  return rows.length;
+  const countResult = await db.execute(sql`SELECT COUNT(*) as count FROM push_tokens`);
+  const rows = (countResult as any)?.rows ?? Array.from(countResult ?? []);
+  const count = parseInt(rows[0]?.count ?? "0", 10);
+  await db.execute(sql`DELETE FROM push_tokens`);
+  return count;
 }
 
 async function getAllPushTokens(): Promise<string[]> {
