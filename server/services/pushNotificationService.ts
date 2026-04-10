@@ -121,6 +121,7 @@ async function sendPushNotifications(messages: PushMessage[]): Promise<void> {
         if (ticket.status === "ok") {
           successCount++;
         } else if (ticket.status === "error") {
+          console.warn(`Push error [${i}]: ${ticket.details?.error} — ${ticket.message}`);
           if (ticket.details?.error === "DeviceNotRegistered") {
             // Tickets are returned in the same order as messages — match by index
             await removePushToken(chunk[i].to);
