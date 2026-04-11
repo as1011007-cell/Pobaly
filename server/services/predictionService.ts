@@ -1007,33 +1007,18 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
 
   if (isPremiumUser && userId) {
     // Premium users see all correctly resolved predictions from the last 30 days
-    // Only show real AI-generated predictions (exclude retroactively created fake history)
     const rows = await db.select()
       .from(predictions)
       .where(
         and(
           eq(predictions.result, "correct"),
           isNull(predictions.userId),
-          sql`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`,
-          sql`${predictions.explanation} NOT LIKE '%Our AI correctly predicted this outcome%'`,
-          sql`${predictions.explanation} NOT LIKE 'Final score:%'`
-        )
-      )
-      .orderBy(desc(predictions.matchTime));
-
-    // Also include any predictions made specifically for this user
-    const userRows = await db.select()
-      .from(predictions)
-      .where(
-        and(
-          eq(predictions.result, "correct"),
-          eq(predictions.userId, userId),
           sql`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`
         )
       )
       .orderBy(desc(predictions.matchTime));
 
-    const combined = [...rows, ...userRows]
+    const combined = [...rows]
       .sort((a, b) => new Date(b.matchTime).getTime() - new Date(a.matchTime).getTime());
 
     return dedup(combined);
