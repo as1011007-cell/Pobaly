@@ -1351,12 +1351,14 @@ async function purgeFakeHistoryEntries(): Promise<void> {
 
 async function resetAndGenerateDailyFreeTip(): Promise<void> {
   const startOfToday = getStartOfToday();
-  // Delete any free tip from before today (wins and unresolved alike) — full midnight reset
+  // Only delete the free tip — identified by expiresAt > matchTime (3h buffer)
+  // History entries have expiresAt = matchTime so they are NOT affected
   await db.delete(predictions).where(
     and(
       eq(predictions.isPremium, false),
       isNull(predictions.userId),
-      sql`${predictions.createdAt} < ${startOfToday.toISOString()}::timestamp`
+      sql`${predictions.createdAt} < ${startOfToday.toISOString()}::timestamp`,
+      sql`${predictions.expiresAt} > ${predictions.matchTime}`
     )
   );
   console.log("Midnight reset: cleared previous day's free tip");
