@@ -1006,22 +1006,22 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
   };
 
   if (isPremiumUser && userId) {
-    // Premium users see all correctly resolved predictions from the last 30 days
+    // Premium users see only real AI predictions made before the game happened
+    // Identified by expiresAt > matchTime (real predictions have a 3h post-game window)
+    // History entries retroactively created after games have expiresAt = matchTime
     const rows = await db.select()
       .from(predictions)
       .where(
         and(
           eq(predictions.result, "correct"),
           isNull(predictions.userId),
-          sql`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`
+          sql`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`,
+          sql`${predictions.expiresAt} > ${predictions.matchTime}`
         )
       )
       .orderBy(desc(predictions.matchTime));
 
-    const combined = [...rows]
-      .sort((a, b) => new Date(b.matchTime).getTime() - new Date(a.matchTime).getTime());
-
-    return dedup(combined);
+    return dedup(rows);
   }
 
   const freeRows = await db.select()
