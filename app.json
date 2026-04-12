@@ -105,6 +105,14 @@
       "favicon": "./assets/images/probaly-logo.png"
     },
     "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
+        }
+      ],
       "@react-native-firebase/app",
       [
         "expo-splash-screen",
