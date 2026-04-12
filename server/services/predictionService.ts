@@ -1231,13 +1231,14 @@ export async function resolvePredictionResults(): Promise<void> {
         .where(eq(predictions.id, pred.id));
       correct++;
     } else {
-      await db.delete(predictions)
+      await db.update(predictions)
+        .set({ result: "incorrect" })
         .where(eq(predictions.id, pred.id));
       incorrect++;
     }
   }
 
-  console.log(`Resolved predictions: ${correct} correct, ${incorrect} removed (incorrect) out of ${unresolved.length}`);
+  console.log(`Resolved predictions: ${correct} correct, ${incorrect} marked incorrect out of ${unresolved.length}`);
 
   const activeTip = await getTodaysActiveFreePrediction();
   if (!activeTip) {
@@ -1271,17 +1272,28 @@ export async function clearExpiredPredictions(): Promise<number> {
       )
     );
 
-  // Only delete resolved premium predictions that are retroactive history entries (expiresAt = matchTime)
-  // Real AI predictions (expiresAt > matchTime) are kept for 31 days to support the 30-day premium history window
+  // Clean up all premium predictions older than 31 days (outside the 30-day history window)
   const thirtyOneDaysAgo = new Date();
   thirtyOneDaysAgo.setDate(thirtyOneDaysAgo.getDate() - 31);
+
+  // Retroactive history entries (expiresAt = matchTime) - clean up after 31 days
+  await db.delete(predictions)
+    .where(
+      and(
+        eq(predictions.isPremium, true),
+        sql`${predictions.matchTime} < ${thirtyOneDaysAgo.toISOString()}::timestamp`,
+        sql`${predictions.expiresAt} = ${predictions.matchTime}`
+      )
+    );
+
+  // Real AI predictions (expiresAt > matchTime) - clean up after 31 days regardless of result
   await db.delete(predictions)
     .where(
       and(
         eq(predictions.isPremium, true),
         sql`${predictions.result} IS NOT NULL`,
         sql`${predictions.matchTime} < ${thirtyOneDaysAgo.toISOString()}::timestamp`,
-        sql`${predictions.expiresAt} = ${predictions.matchTime}`
+        sql`${predictions.expiresAt} > ${predictions.matchTime}`
       )
     );
 
@@ -1431,7 +1443,8 @@ async function refreshDemoPredictions(): Promise<void> {
   
   const now = new Date();
   
-  await db.delete(predictions)
+  const unresolved = await db.update(predictions)
+    .set({ result: "unresolved" })
     .where(
       and(
         eq(predictions.isPremium, true),
@@ -1439,7 +1452,11 @@ async function refreshDemoPredictions(): Promise<void> {
         isNull(predictions.result),
         sql`${predictions.matchTime} < ${now.toISOString()}::timestamp`
       )
-    );
+    )
+    .returning({ id: predictions.id });
+  if (unresolved.length > 0) {
+    console.log(`Marked ${unresolved.length} unresolved past predictions (ESPN could not match)`);
+  }
   
   const existing = await db.select()
     .from(predictions)
