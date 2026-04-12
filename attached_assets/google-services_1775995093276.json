@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "668848640465",
+    "project_id": "probaly-9e95b",
+    "storage_bucket": "probaly-9e95b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:668848640465:android:ce873c9d39eae0123b50f0",
+        "android_client_info": {
+          "package_name": "app.probaly.logic"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCIssJd5KM62eRlk_jP5R4sz4OPRV6QHIE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

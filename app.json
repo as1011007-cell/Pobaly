@@ -58,6 +58,7 @@
         "backgroundColor": "#1A237E",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
+      "googleServicesFile": "./google-services.json",
       "icon": "./assets/images/probaly-logo.png",
       "package": "app.probaly.logic",
       "versionCode": 2,
