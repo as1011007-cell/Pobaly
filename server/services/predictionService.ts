@@ -1163,13 +1163,14 @@ export async function resolvePredictionResults(): Promise<void> {
     const [predHome, predAway] = baseTitle.split(' vs ').map(s => s.trim().toLowerCase());
 
     const normalize = (name: string) => name.toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
       .replace(/^(the|fc|afc|cf|sc|rc|ac|as|sd|vf|vfb|fsv|sv|tsg|rb|rw|bv|hsv|ssv|tsv|bsc|esv|dsv|rsv|msv|wsv|csv|gsv|osv|usv|bc|hc|kc|cc|dc|ec|mc|nk|sk|gk|fk|rk|mk|bk|ak|ok|pk|tk|uk|ik|jk|lk|zk)\s+/i, '')
       .replace(/\s+(fc|sc|bc|hc|kc|cc|dc|ec|mc|united|city|town|rovers|wanderers|athletic|athletics|county|albion|hotspur|wednesday|tuesday|monday|villa|palace|forest|rangers|celtic|thistle|hearts|hibs|boro|utd|afc|cf)$/i, '')
       .replace(/[^a-z0-9]/g, '');
 
     const SKIP_WORDS = new Set(['the','and','for','city','town','state','united','athletic','athletics','united','county','rovers','wanderers','real','club','sport','sports','new','old','north','south','east','west','central','national','fc','sc','bc','hc','afc','utd','cf']);
     const meaningfulWords = (name: string) =>
-      name.toLowerCase().split(/\s+/).filter(w => w.length >= 4 && !SKIP_WORDS.has(w));
+      name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/\s+/).filter(w => w.length >= 4 && !SKIP_WORDS.has(w));
 
     const wordOverlap = (espnName: string, predName: string): boolean => {
       const espnWords = meaningfulWords(espnName);

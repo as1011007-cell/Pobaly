@@ -436,11 +436,17 @@ const ESPN_SCORES_ENDPOINTS = [
   { url: 'https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard', sport: 'baseball', league: 'MLB' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard', sport: 'hockey', league: 'NHL' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard', sport: 'football', league: 'Premier League' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/eng.2/scoreboard', sport: 'football', league: 'Championship' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/eng.fa/scoreboard', sport: 'football', league: 'FA Cup' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/eng.league_cup/scoreboard', sport: 'football', league: 'EFL Cup' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/esp.1/scoreboard', sport: 'football', league: 'La Liga' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/esp.copa_del_rey/scoreboard', sport: 'football', league: 'Copa del Rey' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/ger.1/scoreboard', sport: 'football', league: 'Bundesliga' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/ita.1/scoreboard', sport: 'football', league: 'Serie A' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/fra.1/scoreboard', sport: 'football', league: 'Ligue 1' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard', sport: 'football', league: 'MLS' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.champions/scoreboard', sport: 'football', league: 'Champions League' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.europa/scoreboard', sport: 'football', league: 'Europa League' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard', sport: 'mma', league: 'UFC' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/tennis/atp/scoreboard', sport: 'tennis', league: 'ATP Tour' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/tennis/wta/scoreboard', sport: 'tennis', league: 'WTA Tour' },
@@ -471,7 +477,9 @@ async function fetchCompletedFromESPN(): Promise<CompletedGame[]> {
 
       for (const event of events) {
         const status = event.status?.type?.name;
-        if (status !== 'STATUS_FINAL') continue;
+        const isCompleted = event.status?.type?.completed === true;
+        const completedStatuses = ['STATUS_FINAL', 'STATUS_FULL_TIME', 'STATUS_FULL_PEN', 'STATUS_FULL_ET', 'STATUS_ENDED'];
+        if (!isCompleted && !completedStatuses.includes(status)) continue;
 
         const competitors = event.competitions?.[0]?.competitors || [];
 
@@ -526,7 +534,22 @@ async function fetchCompletedFromESPN(): Promise<CompletedGame[]> {
         const awayScore = parseInt(awayComp.score || '0');
 
         if (homeTeam === 'Unknown' || awayTeam === 'Unknown') continue;
-        if (homeScore === awayScore) continue;
+
+        if (homeScore === awayScore) {
+          if (endpoint.sport === 'football') {
+            completedGames.push({
+              homeTeam,
+              awayTeam,
+              sport: endpoint.sport,
+              league: endpoint.league,
+              matchTime: new Date(event.date),
+              homeScore,
+              awayScore,
+              winner: 'Draw',
+            });
+          }
+          continue;
+        }
 
         completedGames.push({
           homeTeam,
