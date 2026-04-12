@@ -107,11 +107,18 @@ export async function registerPushTokenWithServer(authToken: string): Promise<st
     const granted = await requestNotificationPermissions();
     if (!granted) return null;
 
-    const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
-    const tokenData = await Notifications.getExpoPushTokenAsync({
-      projectId: projectId || undefined,
-    });
-    const pushToken = tokenData.data;
+    let pushToken: string | null = null;
+
+    if (Platform.OS === "ios") {
+      const deviceTokenData = await Notifications.getDevicePushTokenAsync();
+      pushToken = deviceTokenData.data;
+    } else {
+      const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+      const tokenData = await Notifications.getExpoPushTokenAsync({
+        projectId: projectId || undefined,
+      });
+      pushToken = tokenData.data;
+    }
 
     if (!pushToken) return null;
 

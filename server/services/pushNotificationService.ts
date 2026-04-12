@@ -1,7 +1,134 @@
 import { db } from "../db";
 import { sql } from "drizzle-orm";
+import http2 from "http2";
+import crypto from "crypto";
+import fs from "fs";
+import path from "path";
 
 const EXPO_PUSH_API = "https://exp.host/--/api/v2/push/send";
+const APNS_HOST = "api.push.apple.com";
+const APNS_BUNDLE_ID = "app.probaly.logic";
+
+// ── APNs JWT (cached, refreshed every 55 minutes) ───────────────────────────
+
+let apnsJwt: string | null = null;
+let apnsJwtExpiry = 0;
+
+function getApnsJwt(): string | null {
+  const keyId = process.env.APNS_KEY_ID;
+  const teamId = process.env.APNS_TEAM_ID;
+  const keyPath = process.env.APNS_KEY_PATH;
+
+  if (!keyId || !teamId || !keyPath) return null;
+
+  const now = Math.floor(Date.now() / 1000);
+  if (apnsJwt && now < apnsJwtExpiry) return apnsJwt;
+
+  try {
+    const absPath = path.resolve(keyPath);
+    const privateKey = fs.readFileSync(absPath, "utf8");
+
+    const header = Buffer.from(JSON.stringify({ alg: "ES256", kid: keyId })).toString("base64url");
+    const payload = Buffer.from(JSON.stringify({ iss: teamId, iat: now })).toString("base64url");
+    const unsigned = `${header}.${payload}`;
+
+    const sign = crypto.createSign("SHA256");
+    sign.update(unsigned);
+    const sig = sign.sign({ key: privateKey, dsaEncoding: "ieee-p1363" }).toString("base64url");
+
+    apnsJwt = `${unsigned}.${sig}`;
+    apnsJwtExpiry = now + 55 * 60;
+    return apnsJwt;
+  } catch (err) {
+    console.error("[APNs] Failed to create JWT:", err);
+    return null;
+  }
+}
+
+// ── APNs HTTP/2 direct send ──────────────────────────────────────────────────
+
+let apnsClient: http2.ClientHttp2Session | null = null;
+let apnsClientConnecting = false;
+
+function getApnsClient(): Promise<http2.ClientHttp2Session> {
+  return new Promise((resolve, reject) => {
+    if (apnsClient && !apnsClient.destroyed) {
+      resolve(apnsClient);
+      return;
+    }
+    const client = http2.connect(`https://${APNS_HOST}`);
+    client.on("error", (err) => {
+      apnsClient = null;
+      reject(err);
+    });
+    client.on("close", () => { apnsClient = null; });
+    apnsClient = client;
+    resolve(client);
+  });
+}
+
+async function sendApnsNotification(
+  deviceToken: string,
+  title: string,
+  body: string,
+  data?: Record<string, any>
+): Promise<void> {
+  const jwt = getApnsJwt();
+  if (!jwt) {
+    throw new Error("[APNs] No JWT — check APNS_KEY_ID, APNS_TEAM_ID, APNS_KEY_PATH");
+  }
+
+  const client = await getApnsClient();
+
+  return new Promise((resolve, reject) => {
+    const reqHeaders: http2.OutgoingHttpHeaders = {
+      ":method": "POST",
+      ":path": `/3/device/${deviceToken}`,
+      "authorization": `bearer ${jwt}`,
+      "apns-topic": APNS_BUNDLE_ID,
+      "apns-push-type": "alert",
+      "apns-priority": "10",
+      "content-type": "application/json",
+    };
+
+    const req = client.request(reqHeaders);
+    let statusCode = 0;
+    let responseBody = "";
+
+    req.on("response", (headers) => {
+      statusCode = headers[":status"] as number;
+    });
+    req.on("data", (chunk) => { responseBody += chunk; });
+    req.on("end", () => {
+      if (statusCode === 200) {
+        resolve();
+      } else {
+        reject(new Error(`APNs ${statusCode}: ${responseBody}`));
+      }
+    });
+    req.on("error", reject);
+
+    const apsPayload = {
+      aps: {
+        alert: { title, body },
+        sound: "default",
+        badge: 1,
+      },
+      ...(data || {}),
+    };
+
+    req.write(JSON.stringify(apsPayload));
+    req.end();
+  });
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function isNativeIosToken(token: string): boolean {
+  return /^[0-9a-f]{64}$/i.test(token);
+}
+
+// ── Database helpers ─────────────────────────────────────────────────────────
 
 export async function initPushTokensTable(): Promise<void> {
   await db.execute(sql`
@@ -48,24 +175,11 @@ export async function clearAllPushTokens(): Promise<number> {
   return count;
 }
 
-async function getAllPushTokens(): Promise<string[]> {
-  const result = await db.execute(sql`
-    SELECT DISTINCT pt.token
-    FROM push_tokens pt
-    INNER JOIN user_preferences up ON pt.user_id = up.user_id
-    WHERE up.notifications_enabled = true
-      AND up.prediction_alerts = true
-  `);
-  const rows = (result as any)?.rows ?? Array.from(result ?? []);
-  const tokens: string[] = rows
-    .map((r: any) => r.token)
-    .filter((t: string) => t && t.startsWith("ExponentPushToken["));
-  return tokens;
-}
+interface TokenRow { token: string; platform: string; }
 
-async function getAllPushTokensNoPrefs(): Promise<string[]> {
+async function getAllTokensNoPrefs(): Promise<TokenRow[]> {
   const result = await db.execute(sql`
-    SELECT DISTINCT pt.token
+    SELECT DISTINCT pt.token, pt.platform
     FROM push_tokens pt
     LEFT JOIN user_preferences up ON pt.user_id = up.user_id
     WHERE (up.notifications_enabled IS NULL OR up.notifications_enabled = true)
@@ -73,9 +187,11 @@ async function getAllPushTokensNoPrefs(): Promise<string[]> {
   `);
   const rows = (result as any)?.rows ?? Array.from(result ?? []);
   return rows
-    .map((r: any) => r.token)
-    .filter((t: string) => t && t.startsWith("ExponentPushToken["));
+    .filter((r: any) => r.token)
+    .map((r: any) => ({ token: r.token as string, platform: (r.platform ?? "unknown") as string }));
 }
+
+// ── Send to all devices ──────────────────────────────────────────────────────
 
 interface PushMessage {
   to: string;
@@ -87,8 +203,11 @@ interface PushMessage {
   channelId?: string;
 }
 
-async function sendPushNotifications(messages: PushMessage[]): Promise<void> {
-  if (messages.length === 0) return;
+async function sendExpoMessages(messages: PushMessage[]): Promise<{ success: number; failed: number }> {
+  if (messages.length === 0) return { success: 0, failed: 0 };
+
+  let success = 0;
+  let failed = 0;
 
   const chunks: PushMessage[][] = [];
   for (let i = 0; i < messages.length; i += 100) {
@@ -99,74 +218,111 @@ async function sendPushNotifications(messages: PushMessage[]): Promise<void> {
     try {
       const response = await fetch(EXPO_PUSH_API, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify(chunk),
       });
 
       if (!response.ok) {
-        console.error("Expo push API error:", response.status, await response.text());
+        console.error("[Push] Expo API error:", response.status, await response.text());
+        failed += chunk.length;
         continue;
       }
 
       const result = await response.json();
       const tickets: any[] = result.data || [];
-      let successCount = 0;
-      let removedCount = 0;
 
       for (let i = 0; i < tickets.length; i++) {
         const ticket = tickets[i];
         if (ticket.status === "ok") {
-          successCount++;
-        } else if (ticket.status === "error") {
-          console.warn(`Push error [${i}]: ${ticket.details?.error} — ${ticket.message}`);
+          success++;
+        } else {
+          failed++;
           if (ticket.details?.error === "DeviceNotRegistered") {
-            // Tickets are returned in the same order as messages — match by index
             await removePushToken(chunk[i].to);
-            removedCount++;
           }
         }
       }
-
-      if (removedCount > 0) {
-        console.log(`Removed ${removedCount} stale push tokens (DeviceNotRegistered)`);
-      }
-
-      const errorCount = tickets.length - successCount - removedCount;
-      if (errorCount > 0) {
-        console.warn(`Push notification errors: ${errorCount}/${tickets.length}`);
-      }
-
-      console.log(`Sent ${chunk.length} push notifications (${successCount} succeeded)`);
-    } catch (error) {
-      console.error("Failed to send push notifications:", error);
+    } catch (err) {
+      console.error("[Push] Expo send error:", err);
+      failed += chunk.length;
     }
   }
+
+  return { success, failed };
 }
+
+async function sendNotificationsToAll(
+  title: string,
+  body: string,
+  data?: Record<string, any>
+): Promise<void> {
+  const tokens = await getAllTokensNoPrefs();
+  if (tokens.length === 0) {
+    console.log("[Push] No push tokens registered, skipping notification");
+    return;
+  }
+
+  const nativeIos: TokenRow[] = [];
+  const expoTokens: TokenRow[] = [];
+
+  for (const t of tokens) {
+    if (isNativeIosToken(t.token)) {
+      nativeIos.push(t);
+    } else if (t.token.startsWith("ExponentPushToken[")) {
+      expoTokens.push(t);
+    }
+  }
+
+  let iosSuccess = 0;
+  let iosFailed = 0;
+
+  for (const t of nativeIos) {
+    try {
+      await sendApnsNotification(t.token, title, body, data);
+      iosSuccess++;
+    } catch (err: any) {
+      iosFailed++;
+      const msg = err?.message ?? "";
+      if (msg.includes("BadDeviceToken") || msg.includes("Unregistered")) {
+        await removePushToken(t.token);
+      } else {
+        console.warn(`[APNs] Send failed for token: ${msg}`);
+      }
+    }
+  }
+
+  const expoMessages: PushMessage[] = expoTokens.map((t) => ({
+    to: t.token,
+    title,
+    body,
+    data,
+    sound: "default",
+    badge: 1,
+    ...(t.platform === "android" ? { channelId: "predictions" } : {}),
+  }));
+
+  const { success: expoSuccess, failed: expoFailed } = await sendExpoMessages(expoMessages);
+
+  const totalSuccess = iosSuccess + expoSuccess;
+  const totalFailed = iosFailed + expoFailed;
+
+  console.log(
+    `[Push] Sent to ${tokens.length} devices: ${totalSuccess} succeeded, ${totalFailed} failed` +
+    (nativeIos.length > 0 ? ` (${iosSuccess}/${nativeIos.length} direct APNs)` : "") +
+    (expoTokens.length > 0 ? ` (${expoSuccess}/${expoTokens.length} via Expo)` : "")
+  );
+}
+
+// ── Public API ───────────────────────────────────────────────────────────────
 
 export async function notifyDailyFreePredictionReady(): Promise<void> {
   try {
-    const tokens = await getAllPushTokensNoPrefs();
-    if (tokens.length === 0) {
-      console.log("No push tokens registered, skipping notification");
-      return;
-    }
-
-    const messages: PushMessage[] = tokens.map((token) => ({
-      to: token,
-      title: "Your Daily Free Tip is Ready!",
-      body: "A new AI-powered prediction is waiting for you. Open the app to check it out!",
-      data: { type: "daily_prediction", screen: "Home" },
-      sound: "default",
-      badge: 1,
-      channelId: "predictions",
-    }));
-
-    await sendPushNotifications(messages);
-    console.log(`Daily prediction notification sent to ${tokens.length} devices`);
+    await sendNotificationsToAll(
+      "Your Daily Free Tip is Ready!",
+      "A new AI-powered prediction is waiting for you. Open the app to check it out!",
+      { type: "daily_prediction", screen: "Home" }
+    );
   } catch (error) {
-    console.error("Error sending daily prediction notifications:", error);
+    console.error("[Push] Error sending daily prediction notifications:", error);
   }
 }
