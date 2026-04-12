@@ -1160,18 +1160,40 @@ export async function resolvePredictionResults(): Promise<void> {
     const [predHome, predAway] = baseTitle.split(' vs ').map(s => s.trim().toLowerCase());
 
     const normalize = (name: string) => name.toLowerCase()
-      .replace(/^(the|fc|afc|afc|cf|sc|rc|ac|as|sd|vf|vfb|fsv|sv|tsg|rb|rw|bv|hsv|ssv|tsv|bsc|esv|dsv|rsv|msv|wsv|csv|gsv|osv|usv|fc|bc|hc|sc|kc|cc|dc|ec|mc|nk|sk|gk|fk|rk|mk|bk|ak|ok|pk|tk|uk|ik|jk|lk|zk)\s+/i, '')
+      .replace(/^(the|fc|afc|cf|sc|rc|ac|as|sd|vf|vfb|fsv|sv|tsg|rb|rw|bv|hsv|ssv|tsv|bsc|esv|dsv|rsv|msv|wsv|csv|gsv|osv|usv|bc|hc|kc|cc|dc|ec|mc|nk|sk|gk|fk|rk|mk|bk|ak|ok|pk|tk|uk|ik|jk|lk|zk)\s+/i, '')
       .replace(/\s+(fc|sc|bc|hc|kc|cc|dc|ec|mc|united|city|town|rovers|wanderers|athletic|athletics|county|albion|hotspur|wednesday|tuesday|monday|villa|palace|forest|rangers|celtic|thistle|hearts|hibs|boro|utd|afc|cf)$/i, '')
       .replace(/[^a-z0-9]/g, '');
 
-    const matchedGame = completedGames.find(g => {
+    const SKIP_WORDS = new Set(['the','and','for','city','town','state','united','athletic','athletics','united','county','rovers','wanderers','real','club','sport','sports','new','old','north','south','east','west','central','national','fc','sc','bc','hc','afc','utd','cf']);
+    const meaningfulWords = (name: string) =>
+      name.toLowerCase().split(/\s+/).filter(w => w.length >= 4 && !SKIP_WORDS.has(w));
+
+    const wordOverlap = (espnName: string, predName: string): boolean => {
+      const espnWords = meaningfulWords(espnName);
+      const predWords = meaningfulWords(predName);
+      if (espnWords.length === 0 || predWords.length === 0) return false;
+      return predWords.some(pw => espnWords.some(ew => ew.includes(pw) || pw.includes(ew)));
+    };
+
+    let matchedGame = completedGames.find(g => {
       const gHome = normalize(g.homeTeam);
       const gAway = normalize(g.awayTeam);
-      const pHome = normalize(predHome);
-      const pAway = normalize(predAway);
-      return (gHome.includes(pHome) || pHome.includes(gHome)) && (gAway.includes(pAway) || pAway.includes(gAway)) ||
-             (gHome.includes(pAway) || pAway.includes(gHome)) && (gAway.includes(pHome) || pHome.includes(gAway));
+      const pH = normalize(predHome);
+      const pA = normalize(predAway);
+      return (gHome.includes(pH) || pH.includes(gHome)) && (gAway.includes(pA) || pA.includes(gAway)) ||
+             (gHome.includes(pA) || pA.includes(gHome)) && (gAway.includes(pH) || pH.includes(gAway));
     });
+
+    if (!matchedGame) {
+      matchedGame = completedGames.find(g => {
+        if (g.sport !== pred.sport) return false;
+        return (wordOverlap(g.homeTeam, predHome) && wordOverlap(g.awayTeam, predAway)) ||
+               (wordOverlap(g.homeTeam, predAway) && wordOverlap(g.awayTeam, predHome));
+      }) ?? undefined;
+      if (matchedGame) {
+        console.log(`[RESOLVE] Word-overlap fallback matched: "${pred.matchTitle}" → ESPN: "${matchedGame.homeTeam} vs ${matchedGame.awayTeam}"`);
+      }
+    }
 
     if (!matchedGame) {
       console.log(`[RESOLVE] No ESPN match found for: "${pred.matchTitle}" (sport: ${pred.sport})`);
