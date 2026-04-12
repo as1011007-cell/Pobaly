@@ -3,7 +3,6 @@ import { User } from "@/types";
 import { storage } from "@/lib/storage";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { loginRevenueCat, logoutRevenueCat } from "@/lib/revenuecat";
-import { setFirebaseUserId } from "@/lib/firebase";
 import {
   registerPushTokenWithServer,
   schedulePremiumPromoNotifications,
@@ -38,7 +37,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (savedUser) {
         setUser(savedUser);
         loginRevenueCat(String(savedUser.id));
-        setFirebaseUserId(String(savedUser.id)).catch(() => {});
         const token = await storage.getAuthToken();
         if (token) {
           registerPushTokenWithServer(token).catch(() => {});
@@ -74,7 +72,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await storage.setAuthToken(data.token);
       setUser(newUser);
       loginRevenueCat(String(data.user.id));
-      setFirebaseUserId(String(data.user.id)).catch(() => {});
       registerPushTokenWithServer(data.token).catch(() => {});
       if (newUser.isPremium) {
         cancelPremiumPromoNotifications().catch(() => {});
@@ -106,7 +103,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await storage.setOnboardingComplete();
       setUser(newUser);
       loginRevenueCat(String(data.user.id));
-      setFirebaseUserId(String(data.user.id)).catch(() => {});
       registerPushTokenWithServer(data.token).catch(() => {});
       schedulePremiumPromoNotifications().catch(() => {});
     } finally {
@@ -118,7 +114,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     try {
       logoutRevenueCat();
-      setFirebaseUserId(null).catch(() => {});
       cancelPremiumPromoNotifications().catch(() => {});
       await storage.clearAll();
       setUser(null);

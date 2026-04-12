@@ -1,0 +1,90 @@
+(/Users/expo/workingdir/build/node_modules/@react-native-firebase/app/ios/RNFBApp/RCTConvert+FIRApp.h:19:9)
+
+  17 | 
+  18 | #import <FirebaseCore/FirebaseCore.h>
+> 19 | #import <React/RCTConvert.h>
+     |         ^ include of non-modular header inside framework module 'RNFBApp.RCTConvert_FIRApp': '/Users/expo/workingdir/build/ios/Pods/Headers/Public/React-Core/React/RCTConvert.h' [-Werror,-Wnon-modular-include-in-framework-module]
+  20 | 
+  21 | @interface RCTConvert (FIRApp)
+  22 | + (FIRApp *)firAppFromString:(NSString *)appName;
+
+❌  (/Users/expo/workingdir/build/node_modules/@react-native-firebase/app/ios/RNFBApp/RCTConvert+FIROptions.h:19:9)
+
+  17 | 
+  18 | #import <FirebaseCore/FirebaseCore.h>
+> 19 | #import <React/RCTConvert.h>
+     |         ^ include of non-modular header inside framework module 'RNFBApp.RCTConvert_FIROptions': '/Users/expo/workingdir/build/ios/Pods/Headers/Public/React-Core/React/RCTConvert.h' [-Werror,-Wnon-modular-include-in-frame
+  20 | 
+  21 | @interface RCTConvert (FIROptions)
+  22 | + (FIROptions *)convertRawOptions:(NSDictionary *)rawOptions;
+
+❌  (/Users/expo/workingdir/build/node_modules/@react-native-firebase/app/ios/RNFBApp/RNFBAppModule.h:20:9)
+
+  18 | #import <Foundation/Foundation.h>
+  19 | 
+> 20 | #import <React/RCTBridgeModule.h>
+     |         ^ include of non-modular header inside framework module 'RNFBApp.RNFBAppModule': '/Users/expo/workingdir/build/ios/Pods/Headers/Public/React-Core/React/RCTBridgeModule.h' [-Werror,-Wnon-modular-include-in-framework-module]
+  21 | 
+  22 | @interface RNFBAppModule : NSObject <RCTBridgeModule>
+  23 | 
+
+❌  (/Users/expo/workingdir/build/node_modules/@react-native-firebase/app/ios/RNFBApp/RNFBRCTEventEmitter.h:19:9)
+
+  17 | 
+  18 | #import <Foundation/Foundation.h>
+> 19 | #import <React/RCTEventEmitter.h>
+     |         ^ include of non-modular header inside framework module 'RNFBApp.RNFBRCTEventEmitter': '/Users/expo/workingdir/build/ios/Pods/Headers/Public/React-Core/React/RCTEventEmitter.h' [-Werror,-Wnon-modular-include-in-framework-module]
+  20 | 
+  21 | /**
+  22 |  * Listeners for Firebase events and emits them to the JS layer
+
+❌  (/Users/expo/workingdir/build/node_modules/@react-native-firebase/app/ios/RNFBApp/RNFBSharedUtils.h:22:9)
+
+  20 | 
+  21 | #import <FirebaseCore/FirebaseCore.h>
+> 22 | #import <React/RCTBridgeModule.h>
+     |         ^ include of non-modular header inside framework module 'RNFBApp.RNFBSharedUtils': '/Users/expo/workingdir/build/ios/Pods/Headers/Public/React-Core/React/RCTBridgeModule.h' [-Werror,-Wnon-modular-include-in-framework-module]
+  23 | 
+  24 | #ifdef DEBUG
+  25 | #define DLog(fmt, ...) NSLog((@"%s [Line %d] " fmt), __PRETTY_FUNCTION__, __LINE__, ##__VA_ARGS__);
+
+❌  (/Users/expo/workingdir/build/node_modules/@react-native-firebase/app/ios/RNFBApp/RNFBUtilsModule.h:21:9)
+
+  19 | #import <Photos/Photos.h>
+  20 | 
+> 21 | #import <React/RCTBridgeModule.h>
+     |         ^ include of non-modular header inside framework module 'RNFBApp.RNFBUtilsModule': '/Users/expo/workingdir/build/ios/Pods/Headers/Public/React-Core/React/RCTBridgeModule.h' [-Werror,-Wnon-modular-include-in-framework-module]
+  22 | 
+  23 | @interface RNFBUtilsModule : NSObject <RCTBridgeModule>
+  24 | 
+› Compiling expo-modules-core Pods/ExpoModulesCore » TypedArray.cpp
+› Compiling expo-modules-core Pods/ExpoModulesCore » SwiftUIVirtualViewObjC.mm
+› Compiling expo-modules-core Pods/ExpoModulesCore » SharedRef.cpp
+    Run script build phase '[CP-User] [Hermes] Replace Hermes for the right configuration, if needed' will be run during every build because it does not specify any outputs. To address this issue, either add output dependencies to the script phase, or configure it to run in every build by unchecking "Based on dependency analysis" in the script phase. (in target 'hermes-engine' from project 'Pods')
+    Run script build phase '[CP-User] [RNFB] Core Configuration' will be run during every build because it does not specify any outputs. To address this issue, either add output dependencies to the script phase, or configure it to run in every build by unchecking "Based on dependency analysis" in the script phase. (in target 'Probaly' from project 'Probaly')
+    Run script build phase 'Create Symlinks to Header Folders' will be run during every build because it does not specify any outputs. To address this issue, either add output dependencies to the script phase, or configure it to run in every build by unchecking "Based on dependency analysis" in the script phase. (in target 'ReactCodegen' from project 'Pods')
+    Run script build phase 'Create Symlinks to Header Folders' will be run during every build because it does not specify any outputs. To address this issue, either add output dependencies to the script phase, or configure it to run in every build by unchecking "Based on dependency analysis" in the script phase. (in target 'RNWorklets' from project 'Pods')
+    Run script build phase 'Create Symlinks to Header Folders' will be run during every build because it does not specify any outputs. To address this issue, either add output dependencies to the script phase, or configure it to run in every build by unchecking "Based on dependency analysis" in the script phase. (in target 'RNReanimated' from project 'Pods')
+▸ ** ARCHIVE FAILED **
+▸ The following build commands failed:
+▸ 	PrecompileModule /Users/expo/Library/Developer/Xcode/DerivedData/Probaly-cuobjzujrgwufhexwbegzgsmijhq/Build/Intermediates.noindex/ArchiveIntermediates/Probaly/IntermediateBuildFilesPath/ExplicitPrecompiledModules/RNFBApp-6L1AZK15727BJV354DUFRLIKT.scan
+▸ 	Archiving workspace Probaly with scheme Probaly
+▸ (2 failures)
+Exit status: 65
++---------------------------------------+
+|           Build environment           |
++-------------+-------------------------+
+| xcode_path  | /Applications/Xcode.app |
+| gym_version | 2.228.0                 |
+| sdk         | iPhoneOS26.0.sdk        |
++-------------+-------------------------+
+Looks like fastlane ran into a build/archive error with your project
+It's hard to tell what's causing the error, so we wrote some guides on how
+to troubleshoot build and signing issues: https://docs.fastlane.tools/codesigning/getting-started/
+Before submitting an issue on GitHub, please follow the guide above and make
+sure your project is set up correctly.
+fastlane uses `xcodebuild` commands to generate your binary, you can see the
+the full commands printed out in yellow in the above log.
+Make sure to inspect the output above, as usually you'll find more error information there
+[!] Error building the application - see the log above
+fastlane gym exited with non-zero code: 1

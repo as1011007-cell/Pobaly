@@ -20,7 +20,6 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "app.probaly.logic",
-      "googleServicesFile": "./GoogleService-Info.plist",
       "buildNumber": "2",
       "icon": "./assets/images/probaly-logo.png",
       "config": {
@@ -105,15 +104,6 @@
       "favicon": "./assets/images/probaly-logo.png"
     },
     "plugins": [
-      [
-        "expo-build-properties",
-        {
-          "ios": {
-            "useFrameworks": "static"
-          }
-        }
-      ],
-      "@react-native-firebase/app",
       [
         "expo-splash-screen",
         {
