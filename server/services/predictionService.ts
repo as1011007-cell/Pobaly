@@ -2,7 +2,7 @@ import OpenAI from "openai";
 import { db } from "../db";
 import { predictions, type InsertPrediction } from "@shared/schema";
 import { eq, and, gte, isNull, desc, sql, or } from "drizzle-orm";
-import { getUpcomingMatchesFromApi, getRecentCompletedGames, isUsingFallbackData } from "./sportsApiService";
+import { getUpcomingMatchesFromApi, getRecentCompletedGames, isUsingFallbackData, refreshUpcomingMatches } from "./sportsApiService";
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -1125,11 +1125,12 @@ export async function resolvePredictionResults(): Promise<void> {
   const now = new Date();
   const threeHoursAgo = new Date(now.getTime() - 3 * 60 * 60 * 1000);
 
+  // Also retry 'unresolved' predictions — Odds API quota may have refreshed since last attempt
   const unresolved = await db.select()
     .from(predictions)
     .where(
       and(
-        isNull(predictions.result),
+        or(isNull(predictions.result), eq(predictions.result, 'unresolved')),
         sql`${predictions.matchTime} < ${threeHoursAgo.toISOString()}::timestamp`
       )
     );
@@ -1468,13 +1469,17 @@ async function refreshDemoPredictions(): Promise<void> {
       )
     );
 
-  // Check per-sport coverage — regenerate if total is low OR any sport has zero predictions
-  const allSports = ["football", "basketball", "tennis", "baseball", "hockey", "cricket", "mma", "golf"];
+  // Check per-sport coverage — regenerate if total is low OR a core sport has zero predictions
+  // Core sports = ones that ESPN can always resolve. Cricket excluded when ESPN-only (ESPN only covers ICC,
+  // which may have no active games) to prevent infinite force-regeneration with 0 cricket matches.
+  const usingEspnOnly = isUsingFallbackData();
+  const coreSports = ["football", "basketball", "baseball", "hockey", "mma"];
+  const allSports = [...coreSports, "tennis", "golf", ...(usingEspnOnly ? [] : ["cricket"])];
   const sportCounts: Record<string, number> = {};
   for (const sport of allSports) {
     sportCounts[sport] = existing.filter(p => p.sport === sport).length;
   }
-  const sportsWithZero = allSports.filter(s => sportCounts[s] === 0);
+  const sportsWithZero = coreSports.filter(s => sportCounts[s] === 0);
 
   if (existing.length >= 30 && sportsWithZero.length === 0) {
     console.log(`Premium predictions sufficient: ${existing.length} real games available`);
@@ -1482,10 +1487,12 @@ async function refreshDemoPredictions(): Promise<void> {
   }
 
   if (sportsWithZero.length > 0) {
-    console.log(`Sports with no predictions: ${sportsWithZero.join(', ')} — regenerating...`);
+    console.log(`Core sports with no predictions: ${sportsWithZero.join(', ')} — regenerating...`);
   } else {
     console.log(`Only ${existing.length} premium predictions, fetching more real games from API...`);
   }
+  // Clear stale ESPN cache before regenerating so we get today's fresh schedule (e.g. tomorrow's MLB)
+  await refreshUpcomingMatches();
   await generateDemoPredictions();
 }
 

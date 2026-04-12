@@ -117,18 +117,21 @@ export async function getUpcomingMatchesFromApi(): Promise<SportsMatch[]> {
     }
     const games = await fetchGamesFromApi(config.apiKey);
     
-    for (const game of games.slice(0, 4)) {
-      const matchTime = new Date(game.commence_time);
-      
-      if (matchTime > currentTime && matchTime < maxFutureTime) {
-        allMatches.push({
-          homeTeam: game.home_team,
-          awayTeam: game.away_team,
-          sport: config.sportName,
-          matchTime: matchTime,
-          league: config.league,
-        });
-      }
+    const futureGames = games
+      .filter(g => {
+        const t = new Date(g.commence_time);
+        return t > currentTime && t < maxFutureTime;
+      })
+      .slice(0, 4);
+
+    for (const game of futureGames) {
+      allMatches.push({
+        homeTeam: game.home_team,
+        awayTeam: game.away_team,
+        sport: config.sportName,
+        matchTime: new Date(game.commence_time),
+        league: config.league,
+      });
     }
   }
 
@@ -267,6 +270,7 @@ async function getESPNMatches(): Promise<SportsMatch[]> {
 
 export async function refreshUpcomingMatches(): Promise<SportsMatch[]> {
   matchCache = null;
+  espnFallbackCache = null;
   return getUpcomingMatchesFromApi();
 }
 
@@ -373,14 +377,44 @@ export async function getLiveMatches(): Promise<LiveMatch[]> {
 
 export async function getRecentCompletedGames(): Promise<CompletedGame[]> {
   const apiKey = process.env.ODDS_API_KEY;
-  
-  if (apiKey) {
-    const oddsApiGames = await fetchCompletedFromOddsApi(apiKey);
-    if (oddsApiGames.length > 0) return oddsApiGames;
+
+  // Cross-check: run both sources in parallel, merge results
+  // ESPN covers: NBA, MLB, NHL, football (EPL/La Liga/etc), UFC, ATP/WTA, ICC cricket, PGA
+  // Odds API covers: all of the above + IPL/PSL cricket, EuroLeague, NCAAB, Bellator
+  const [espnGames, oddsGames] = await Promise.all([
+    fetchCompletedFromESPN(),
+    apiKey ? fetchCompletedFromOddsApi(apiKey) : Promise.resolve([]),
+  ]);
+
+  if (espnGames.length === 0 && oddsGames.length === 0) {
+    console.log('Both sources returned 0 completed games');
+    return [];
   }
 
-  console.log('Odds API unavailable — fetching completed games from ESPN');
-  return fetchCompletedFromESPN();
+  // Merge: Odds API games first (more granular team names), then ESPN games not already covered
+  const simplify = (name: string) =>
+    name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+
+  const merged: CompletedGame[] = [...oddsGames];
+  const seenKeys = new Set(
+    oddsGames.flatMap(g => [
+      `${simplify(g.homeTeam)}|${simplify(g.awayTeam)}`,
+      `${simplify(g.awayTeam)}|${simplify(g.homeTeam)}`,
+    ])
+  );
+
+  for (const g of espnGames) {
+    const key = `${simplify(g.homeTeam)}|${simplify(g.awayTeam)}`;
+    const reverseKey = `${simplify(g.awayTeam)}|${simplify(g.homeTeam)}`;
+    if (!seenKeys.has(key) && !seenKeys.has(reverseKey)) {
+      merged.push(g);
+      seenKeys.add(key);
+    }
+  }
+
+  merged.sort((a, b) => b.matchTime.getTime() - a.matchTime.getTime());
+  console.log(`Cross-checked results: ${espnGames.length} ESPN + ${oddsGames.length} Odds API → ${merged.length} merged`);
+  return merged;
 }
 
 async function fetchCompletedFromOddsApi(apiKey: string): Promise<CompletedGame[]> {
@@ -398,7 +432,7 @@ async function fetchCompletedFromOddsApi(apiKey: string): Promise<CompletedGame[
       }
       requestCount++;
 
-      const url = `https://api.the-odds-api.com/v4/sports/${config.apiKey}/scores/?apiKey=${apiKey}&daysFrom=2&dateFormat=iso`;
+      const url = `https://api.the-odds-api.com/v4/sports/${config.apiKey}/scores/?apiKey=${apiKey}&daysFrom=3&dateFormat=iso`;
       const response = await fetch(url);
       if (!response.ok) continue;
 
@@ -458,7 +492,7 @@ async function fetchCompletedFromESPN(): Promise<CompletedGame[]> {
   const completedGames: CompletedGame[] = [];
 
   const dateStrs: string[] = [];
-  for (let i = 0; i <= 3; i++) {
+  for (let i = 0; i <= 6; i++) {
     const d = new Date();
     d.setDate(d.getDate() - i);
     dateStrs.push(d.toISOString().split('T')[0].replace(/-/g, ''));
