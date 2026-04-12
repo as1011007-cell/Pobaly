@@ -1142,6 +1142,13 @@ export async function resolvePredictionResults(): Promise<void> {
     return;
   }
 
+  const sportCounts = completedGames.reduce((acc: Record<string, number>, g) => {
+    acc[g.sport] = (acc[g.sport] || 0) + 1;
+    return acc;
+  }, {});
+  console.log(`[RESOLVE] ESPN completed games by sport: ${JSON.stringify(sportCounts)}`);
+  console.log(`[RESOLVE] Checking ${unresolved.length} unresolved predictions against ${completedGames.length} completed games`);
+
   let correct = 0;
   let incorrect = 0;
 
@@ -1166,7 +1173,12 @@ export async function resolvePredictionResults(): Promise<void> {
              (gHome.includes(pAway) || pAway.includes(gHome)) && (gAway.includes(pHome) || pHome.includes(gAway));
     });
 
-    if (!matchedGame) continue;
+    if (!matchedGame) {
+      console.log(`[RESOLVE] No ESPN match found for: "${pred.matchTitle}" (sport: ${pred.sport})`);
+      continue;
+    }
+
+    console.log(`[RESOLVE] Matched: "${pred.matchTitle}" → ESPN: "${matchedGame.homeTeam} vs ${matchedGame.awayTeam}", winner: ${matchedGame.winner}, score: ${matchedGame.homeScore}-${matchedGame.awayScore}, predicted: "${pred.predictedOutcome}"`);
 
     const totalScore = matchedGame.homeScore + matchedGame.awayScore;
     const isOverUnder = /^(over|under)\s+[\d.]+$/i.test(pred.predictedOutcome);

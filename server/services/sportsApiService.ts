@@ -495,7 +495,7 @@ async function fetchCompletedFromESPN(): Promise<CompletedGame[]> {
           continue;
         }
 
-        if (endpoint.sport === 'tennis') {
+        if (endpoint.sport === 'tennis' || endpoint.sport === 'mma') {
           if (competitors.length < 2) continue;
           const winnerComp = competitors.find((c: any) => c.winner) || competitors[0];
           const loserComp = competitors.find((c: any) => !c.winner) || competitors[1];
