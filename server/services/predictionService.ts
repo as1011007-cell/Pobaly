@@ -1223,14 +1223,17 @@ export async function clearExpiredPredictions(): Promise<number> {
       )
     );
 
-  const fiveDaysAgo = new Date();
-  fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
+  // Only delete resolved premium predictions that are retroactive history entries (expiresAt = matchTime)
+  // Real AI predictions (expiresAt > matchTime) are kept for 31 days to support the 30-day premium history window
+  const thirtyOneDaysAgo = new Date();
+  thirtyOneDaysAgo.setDate(thirtyOneDaysAgo.getDate() - 31);
   await db.delete(predictions)
     .where(
       and(
         eq(predictions.isPremium, true),
         sql`${predictions.result} IS NOT NULL`,
-        sql`${predictions.matchTime} < ${fiveDaysAgo.toISOString()}::timestamp`
+        sql`${predictions.matchTime} < ${thirtyOneDaysAgo.toISOString()}::timestamp`,
+        sql`${predictions.expiresAt} = ${predictions.matchTime}`
       )
     );
 
