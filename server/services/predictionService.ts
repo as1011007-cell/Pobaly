@@ -1150,10 +1150,20 @@ export async function resolvePredictionResults(): Promise<void> {
     if (parts.length < 2) continue;
 
     const baseTitle = pred.matchTitle.replace(/ \(O\/U\)$/, '');
+    const [predHome, predAway] = baseTitle.split(' vs ').map(s => s.trim().toLowerCase());
+
+    const normalize = (name: string) => name.toLowerCase()
+      .replace(/^(the|fc|afc|afc|cf|sc|rc|ac|as|sd|vf|vfb|fsv|sv|tsg|rb|rw|bv|hsv|ssv|tsv|bsc|esv|dsv|rsv|msv|wsv|csv|gsv|osv|usv|fc|bc|hc|sc|kc|cc|dc|ec|mc|nk|sk|gk|fk|rk|mk|bk|ak|ok|pk|tk|uk|ik|jk|lk|zk)\s+/i, '')
+      .replace(/\s+(fc|sc|bc|hc|kc|cc|dc|ec|mc|united|city|town|rovers|wanderers|athletic|athletics|county|albion|hotspur|wednesday|tuesday|monday|villa|palace|forest|rangers|celtic|thistle|hearts|hibs|boro|utd|afc|cf)$/i, '')
+      .replace(/[^a-z0-9]/g, '');
+
     const matchedGame = completedGames.find(g => {
-      const title1 = `${g.homeTeam} vs ${g.awayTeam}`;
-      const title2 = `${g.awayTeam} vs ${g.homeTeam}`;
-      return baseTitle === title1 || baseTitle === title2;
+      const gHome = normalize(g.homeTeam);
+      const gAway = normalize(g.awayTeam);
+      const pHome = normalize(predHome);
+      const pAway = normalize(predAway);
+      return (gHome.includes(pHome) || pHome.includes(gHome)) && (gAway.includes(pAway) || pAway.includes(gAway)) ||
+             (gHome.includes(pAway) || pAway.includes(gHome)) && (gAway.includes(pHome) || pHome.includes(gAway));
     });
 
     if (!matchedGame) continue;
