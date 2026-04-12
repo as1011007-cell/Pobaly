@@ -1006,14 +1006,17 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
   };
 
   if (isPremiumUser && userId) {
-    // Premium users see only real AI predictions made before the game happened
-    // Identified by expiresAt > matchTime (real predictions have a 3h post-game window)
-    // History entries retroactively created after games have expiresAt = matchTime
+    // Premium users see only real AI predictions that:
+    // 1. Resolved correctly
+    // 2. Are premium-tagged (not the free daily tip)
+    // 3. Were made before the game happened (expiresAt > matchTime means 3h post-game window set at creation)
+    // 4. Not retroactively created after the game (those have expiresAt = matchTime)
     const rows = await db.select()
       .from(predictions)
       .where(
         and(
           eq(predictions.result, "correct"),
+          eq(predictions.isPremium, true),
           isNull(predictions.userId),
           sql`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`,
           sql`${predictions.expiresAt} > ${predictions.matchTime}`
