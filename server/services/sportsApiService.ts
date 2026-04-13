@@ -378,23 +378,25 @@ export async function getLiveMatches(): Promise<LiveMatch[]> {
 export async function getRecentCompletedGames(): Promise<CompletedGame[]> {
   const apiKey = process.env.ODDS_API_KEY;
 
-  // Cross-check: run both sources in parallel, merge results
-  // ESPN covers: NBA, MLB, NHL, football (EPL/La Liga/etc), UFC, ATP/WTA, ICC cricket, PGA
-  // Odds API covers: all of the above + IPL/PSL cricket, EuroLeague, NCAAB, Bellator
-  const [espnGames, oddsGames] = await Promise.all([
+  // Run all three sources in parallel
+  // ESPN: NBA, MLB, NHL, football leagues, UFC, ATP/WTA, ICC cricket, PGA
+  // Odds API: all ESPN sports + IPL/PSL cricket, EuroLeague, NCAAB, Bellator
+  // TheSportsDB: PSL, IPL, MLS, ATP, WTA, and hundreds of other leagues (free, no key)
+  const [espnGames, oddsGames, sportsDbGames] = await Promise.all([
     fetchCompletedFromESPN(),
     apiKey ? fetchCompletedFromOddsApi(apiKey) : Promise.resolve([]),
+    fetchCompletedFromSportsDB(),
   ]);
 
-  if (espnGames.length === 0 && oddsGames.length === 0) {
-    console.log('Both sources returned 0 completed games');
+  if (espnGames.length === 0 && oddsGames.length === 0 && sportsDbGames.length === 0) {
+    console.log('All sources returned 0 completed games');
     return [];
   }
 
-  // Merge: Odds API games first (more granular team names), then ESPN games not already covered
   const simplify = (name: string) =>
     name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
 
+  // Merge priority: Odds API → ESPN → TheSportsDB (deduplicated)
   const merged: CompletedGame[] = [...oddsGames];
   const seenKeys = new Set(
     oddsGames.flatMap(g => [
@@ -403,18 +405,84 @@ export async function getRecentCompletedGames(): Promise<CompletedGame[]> {
     ])
   );
 
-  for (const g of espnGames) {
+  for (const g of [...espnGames, ...sportsDbGames]) {
     const key = `${simplify(g.homeTeam)}|${simplify(g.awayTeam)}`;
     const reverseKey = `${simplify(g.awayTeam)}|${simplify(g.homeTeam)}`;
     if (!seenKeys.has(key) && !seenKeys.has(reverseKey)) {
       merged.push(g);
       seenKeys.add(key);
+      seenKeys.add(reverseKey);
     }
   }
 
   merged.sort((a, b) => b.matchTime.getTime() - a.matchTime.getTime());
-  console.log(`Cross-checked results: ${espnGames.length} ESPN + ${oddsGames.length} Odds API → ${merged.length} merged`);
+  console.log(`Cross-checked results: ${espnGames.length} ESPN + ${oddsGames.length} Odds API + ${sportsDbGames.length} TheSportsDB → ${merged.length} merged`);
   return merged;
+}
+
+// TheSportsDB leagues to poll for recent results — free tier, no API key needed
+// Primary value: PSL + IPL cricket (ESPN doesn't cover these); football + tennis as backup
+const SPORTSDB_LEAGUES: { id: number; sport: string; league: string }[] = [
+  { id: 4445, sport: 'cricket',    league: 'IPL' },
+  { id: 4588, sport: 'cricket',    league: 'PSL' },
+  { id: 4346, sport: 'football',   league: 'MLS' },
+  { id: 4424, sport: 'tennis',     league: 'ATP' },
+  { id: 4425, sport: 'tennis',     league: 'WTA' },
+  { id: 4335, sport: 'football',   league: 'La Liga' },
+  { id: 4480, sport: 'football',   league: 'Bundesliga' },
+  { id: 4481, sport: 'football',   league: 'Serie A' },
+  { id: 4328, sport: 'football',   league: 'Premier League' },
+  { id: 4331, sport: 'football',   league: 'Ligue 1' },
+  { id: 4387, sport: 'basketball', league: 'NBA' },
+];
+
+async function fetchCompletedFromSportsDB(): Promise<CompletedGame[]> {
+  const results: CompletedGame[] = [];
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+  // Use a Set to avoid duplicate league IDs
+  const seenLeagueIds = new Set<number>();
+  const uniqueLeagues = SPORTSDB_LEAGUES.filter(l => {
+    if (seenLeagueIds.has(l.id)) return false;
+    seenLeagueIds.add(l.id);
+    return true;
+  });
+
+  await Promise.all(uniqueLeagues.map(async ({ id, sport, league }) => {
+    try {
+      const url = `https://www.thesportsdb.com/api/v1/json/3/eventspastleague.php?id=${id}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!res.ok) return;
+
+      const data = await res.json() as any;
+      const events: any[] = data.events || [];
+
+      for (const ev of events) {
+        const homeScore = parseInt(ev.intHomeScore ?? '-1');
+        const awayScore = parseInt(ev.intAwayScore ?? '-1');
+        if (homeScore < 0 || awayScore < 0) continue; // not finished
+
+        const matchTime = new Date(`${ev.dateEvent}T${ev.strTime || '00:00:00'}Z`);
+        if (matchTime < sevenDaysAgo) continue;
+
+        const homeTeam = ev.strHomeTeam || '';
+        const awayTeam = ev.strAwayTeam || '';
+        if (!homeTeam || !awayTeam) continue;
+
+        let winner: string;
+        if (homeScore > awayScore) winner = homeTeam;
+        else if (awayScore > homeScore) winner = awayTeam;
+        else winner = 'Draw';
+
+        results.push({ homeTeam, awayTeam, sport, league, matchTime, homeScore, awayScore, winner });
+      }
+    } catch {
+      // silently skip failed league fetches
+    }
+  }));
+
+  console.log(`Fetched ${results.length} completed games from TheSportsDB`);
+  return results;
 }
 
 async function fetchCompletedFromOddsApi(apiKey: string): Promise<CompletedGame[]> {
