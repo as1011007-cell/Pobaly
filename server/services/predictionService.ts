@@ -67,15 +67,7 @@ async function getUpcomingMatches(): Promise<SportsMatch[]> {
 async function getRecentIncorrectInsights(sport: string): Promise<string> {
   const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
 
-  const incorrectPicks = await db.select({
-    homeTeam: predictions.homeTeam,
-    awayTeam: predictions.awayTeam,
-    predictedOutcome: predictions.predictedOutcome,
-    matchTime: predictions.matchTime,
-    probability: predictions.probability,
-    confidence: predictions.confidence,
-    explanation: predictions.explanation,
-  })
+  const incorrectPicks = await db.select()
     .from(predictions)
     .where(
       and(
@@ -1173,12 +1165,13 @@ export async function resolvePredictionResults(): Promise<void> {
   const now = new Date();
   const threeHoursAgo = new Date(now.getTime() - 3 * 60 * 60 * 1000);
 
-  // Also retry 'unresolved' predictions — Odds API quota may have refreshed since last attempt
+  // Only attempt predictions with no result yet — already-'unresolved' ones won't be retried
+  // (ESPN simply doesn't cover PSL, IPL, and some other leagues, so retrying is pointless)
   const unresolved = await db.select()
     .from(predictions)
     .where(
       and(
-        or(isNull(predictions.result), eq(predictions.result, 'unresolved')),
+        isNull(predictions.result),
         sql`${predictions.matchTime} < ${threeHoursAgo.toISOString()}::timestamp`
       )
     );
@@ -1495,11 +1488,12 @@ async function refreshDemoPredictions(): Promise<void> {
   
   const now = new Date();
   
+  // Mark ANY past prediction (premium or free) that still has no result as 'unresolved'
+  // This prevents them from piling up as NULL and being retried forever
   const unresolved = await db.update(predictions)
     .set({ result: "unresolved" })
     .where(
       and(
-        eq(predictions.isPremium, true),
         isNull(predictions.userId),
         isNull(predictions.result),
         sql`${predictions.matchTime} < ${now.toISOString()}::timestamp`
