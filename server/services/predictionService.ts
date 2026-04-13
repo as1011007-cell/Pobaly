@@ -1026,15 +1026,22 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
     return dedup(rows);
   }
 
-  // Free users: ESPN retroactive history (last 5 days) + any winning free tips (real predictions)
+  // Free users see two types of history:
+  // 1. ESPN retroactive entries (expiresAt = matchTime) — correct only, last 5 days
+  // 2. Free daily tip (expiresAt > matchTime = real pre-game prediction) — both correct AND incorrect, last 30 days
   const freeRows = await db.select()
     .from(predictions)
     .where(
       and(
-        eq(predictions.result, "correct"),
         isNull(predictions.userId),
         eq(predictions.isPremium, false),
-        sql`${predictions.matchTime} >= ${fiveDaysAgo.toISOString()}::timestamp`
+        sql`${predictions.result} IN ('correct', 'incorrect')`,
+        sql`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`,
+        sql`(
+          (${predictions.expiresAt} = ${predictions.matchTime} AND ${predictions.matchTime} >= ${fiveDaysAgo.toISOString()}::timestamp AND ${predictions.result} = 'correct')
+          OR
+          (${predictions.expiresAt} > ${predictions.matchTime})
+        )`
       )
     )
     .orderBy(desc(predictions.matchTime));
