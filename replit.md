@@ -23,7 +23,7 @@ The application features a 5-tab navigation system (Home, Live, Sports, History,
 - **Push Notifications**: Uses Expo Push Notifications API. Client registers push tokens on login/signup/app restart. Server stores tokens in `push_tokens` table and sends via Expo's push API. Respects user notification preferences.
 - **History Filtering Rules (NEVER change without explicit instruction)**:
   - **Premium users**: See ALL resolved predictions (`correct` AND `incorrect`) — both premium picks and free daily tips — that were real pre-game predictions (`expiresAt > matchTime`), within last 30 days. Retroactive ESPN entries (`expiresAt = matchTime`) never shown.
-  - **Free users**: See (1) ESPN retroactive history — `correct` only, last 5 days (`expiresAt = matchTime`) and (2) Free daily tip results — both `correct` AND `incorrect`, last 30 days (`expiresAt > matchTime`). Premium AI picks (`isPremium=true`) with `incorrect` result are never shown to free users.
+  - **Free users**: Correct picks only (`result = 'correct'`, `isPremium = false`, last 5 days). Incorrect predictions are NEVER shown to free users — including incorrect free daily tips.
 - **Affiliate Program**: Includes referral code generation, commission tracking (40% of subscription revenue), a 14-day clearance period, and manual payout approval via Stripe Connect.
 - **Security**: Implements real JWT authentication, role-based access control (`requireAuth`, `requireAdmin`), per-route rate limiting, security headers, and tightened CORS policies.
 - **App Store Compliance**: Includes iOS Privacy Manifest, deep linking (`probaly://`), a gambling disclaimer, and legal page accessibility.
