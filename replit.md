@@ -4,7 +4,8 @@
 Probaly is a mobile sports prediction application available on iOS and Android, developed using React Native and Expo. It leverages AI to provide probability-based insights for sports events. The app operates on a freemium model, offering a daily free tip and a premium subscription priced at $49/year. The business vision is to become a leading platform for AI-driven sports analytics, offering users a competitive edge in sports predictions.
 
 ## User Preferences
-The agent should prioritize security best practices in all development tasks. When implementing new features, consider the impact on app store compliance and user privacy. The agent should also ensure that the application's performance remains optimal, especially concerning API response times and prediction generation. Do not make changes to the folder `shared`.
+- **Production-First**: All development work should target the production server (probaly.net). The development server (localhost:5000) is only used for testing code before deploying. Every code change must be deployed to production to take effect. No dev-only workarounds.
+- The agent should prioritize security best practices in all development tasks. When implementing new features, consider the impact on app store compliance and user privacy. The agent should also ensure that the application's performance remains optimal, especially concerning API response times and prediction generation. Do not make changes to the folder `shared`.
 
 ## System Architecture
 

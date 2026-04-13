@@ -718,11 +718,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!Array.isArray(ids) || ids.length === 0) {
         return res.status(400).json({ error: "ids array required" });
       }
+      const idList = ids.map((id: number) => sql`${id}`).reduce((a: any, b: any) => sql`${a}, ${b}`);
       const result = await db.execute(sql`
         UPDATE predictions
         SET is_premium = true,
             expires_at = match_time + INTERVAL '3 hours'
-        WHERE id = ANY(${ids}::int[])
+        WHERE id IN (${idList})
           AND user_id IS NULL
           AND result = 'correct'
       `);
