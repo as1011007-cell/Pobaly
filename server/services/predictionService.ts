@@ -1006,17 +1006,15 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
   };
 
   if (isPremiumUser && userId) {
-    // Premium users see only real AI predictions that:
-    // 1. Resolved correctly
-    // 2. Are premium-tagged (not the free daily tip)
-    // 3. Were made before the game happened (expiresAt > matchTime means 3h post-game window set at creation)
-    // 4. Not retroactively created after the game (those have expiresAt = matchTime)
+    // Premium users see:
+    // 1. Real AI premium predictions that resolved correctly (expiresAt > matchTime = real pre-game predictions)
+    // 2. Winning free daily tips (also real pre-game predictions, expiresAt > matchTime)
+    // Both within last 30 days. Not retroactively created entries (expiresAt = matchTime).
     const rows = await db.select()
       .from(predictions)
       .where(
         and(
           eq(predictions.result, "correct"),
-          eq(predictions.isPremium, true),
           isNull(predictions.userId),
           sql`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`,
           sql`${predictions.expiresAt} > ${predictions.matchTime}`
@@ -1027,6 +1025,7 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
     return dedup(rows);
   }
 
+  // Free users: ESPN retroactive history (last 5 days) + any winning free tips (real predictions)
   const freeRows = await db.select()
     .from(predictions)
     .where(
