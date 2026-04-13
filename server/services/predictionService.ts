@@ -63,11 +63,58 @@ async function getUpcomingMatches(): Promise<SportsMatch[]> {
   return getUpcomingMatchesFromApi();
 }
 
+// Fetch recent incorrect predictions for a given sport to feed back into the AI prompt
+async function getRecentIncorrectInsights(sport: string): Promise<string> {
+  const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+
+  const incorrectPicks = await db.select({
+    homeTeam: predictions.homeTeam,
+    awayTeam: predictions.awayTeam,
+    predictedOutcome: predictions.predictedOutcome,
+    matchTime: predictions.matchTime,
+    probability: predictions.probability,
+    confidence: predictions.confidence,
+    explanation: predictions.explanation,
+  })
+    .from(predictions)
+    .where(
+      and(
+        eq(predictions.result, "incorrect"),
+        eq(predictions.sport, sport),
+        isNull(predictions.userId),
+        sql`${predictions.matchTime} >= ${fourteenDaysAgo.toISOString()}::timestamp`,
+        sql`${predictions.expiresAt} > ${predictions.matchTime}`
+      )
+    )
+    .orderBy(desc(predictions.matchTime))
+    .limit(8);
+
+  if (incorrectPicks.length === 0) return "";
+
+  const lines = incorrectPicks.map(p => {
+    const date = p.matchTime ? new Date(p.matchTime).toISOString().split("T")[0] : "unknown date";
+    return `• ${p.homeTeam} vs ${p.awayTeam} (${date}): predicted "${p.predictedOutcome}" at ${p.probability}% confidence=${p.confidence} — WRONG. Reason given: "${p.explanation?.slice(0, 120)}..."`;
+  });
+
+  return `
+SELF-CRITIQUE — RECENT INCORRECT PREDICTIONS FOR ${sport.toUpperCase()} (last 14 days):
+${lines.join("\n")}
+
+Before making your prediction, silently ask yourself:
+- Am I repeating any of the same reasoning patterns that led to these errors?
+- Am I overweighting home advantage, favourite bias, or recent form without enough evidence?
+- Is my confidence level justified, or am I being overconfident in an uncertain matchup?
+Adjust your probability and confidence accordingly to avoid repeating these mistakes.
+`.trim();
+}
+
 async function generatePredictionForMatch(match: SportsMatch, betType: "winner" | "overunder" = "winner"): Promise<PredictionAnalysis> {
   const today = new Date().toISOString().split('T')[0];
   const matchDate = match.matchTime.toISOString().split('T')[0];
 
   const isOU = betType === "overunder";
+
+  const incorrectInsights = await getRecentIncorrectInsights(match.sport);
 
   const ouLineGuide: Record<string, string> = {
     basketball: "NBA game total typically 210–240 points (e.g. 'Over 224.5', 'Under 231.5')",
@@ -97,7 +144,7 @@ CRITICAL RULES:
 - Never mention players who may have been traded, released, or injured — focus on team-level analysis
 - Be precise with probabilities (avoid clustering at round numbers like 70%, 75%)
 - Premium subscribers want specific, insightful analysis — not generic statements
-
+${incorrectInsights ? `\n${incorrectInsights}\n` : ""}
 MATCH TO ANALYZE:
 Sport: ${match.sport.toUpperCase()} | League: ${match.league || "Unknown"}
 Home: ${match.homeTeam}
