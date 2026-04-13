@@ -1386,12 +1386,15 @@ async function fixPrematurelyResolvedPredictions(): Promise<void> {
 }
 
 async function purgeFakeHistoryEntries(): Promise<void> {
+  // Only purge retroactively-created fake entries (expiresAt = matchTime).
+  // Real AI predictions resolved as correct have expiresAt = matchTime + 3h — NEVER delete those.
   await db.delete(predictions)
     .where(
       and(
         isNull(predictions.userId),
         eq(predictions.isPremium, true),
         sql`${predictions.result} IS NOT NULL`,
+        sql`${predictions.expiresAt} = ${predictions.matchTime}`,
         sql`(${predictions.explanation} LIKE '%Our AI correctly predicted this outcome%' OR ${predictions.explanation} LIKE 'Final score:%')`
       )
     );
