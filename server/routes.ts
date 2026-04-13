@@ -693,9 +693,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       let inserted = 0;
       for (const e of entries) {
+        const isPremium = e.isPremium === true;
+        // For premium entries, expiresAt must be > matchTime so they show in premium history.
+        // Real predictions have a 3-hour post-game window; retro entries have expiresAt = matchTime.
+        const expiresAt = e.expiresAt || e.matchTime;
         await db.execute(sql`
-          INSERT INTO predictions (user_id, match_title, sport, match_time, predicted_outcome, probability, confidence, explanation, factors, risk_index, is_live, is_premium, result, created_at, expires_at)
-          VALUES (NULL, ${e.matchTitle}, ${e.sport}, ${e.matchTime}::timestamp, ${e.predictedOutcome}, ${e.probability}, ${e.confidence}, ${e.explanation}, ${JSON.stringify(e.factors)}::jsonb, ${e.riskIndex}, false, false, 'correct', ${e.matchTime}::timestamp, ${e.matchTime}::timestamp)
+          INSERT INTO predictions (user_id, match_title, sport, match_time, predicted_outcome, probability, confidence, explanation, factors, sportsbook_odds, risk_index, is_live, is_premium, result, created_at, expires_at)
+          VALUES (NULL, ${e.matchTitle}, ${e.sport}, ${e.matchTime}::timestamp, ${e.predictedOutcome}, ${e.probability}, ${e.confidence}, ${e.explanation}, ${JSON.stringify(e.factors || [])}::jsonb, ${JSON.stringify(e.sportsbookOdds || {})}::jsonb, ${e.riskIndex || 5}, false, ${isPremium}, 'correct', ${e.matchTime}::timestamp, ${expiresAt}::timestamp)
+          ON CONFLICT DO NOTHING
         `);
         inserted++;
       }
@@ -706,7 +711,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Mark fake predictions with [DEMO] and remove duplicates (admin endpoint)
+  // One-time fix: upgrade specific manually-migrated entries to premium=true with proper expiresAt
+  app.post("/api/predictions/fix-migrated-entries", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const ids: number[] = req.body.ids;
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ error: "ids array required" });
+      }
+      const result = await db.execute(sql`
+        UPDATE predictions
+        SET is_premium = true,
+            expires_at = match_time + INTERVAL '3 hours'
+        WHERE id = ANY(${ids}::int[])
+          AND user_id IS NULL
+          AND result = 'correct'
+      `);
+      res.json({ success: true, updated: (result as any).rowCount ?? ids.length });
+    } catch (error: any) {
+      console.error("Fix migrated entries error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post("/api/predictions/cleanup-demos", requireAdmin, async (req: Request, res: Response) => {
     try {
       const markResult = await db.execute(sql`
