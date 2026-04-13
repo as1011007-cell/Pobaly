@@ -85,7 +85,8 @@ async function getRecentIncorrectInsights(sport: string): Promise<string> {
 
   const lines = incorrectPicks.map(p => {
     const date = p.matchTime ? new Date(p.matchTime).toISOString().split("T")[0] : "unknown date";
-    return `• ${p.homeTeam} vs ${p.awayTeam} (${date}): predicted "${p.predictedOutcome}" at ${p.probability}% confidence=${p.confidence} — WRONG. Reason given: "${p.explanation?.slice(0, 120)}..."`;
+    const matchup = p.matchTitle.replace(/ \(O\/U\)$/, '');
+    return `• ${matchup} (${date}): predicted "${p.predictedOutcome}" at ${p.probability}% confidence=${p.confidence} — WRONG. Reason given: "${p.explanation?.slice(0, 120)}..."`;
   });
 
   return `
@@ -1037,7 +1038,7 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
     const seen = new Set<string>();
     return rows.filter(r => {
       const clean = r.matchTitle.replace(' (O/U)', '');
-      const key = clean.split(' vs ').map(s => s.trim()).sort().join('|');
+      const key = clean.split(' vs ').map((s: string) => s.trim()).sort().join('|');
       if (seen.has(key)) return false;
       seen.add(key);
       return true;

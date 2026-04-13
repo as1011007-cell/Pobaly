@@ -9,7 +9,8 @@ import affiliateRoutes from "./affiliateRoutes";
 import { WebhookHandlers } from "./webhookHandlers";
 import { signToken, requireAuth, optionalAuth, requireAdmin, rateLimit } from "./auth";
 import { db } from "./db";
-import { sql } from "drizzle-orm";
+import { sql, and } from "drizzle-orm";
+import { predictions } from "@shared/schema";
 import {
   generateDailyPredictions,
   generatePremiumPredictionsForUser,
@@ -669,7 +670,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const now = new Date();
       const threeHoursAgo = new Date(now.getTime() - 3 * 60 * 60 * 1000);
       const result = await db.update(predictions)
-        .set({ result: null, explanation: null })
+        .set({ result: sql`null`, explanation: sql`null` })
         .where(
           and(
             sql`${predictions.result} IS NOT NULL`,
