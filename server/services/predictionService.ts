@@ -1015,7 +1015,7 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
       .from(predictions)
       .where(
         and(
-          sql`${predictions.result} IN ('correct', 'incorrect')`,
+          eq(predictions.result, "correct"),
           isNull(predictions.userId),
           sql`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`,
           sql`${predictions.expiresAt} > ${predictions.matchTime}`

@@ -22,7 +22,7 @@ The application features a 5-tab navigation system (Home, Live, Sports, History,
 - **Data Refresh**: A daily scheduler refreshes predictions, clears expired entries, fetches new games, and regenerates AI predictions. After refresh, push notifications are sent to all registered devices to alert users that the daily free tip is ready.
 - **Push Notifications**: Uses Expo Push Notifications API. Client registers push tokens on login/signup/app restart. Server stores tokens in `push_tokens` table and sends via Expo's push API. Respects user notification preferences.
 - **History Filtering Rules (NEVER change without explicit instruction)**:
-  - **Premium users**: See ALL resolved predictions (`correct` AND `incorrect`) — both premium picks and free daily tips — that were real pre-game predictions (`expiresAt > matchTime`), within last 30 days. Retroactive ESPN entries (`expiresAt = matchTime`) never shown.
+  - **Premium users**: See only `correct` predictions — both premium picks and free daily tips — that were real pre-game predictions (`expiresAt > matchTime`), within last 30 days. Retroactive ESPN entries (`expiresAt = matchTime`) never shown. Incorrect predictions are never shown.
   - **Free users**: Correct picks only (`result = 'correct'`, `isPremium = false`, last 5 days). Incorrect predictions are NEVER shown to free users — including incorrect free daily tips.
 - **Affiliate Program**: Includes referral code generation, commission tracking (40% of subscription revenue), a 14-day clearance period, and manual payout approval via Stripe Connect.
 - **Security**: Implements real JWT authentication, role-based access control (`requireAuth`, `requireAdmin`), per-route rate limiting, security headers, and tightened CORS policies.
