@@ -217,7 +217,7 @@ async function generatePredictionForMatch(match: SportsMatch, betType: "winner" 
 
   const isOU = betType === "overunder";
 
-  const incorrectInsights = await getRecentIncorrectInsights(match.sport);
+  const incorrectInsights = await getAIFeedbackContext(match.sport, match.homeTeam, match.awayTeam);
 
   const ouLineGuide: Record<string, string> = {
     basketball: "NBA game total typically 210–240 points (e.g. 'Over 224.5', 'Under 231.5')",
