@@ -1166,8 +1166,20 @@ export async function getPredictionsBySport(sport: string, userId?: string, isPr
       )
     )
     .orderBy(predictions.matchTime);
-  
-  return sportPredictions;
+
+  // Deduplicate by match: keep one free (isPremium=false) + at most one premium (isPremium=true) per match
+  const seenFree = new Set<string>();
+  const seenPremium = new Set<string>();
+  const deduped: typeof sportPredictions = [];
+  for (const p of sportPredictions) {
+    const key = p.matchTitle.replace(' (O/U)', '').split(' vs ').map((s: string) => s.trim()).sort().join('|');
+    if (!p.isPremium) {
+      if (!seenFree.has(key)) { seenFree.add(key); deduped.push(p); }
+    } else {
+      if (!seenPremium.has(key)) { seenPremium.add(key); deduped.push(p); }
+    }
+  }
+  return deduped.sort((a, b) => new Date(a.matchTime).getTime() - new Date(b.matchTime).getTime());
 }
 
 export async function getPredictionById(id: number) {
