@@ -289,6 +289,13 @@ function configureExpoAndLanding(app: express.Application) {
   // Serve assets
   app.use("/assets", express.static(path.resolve(process.cwd(), "assets")));
 
+  // Google Search Console verification
+  app.get("/google5558d3209820d790.html", (_req: Request, res: Response) => {
+    const verifyPath = path.resolve(process.cwd(), "server", "templates", "google5558d3209820d790.html");
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.sendFile(verifyPath);
+  });
+
   // Serve contact page before SPA fallback
   app.get("/contact", (_req: Request, res: Response) => {
     const contactPath = path.resolve(process.cwd(), "server", "templates", "contact.html");
