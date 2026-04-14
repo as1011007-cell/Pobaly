@@ -2,7 +2,7 @@ import OpenAI from "openai";
 import { db } from "../db";
 import { predictions, type InsertPrediction } from "@shared/schema";
 import { eq, and, gte, isNull, desc, sql, or } from "drizzle-orm";
-import { getUpcomingMatchesFromApi, getRecentCompletedGames, isUsingFallbackData, refreshUpcomingMatches } from "./sportsApiService";
+import { getUpcomingMatchesFromApi, getRecentCompletedGames, isUsingFallbackData, refreshUpcomingMatches, lookupGameByTeams } from "./sportsApiService";
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -1321,11 +1321,26 @@ export async function resolvePredictionResults(): Promise<void> {
     }
 
     if (!matchedGame) {
-      console.log(`[RESOLVE] No ESPN match found for: "${pred.matchTitle}" (sport: ${pred.sport})`);
+      // Third fallback: targeted team lookup via TheSportsDB team ID search
+      // Bypasses the 15-event season limit by querying the specific teams directly
+      try {
+        const [rawHome, rawAway] = baseTitle.split(' vs ').map((s: string) => s.trim());
+        const directResult = await lookupGameByTeams(rawHome, rawAway, pred.sport);
+        if (directResult) {
+          matchedGame = directResult;
+          console.log(`[RESOLVE] Team-lookup matched: "${pred.matchTitle}" → "${matchedGame.homeTeam} vs ${matchedGame.awayTeam}" (${matchedGame.homeScore}-${matchedGame.awayScore})`);
+        }
+      } catch {
+        // silently skip
+      }
+    }
+
+    if (!matchedGame) {
+      console.log(`[RESOLVE] No match found for: "${pred.matchTitle}" (sport: ${pred.sport})`);
       continue;
     }
 
-    console.log(`[RESOLVE] Matched: "${pred.matchTitle}" → ESPN: "${matchedGame.homeTeam} vs ${matchedGame.awayTeam}", winner: ${matchedGame.winner}, score: ${matchedGame.homeScore}-${matchedGame.awayScore}, predicted: "${pred.predictedOutcome}"`);
+    console.log(`[RESOLVE] Matched: "${pred.matchTitle}" → "${matchedGame.homeTeam} vs ${matchedGame.awayTeam}", winner: ${matchedGame.winner}, score: ${matchedGame.homeScore}-${matchedGame.awayScore}, predicted: "${pred.predictedOutcome}"`);
 
     const totalScore = matchedGame.homeScore + matchedGame.awayScore;
     const isOverUnder = /^(over|under)\s+[\d.]+$/i.test(pred.predictedOutcome);

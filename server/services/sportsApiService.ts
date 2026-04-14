@@ -420,6 +420,97 @@ export async function getRecentCompletedGames(): Promise<CompletedGame[]> {
   return merged;
 }
 
+// Team name → TheSportsDB team ID cache to avoid repeated searches
+const teamIdCache = new Map<string, string | null>();
+
+/**
+ * Directly look up a specific game result by team names using TheSportsDB.
+ * Used as a targeted fallback when the bulk game pool doesn't have a match.
+ * Searches for the team by name, gets their team ID, fetches their last 5 results,
+ * and looks for a game where both teams appear within the past 14 days.
+ */
+export async function lookupGameByTeams(
+  homeTeamRaw: string,
+  awayTeamRaw: string,
+  sport: string
+): Promise<CompletedGame | null> {
+  const simplify = (n: string) =>
+    n.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+
+  const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+
+  // Search for a team by name, returning its TheSportsDB team ID (cached)
+  const getTeamId = async (teamName: string): Promise<string | null> => {
+    const cacheKey = simplify(teamName);
+    if (teamIdCache.has(cacheKey)) return teamIdCache.get(cacheKey)!;
+    try {
+      const url = `https://www.thesportsdb.com/api/v1/json/3/searchteams.php?t=${encodeURIComponent(teamName)}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+      if (!res.ok) { teamIdCache.set(cacheKey, null); return null; }
+      const data = await res.json() as any;
+      const id = data.teams?.[0]?.idTeam ?? null;
+      teamIdCache.set(cacheKey, id);
+      return id;
+    } catch {
+      teamIdCache.set(cacheKey, null);
+      return null;
+    }
+  };
+
+  // Fetch the last 5 completed events for a team and return any matching the opponent
+  const findMatchInTeamResults = async (teamId: string): Promise<CompletedGame | null> => {
+    try {
+      const url = `https://www.thesportsdb.com/api/v1/json/3/eventslast.php?id=${teamId}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+      if (!res.ok) return null;
+      const data = await res.json() as any;
+      const events: any[] = data.results || [];
+
+      for (const ev of events) {
+        const matchTime = new Date(`${ev.dateEvent}T${ev.strTime || '00:00:00'}Z`);
+        if (matchTime < fourteenDaysAgo) continue;
+
+        const h = ev.strHomeTeam || '';
+        const a = ev.strAwayTeam || '';
+        const homeScore = parseInt(ev.intHomeScore ?? '-1');
+        const awayScore = parseInt(ev.intAwayScore ?? '-1');
+        if (homeScore < 0 || awayScore < 0) continue;
+
+        const hN = simplify(h);
+        const aN = simplify(a);
+        const pHN = simplify(homeTeamRaw);
+        const pAN = simplify(awayTeamRaw);
+
+        const teamsMatch =
+          ((hN.includes(pHN) || pHN.includes(hN)) && (aN.includes(pAN) || pAN.includes(aN))) ||
+          ((hN.includes(pAN) || pAN.includes(hN)) && (aN.includes(pHN) || pHN.includes(aN)));
+
+        if (teamsMatch) {
+          const winner = homeScore > awayScore ? h : awayScore > homeScore ? a : 'Draw';
+          return { homeTeam: h, awayTeam: a, sport, league: ev.strLeague || '', matchTime, homeScore, awayScore, winner };
+        }
+      }
+    } catch {
+      // silently skip
+    }
+    return null;
+  };
+
+  // Try to get team IDs for both teams in parallel
+  const [homeId, awayId] = await Promise.all([
+    getTeamId(homeTeamRaw),
+    getTeamId(awayTeamRaw),
+  ]);
+
+  // Try home team's recent results first, then away team's
+  for (const id of [homeId, awayId].filter(Boolean) as string[]) {
+    const result = await findMatchInTeamResults(id);
+    if (result) return result;
+  }
+
+  return null;
+}
+
 // TheSportsDB leagues — correct IDs verified by team lookup.
 // Uses eventsseason.php (returns real data) not eventspastleague.php (returns fake demo data).
 // Only includes leagues NOT covered by ESPN: IPL cricket and PSL cricket.
