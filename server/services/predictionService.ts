@@ -1690,8 +1690,40 @@ export function startDailyRefreshScheduler(): void {
       }, RETRY_DELAY);
     }
   }
-  
-  runRefreshWithRetry();
+
+  // On startup: only run a full refresh if today's free tip is missing.
+  // This prevents backend restarts from wiping and regenerating the free pick.
+  (async () => {
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setUTCHours(23, 59, 59, 999);
+
+    const [existingFreeTip] = await db.select({ id: predictions.id })
+      .from(predictions)
+      .where(
+        and(
+          eq(predictions.isPremium, false),
+          isNull(predictions.userId),
+          isNull(predictions.result),
+          sql`${predictions.createdAt} >= ${todayStart.toISOString()}::timestamp`,
+          sql`${predictions.createdAt} <= ${todayEnd.toISOString()}::timestamp`
+        )
+      )
+      .limit(1);
+
+    if (existingFreeTip) {
+      console.log("Today's free tip already exists — skipping startup refresh, running resolution only");
+      try {
+        await resolvePredictionResults();
+      } catch (err) {
+        console.error("Startup resolution check failed:", err);
+      }
+    } else {
+      console.log("No free tip found for today — running full startup refresh");
+      await runRefreshWithRetry();
+    }
+  })();
 
   function scheduleMidnightRefresh() {
     const now = new Date();
