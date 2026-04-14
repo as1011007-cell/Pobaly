@@ -1059,9 +1059,9 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
   };
 
   if (isPremiumUser && userId) {
-    // Premium users see all resolved real AI predictions (correct AND incorrect):
-    // 1. Both isPremium=true picks and winning/losing free daily tips
-    // 2. Must be real pre-game predictions (expiresAt > matchTime = 3h post-game window)
+    // Premium users see correct real AI predictions:
+    // 1. Both isPremium=true picks and free daily tips
+    // 2. Must be real pre-game predictions (expiresAt > matchTime)
     // 3. Not retroactively created entries (those have expiresAt = matchTime)
     // 4. Within last 30 days
     const rows = await db.select()
@@ -1074,9 +1074,23 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
           sql`${predictions.expiresAt} > ${predictions.matchTime}`
         )
       )
-      .orderBy(desc(predictions.matchTime));
+      // isPremium DESC so premium picks are preferred over free tips in dedup
+      .orderBy(desc(predictions.matchTime), desc(predictions.isPremium));
 
-    return dedup(rows);
+    // Dedup by team pair + date so different games between same teams on different
+    // days both appear (e.g. playoff series), while true duplicates are collapsed.
+    const seen = new Set<string>();
+    const deduped: typeof rows = [];
+    for (const r of rows) {
+      const teamKey = r.matchTitle.replace(' (O/U)', '').split(' vs ').map((s: string) => s.trim()).sort().join('|');
+      const dateKey = r.matchTime ? new Date(r.matchTime).toISOString().split('T')[0] : '';
+      const key = `${teamKey}__${dateKey}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        deduped.push(r);
+      }
+    }
+    return deduped;
   }
 
   // Free users see two sets of correct picks, merged:
