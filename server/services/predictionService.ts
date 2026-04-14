@@ -1812,8 +1812,43 @@ async function checkAndReplaceFreeTip(): Promise<void> {
   }
 }
 
+// Log a daily summary of prediction resolution health
+async function logDailyResolutionSummary(): Promise<void> {
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const rows = await db.select({
+    result: predictions.result,
+    total: sql<number>`count(*)::int`,
+  })
+  .from(predictions)
+  .where(
+    and(
+      isNull(predictions.userId),
+      sql`${predictions.matchTime} >= ${yesterday.toISOString()}::timestamp`,
+      sql`${predictions.expiresAt} > ${predictions.matchTime}`
+    )
+  )
+  .groupBy(predictions.result);
+
+  const counts: Record<string, number> = {};
+  for (const r of rows) counts[r.result ?? 'pending'] = r.total;
+
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  const correct = counts['correct'] ?? 0;
+  const incorrect = counts['incorrect'] ?? 0;
+  const pending = counts['pending'] ?? 0;
+  const unresolved = counts['unresolved'] ?? 0;
+  const resolved = correct + incorrect;
+  const rate = resolved > 0 ? Math.round((correct / resolved) * 100) : 0;
+
+  console.log(
+    `[DAILY SUMMARY] Last 24h real predictions: ${total} total | ` +
+    `${correct} correct | ${incorrect} incorrect | ${pending} pending | ${unresolved} unresolved | ` +
+    `Accuracy: ${rate}% (${resolved} resolved)`
+  );
+}
+
 export function startDailyRefreshScheduler(): void {
-  const ONE_HOUR = 60 * 60 * 1000;
+  const THIRTY_MINUTES = 30 * 60 * 1000;
   const RETRY_DELAY = 5 * 60 * 1000;
   
   console.log("Daily prediction refresh scheduler started");
@@ -1867,6 +1902,7 @@ export function startDailyRefreshScheduler(): void {
     }
   })();
 
+  // Midnight UTC: full daily refresh (new free tip, new premium picks, resolve yesterday's games)
   function scheduleMidnightRefresh() {
     const now = new Date();
     const nextMidnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0));
@@ -1879,13 +1915,36 @@ export function startDailyRefreshScheduler(): void {
   }
   scheduleMidnightRefresh();
 
+  // 8 AM UTC: dedicated catch-up pass to resolve all overnight game results.
+  // By 8 AM UTC (4 AM EST / 1 AM PST), all US sports from the previous evening
+  // (MLB, NBA, NHL) are complete and in ESPN's data feed.
+  function schedule8amResolution() {
+    const now = new Date();
+    const next8am = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 8, 0, 0));
+    if (next8am <= now) next8am.setUTCDate(next8am.getUTCDate() + 1);
+    const msUntil8am = next8am.getTime() - now.getTime();
+    console.log(`Morning catch-up resolution scheduled at 8 AM UTC (in ${Math.round(msUntil8am / 60000)} minutes)`);
+    setTimeout(async () => {
+      console.log("[8AM CATCHUP] Running morning resolution pass for overnight game results...");
+      try {
+        await resolvePredictionResults();
+        await logDailyResolutionSummary();
+      } catch (err) {
+        console.error("[8AM CATCHUP] Resolution failed:", err);
+      }
+      schedule8amResolution();
+    }, msUntil8am);
+  }
+  schedule8amResolution();
+
+  // Every 30 minutes: resolve newly completed games and replace any incorrect free tip.
+  // This ensures customers see results within 30 minutes of a game ending.
   setInterval(async () => {
-    // Resolve completed games and replace any incorrect free tip
     try {
       await resolvePredictionResults();
     } catch (err) {
       console.error("Intraday resolution check failed:", err);
     }
     checkAndReplaceFreeTip();
-  }, ONE_HOUR);
+  }, THIRTY_MINUTES);
 }
