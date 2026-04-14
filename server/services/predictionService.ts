@@ -1133,7 +1133,24 @@ export async function getPredictionsBySport(sport: string, userId?: string, isPr
         )
       )
       .orderBy(predictions.matchTime);
-    return allPredictions;
+
+    // Deduplicate: prefer user-specific prediction over public one for the same match
+    const seen = new Set<string>();
+    const deduped: typeof allPredictions = [];
+    // Sort so user-specific rows come first (userId not null)
+    const sorted = [...allPredictions].sort((a, b) => {
+      if (a.userId && !b.userId) return -1;
+      if (!a.userId && b.userId) return 1;
+      return 0;
+    });
+    for (const p of sorted) {
+      const key = p.matchTitle.replace(' (O/U)', '').split(' vs ').map((s: string) => s.trim()).sort().join('|');
+      if (!seen.has(key)) {
+        seen.add(key);
+        deduped.push(p);
+      }
+    }
+    return deduped.sort((a, b) => new Date(a.matchTime).getTime() - new Date(b.matchTime).getTime());
   }
   
   // For non-premium users, show demo predictions (locked) for display
