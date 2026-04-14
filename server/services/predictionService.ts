@@ -435,9 +435,22 @@ export async function generateYesterdayHistory(): Promise<void> {
         sql`${predictions.result} IS NOT NULL`
       )
     );
-  const existingTitles = new Set(
-    existingHistory.map(e => e.matchTitle)
-  );
+
+  // Also load real AI pre-game predictions (both premium and free) so we never
+  // create a retroactive history entry that contradicts a real AI prediction
+  const realAiPredictions = await db.select({ matchTitle: predictions.matchTitle })
+    .from(predictions)
+    .where(
+      and(
+        isNull(predictions.userId),
+        sql`${predictions.expiresAt} > ${predictions.matchTime}`
+      )
+    );
+
+  const allExistingTitles = [
+    ...existingHistory.map(e => e.matchTitle),
+    ...realAiPredictions.map(e => e.matchTitle),
+  ];
 
   const completedGames = await getRecentCompletedGames();
 
@@ -451,7 +464,7 @@ export async function generateYesterdayHistory(): Promise<void> {
     return clean.split(' vs ').map(s => s.trim()).sort().join('|');
   };
   const existingNormalized = new Set<string>();
-  for (const t of existingTitles) {
+  for (const t of allExistingTitles) {
     existingNormalized.add(normalizeMatchup(t));
   }
 
@@ -1440,6 +1453,45 @@ async function purgeFakeHistoryEntries(): Promise<void> {
         sql`(${predictions.explanation} LIKE '%Our AI correctly predicted this outcome%' OR ${predictions.explanation} LIKE 'Final score:%')`
       )
     );
+
+  // Remove retroactive free history entries (expiresAt = matchTime) for any match
+  // that already has a real AI pre-game prediction (expiresAt > matchTime).
+  // This prevents fabricated "correct" history entries from overriding real AI picks.
+  const realPredictions = await db.select({ matchTitle: predictions.matchTitle })
+    .from(predictions)
+    .where(
+      and(
+        isNull(predictions.userId),
+        sql`${predictions.expiresAt} > ${predictions.matchTime}`
+      )
+    );
+
+  if (realPredictions.length > 0) {
+    const normalizeMatchup = (t: string) =>
+      t.replace(/ \(O\/U\)$/, '').split(' vs ').map(s => s.trim()).sort().join('|');
+
+    const realTitlesNormalized = new Set(realPredictions.map(p => normalizeMatchup(p.matchTitle)));
+
+    // Fetch retroactive entries and delete ones that overlap with real predictions
+    const retroactiveEntries = await db.select({ id: predictions.id, matchTitle: predictions.matchTitle })
+      .from(predictions)
+      .where(
+        and(
+          isNull(predictions.userId),
+          sql`${predictions.expiresAt} = ${predictions.matchTime}`
+        )
+      );
+
+    const toDelete = retroactiveEntries
+      .filter(e => realTitlesNormalized.has(normalizeMatchup(e.matchTitle)))
+      .map(e => e.id);
+
+    if (toDelete.length > 0) {
+      await db.delete(predictions).where(sql`${predictions.id} = ANY(ARRAY[${sql.join(toDelete.map(id => sql`${id}`), sql`, `)}]::int[])`);
+      console.log(`Removed ${toDelete.length} retroactive history entries that conflicted with real AI predictions`);
+    }
+  }
+
   console.log("Purged fake premium history entries");
 }
 
