@@ -1079,21 +1079,40 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
     return dedup(rows);
   }
 
-  // Free users: correct picks only (ESPN retroactive last 5 days + winning free daily tip last 30 days)
-  // Incorrect results are never shown to free users
-  const freeRows = await db.select()
-    .from(predictions)
-    .where(
-      and(
-        eq(predictions.result, "correct"),
-        isNull(predictions.userId),
-        eq(predictions.isPremium, false),
-        sql`${predictions.matchTime} >= ${fiveDaysAgo.toISOString()}::timestamp`
+  // Free users see two sets of correct picks, merged:
+  // 1. Real free daily tips (expiresAt > matchTime) — 30 days, same window as premium
+  // 2. Retroactive ESPN history entries (expiresAt = matchTime) — 5 days only
+  const [freeTipRows, retroRows] = await Promise.all([
+    db.select()
+      .from(predictions)
+      .where(
+        and(
+          eq(predictions.result, "correct"),
+          isNull(predictions.userId),
+          eq(predictions.isPremium, false),
+          sql`${predictions.expiresAt} > ${predictions.matchTime}`,
+          sql`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`
+        )
       )
-    )
-    .orderBy(desc(predictions.matchTime));
+      .orderBy(desc(predictions.matchTime)),
+    db.select()
+      .from(predictions)
+      .where(
+        and(
+          eq(predictions.result, "correct"),
+          isNull(predictions.userId),
+          eq(predictions.isPremium, false),
+          sql`${predictions.expiresAt} = ${predictions.matchTime}`,
+          sql`${predictions.matchTime} >= ${fiveDaysAgo.toISOString()}::timestamp`
+        )
+      )
+      .orderBy(desc(predictions.matchTime)),
+  ]);
 
-  return dedup(freeRows);
+  const merged = [...freeTipRows, ...retroRows]
+    .sort((a, b) => new Date(b.matchTime).getTime() - new Date(a.matchTime).getTime());
+
+  return dedup(merged);
 }
 
 export async function getPredictionsBySport(sport: string, userId?: string, isPremiumUser?: boolean) {
