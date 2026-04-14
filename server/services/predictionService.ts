@@ -63,42 +63,152 @@ async function getUpcomingMatches(): Promise<SportsMatch[]> {
   return getUpcomingMatchesFromApi();
 }
 
-// Fetch recent incorrect predictions for a given sport to feed back into the AI prompt
-async function getRecentIncorrectInsights(sport: string): Promise<string> {
+// Build a rich AI feedback context: accuracy rates, correct + incorrect picks, team history
+async function getAIFeedbackContext(sport: string, homeTeam: string, awayTeam: string): Promise<string> {
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
 
-  const incorrectPicks = await db.select()
+  const [accuracyRows, incorrectPicks, correctPicks, confidenceRows] = await Promise.all([
+    // 1. Sport-level accuracy rate (last 30 days)
+    db.select({
+      total: sql<number>`count(*)::int`,
+      correct: sql<number>`sum(case when result = 'correct' then 1 else 0 end)::int`,
+    })
     .from(predictions)
-    .where(
-      and(
-        eq(predictions.result, "incorrect"),
-        eq(predictions.sport, sport),
-        isNull(predictions.userId),
-        sql`${predictions.matchTime} >= ${fourteenDaysAgo.toISOString()}::timestamp`,
-        sql`${predictions.expiresAt} > ${predictions.matchTime}`
-      )
-    )
+    .where(and(
+      eq(predictions.sport, sport),
+      isNull(predictions.userId),
+      sql`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`,
+      sql`${predictions.result} IS NOT NULL`,
+      sql`${predictions.expiresAt} > ${predictions.matchTime}`
+    )),
+
+    // 2. Recent incorrect picks (last 14 days)
+    db.select()
+    .from(predictions)
+    .where(and(
+      eq(predictions.result, "incorrect"),
+      eq(predictions.sport, sport),
+      isNull(predictions.userId),
+      sql`${predictions.matchTime} >= ${fourteenDaysAgo.toISOString()}::timestamp`,
+      sql`${predictions.expiresAt} > ${predictions.matchTime}`
+    ))
     .orderBy(desc(predictions.matchTime))
-    .limit(8);
+    .limit(6),
 
-  if (incorrectPicks.length === 0) return "";
+    // 3. Recent correct picks (last 14 days) — what reasoning worked
+    db.select()
+    .from(predictions)
+    .where(and(
+      eq(predictions.result, "correct"),
+      eq(predictions.sport, sport),
+      isNull(predictions.userId),
+      sql`${predictions.matchTime} >= ${fourteenDaysAgo.toISOString()}::timestamp`,
+      sql`${predictions.expiresAt} > ${predictions.matchTime}`
+    ))
+    .orderBy(desc(predictions.matchTime))
+    .limit(4),
 
-  const lines = incorrectPicks.map(p => {
-    const date = p.matchTime ? new Date(p.matchTime).toISOString().split("T")[0] : "unknown date";
-    const matchup = p.matchTitle.replace(/ \(O\/U\)$/, '');
-    return `• ${matchup} (${date}): predicted "${p.predictedOutcome}" at ${p.probability}% confidence=${p.confidence} — WRONG. Reason given: "${p.explanation?.slice(0, 120)}..."`;
-  });
+    // 4. Confidence calibration: are high-confidence picks actually accurate?
+    db.select({
+      confidence: predictions.confidence,
+      total: sql<number>`count(*)::int`,
+      correct: sql<number>`sum(case when result = 'correct' then 1 else 0 end)::int`,
+    })
+    .from(predictions)
+    .where(and(
+      eq(predictions.sport, sport),
+      isNull(predictions.userId),
+      sql`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`,
+      sql`${predictions.result} IS NOT NULL`,
+      sql`${predictions.expiresAt} > ${predictions.matchTime}`
+    ))
+    .groupBy(predictions.confidence),
+  ]);
 
-  return `
-SELF-CRITIQUE — RECENT INCORRECT PREDICTIONS FOR ${sport.toUpperCase()} (last 14 days):
-${lines.join("\n")}
+  let context = '';
 
-Before making your prediction, silently ask yourself:
-- Am I repeating any of the same reasoning patterns that led to these errors?
-- Am I overweighting home advantage, favourite bias, or recent form without enough evidence?
-- Is my confidence level justified, or am I being overconfident in an uncertain matchup?
-Adjust your probability and confidence accordingly to avoid repeating these mistakes.
-`.trim();
+  // --- Sport accuracy rate ---
+  const total = Number(accuracyRows[0]?.total ?? 0);
+  const correct = Number(accuracyRows[0]?.correct ?? 0);
+  if (total >= 5) {
+    const rate = Math.round((correct / total) * 100);
+    const trend = rate < 45 ? '⚠️ BELOW average — be more conservative' : rate > 68 ? '✓ Strong' : '~ Average';
+    context += `\nACCURACY SNAPSHOT — ${sport.toUpperCase()} (last 30 days): ${correct}/${total} correct = ${rate}% [${trend}]\n`;
+  }
+
+  // --- Confidence calibration ---
+  const calibrationLines: string[] = [];
+  for (const row of confidenceRows) {
+    const t = Number(row.total);
+    const c = Number(row.correct);
+    if (t >= 3) {
+      const r = Math.round((c / t) * 100);
+      calibrationLines.push(`  ${row.confidence}: ${r}% accuracy (${c}/${t})`);
+    }
+  }
+  if (calibrationLines.length > 0) {
+    context += `Confidence calibration:\n${calibrationLines.join('\n')}\n`;
+    const highRow = confidenceRows.find(r => r.confidence === 'high');
+    if (highRow && Number(highRow.total) >= 3) {
+      const highRate = Math.round((Number(highRow.correct) / Number(highRow.total)) * 100);
+      if (highRate < 55) context += `  ⚠️ High-confidence picks are only ${highRate}% accurate — dial back overconfidence.\n`;
+    }
+  }
+
+  // --- Incorrect picks ---
+  if (incorrectPicks.length > 0) {
+    context += `\nSELF-CRITIQUE — RECENT WRONG ${sport.toUpperCase()} PICKS (last 14 days):\n`;
+    for (const p of incorrectPicks) {
+      const date = p.matchTime ? new Date(p.matchTime).toISOString().split('T')[0] : 'unknown';
+      const matchup = (p.matchTitle ?? '').replace(/ \(O\/U\)$/, '');
+      context += `• ${matchup} (${date}): predicted "${p.predictedOutcome}" at ${p.probability}% [${p.confidence}] — WRONG\n`;
+    }
+    context += `Ask yourself: Am I repeating these reasoning patterns? Overweighting home advantage or name-brand teams?\n`;
+  }
+
+  // --- Correct picks (what's working) ---
+  if (correctPicks.length > 0) {
+    context += `\nWHAT'S WORKING — RECENT CORRECT ${sport.toUpperCase()} PICKS:\n`;
+    for (const p of correctPicks) {
+      const date = p.matchTime ? new Date(p.matchTime).toISOString().split('T')[0] : 'unknown';
+      const matchup = (p.matchTitle ?? '').replace(/ \(O\/U\)$/, '');
+      context += `• ${matchup} (${date}): predicted "${p.predictedOutcome}" at ${p.probability}% [${p.confidence}] — CORRECT\n`;
+    }
+  }
+
+  // --- Team prediction history ---
+  const homeKeyword = homeTeam.split(' ')[0];
+  const awayKeyword = awayTeam.split(' ')[0];
+  const teamPicks = await db.select()
+    .from(predictions)
+    .where(and(
+      isNull(predictions.userId),
+      sql`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`,
+      sql`${predictions.result} IS NOT NULL`,
+      sql`${predictions.expiresAt} > ${predictions.matchTime}`,
+      sql`(${predictions.matchTitle} ILIKE ${'%' + homeKeyword + '%'} OR ${predictions.matchTitle} ILIKE ${'%' + awayKeyword + '%'})`
+    ))
+    .orderBy(desc(predictions.matchTime))
+    .limit(20);
+
+  if (teamPicks.length > 0) {
+    const homeTeamPicks = teamPicks.filter(p => (p.matchTitle ?? '').toLowerCase().includes(homeKeyword.toLowerCase()));
+    const awayTeamPicks = teamPicks.filter(p => (p.matchTitle ?? '').toLowerCase().includes(awayKeyword.toLowerCase()));
+    const teamLines: string[] = [];
+    for (const [teamName, picks] of [[homeTeam, homeTeamPicks], [awayTeam, awayTeamPicks]] as [string, typeof teamPicks][]) {
+      if (picks.length >= 2) {
+        const c = picks.filter(p => p.result === 'correct').length;
+        const r = Math.round((c / picks.length) * 100);
+        teamLines.push(`  ${teamName}: ${c}/${picks.length} correct (${r}%) in our recent predictions`);
+      }
+    }
+    if (teamLines.length > 0) {
+      context += `\nTEAM TRACK RECORD (last 30 days):\n${teamLines.join('\n')}\n`;
+    }
+  }
+
+  return context.trim();
 }
 
 async function generatePredictionForMatch(match: SportsMatch, betType: "winner" | "overunder" = "winner"): Promise<PredictionAnalysis> {
