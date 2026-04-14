@@ -1241,14 +1241,17 @@ export async function resolvePredictionResults(): Promise<void> {
   const now = new Date();
   const threeHoursAgo = new Date(now.getTime() - 3 * 60 * 60 * 1000);
 
-  // Only attempt predictions with no result yet — already-'unresolved' ones won't be retried
-  // (ESPN simply doesn't cover PSL, IPL, and some other leagues, so retrying is pointless)
+  const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+
+  // Attempt: (a) predictions with no result yet, (b) predictions already marked 'unresolved'
+  // from the last 14 days — ESPN data may now be available for those games.
   const unresolved = await db.select()
     .from(predictions)
     .where(
       and(
-        isNull(predictions.result),
-        sql`${predictions.matchTime} < ${threeHoursAgo.toISOString()}::timestamp`
+        sql`${predictions.matchTime} < ${threeHoursAgo.toISOString()}::timestamp`,
+        sql`${predictions.matchTime} >= ${fourteenDaysAgo.toISOString()}::timestamp`,
+        sql`(${predictions.result} IS NULL OR ${predictions.result} = 'unresolved')`
       )
     );
 
