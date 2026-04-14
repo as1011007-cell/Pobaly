@@ -420,66 +420,58 @@ export async function getRecentCompletedGames(): Promise<CompletedGame[]> {
   return merged;
 }
 
-// TheSportsDB leagues to poll for recent results — free tier, no API key needed
-// Primary value: PSL + IPL cricket (ESPN doesn't cover these); football + tennis as backup
+// TheSportsDB leagues — correct IDs verified by team lookup.
+// Uses eventsseason.php (returns real data) not eventspastleague.php (returns fake demo data).
+// Only includes leagues NOT covered by ESPN: IPL cricket and PSL cricket.
+// MLS is included as a backup since ESPN usa.1 only shows recent scoreboards.
 const SPORTSDB_LEAGUES: { id: number; sport: string; league: string }[] = [
-  { id: 4445, sport: 'cricket',    league: 'IPL' },
-  { id: 4588, sport: 'cricket',    league: 'PSL' },
-  { id: 4346, sport: 'football',   league: 'MLS' },
-  { id: 4424, sport: 'tennis',     league: 'ATP' },
-  { id: 4425, sport: 'tennis',     league: 'WTA' },
-  { id: 4335, sport: 'football',   league: 'La Liga' },
-  { id: 4480, sport: 'football',   league: 'Bundesliga' },
-  { id: 4481, sport: 'football',   league: 'Serie A' },
-  { id: 4328, sport: 'football',   league: 'Premier League' },
-  { id: 4331, sport: 'football',   league: 'Ligue 1' },
-  { id: 4387, sport: 'basketball', league: 'NBA' },
+  { id: 4460, sport: 'cricket',  league: 'IPL' },   // Indian Premier League (correct ID)
+  { id: 5067, sport: 'cricket',  league: 'PSL' },   // Pakistan Super League (correct ID)
+  { id: 4346, sport: 'football', league: 'MLS' },   // Major League Soccer (correct ID)
 ];
 
 async function fetchCompletedFromSportsDB(): Promise<CompletedGame[]> {
   const results: CompletedGame[] = [];
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+  const currentYear = new Date().getFullYear();
+  // Also try the previous year in case a season started in the prior calendar year
+  const seasons = [String(currentYear), String(currentYear - 1)];
 
-  // Use a Set to avoid duplicate league IDs
-  const seenLeagueIds = new Set<number>();
-  const uniqueLeagues = SPORTSDB_LEAGUES.filter(l => {
-    if (seenLeagueIds.has(l.id)) return false;
-    seenLeagueIds.add(l.id);
-    return true;
-  });
+  await Promise.all(SPORTSDB_LEAGUES.flatMap(({ id, sport, league }) =>
+    seasons.map(async (season) => {
+      try {
+        // eventsseason.php returns real results for a given league + season year
+        const url = `https://www.thesportsdb.com/api/v1/json/3/eventsseason.php?id=${id}&s=${season}`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        if (!res.ok) return;
 
-  await Promise.all(uniqueLeagues.map(async ({ id, sport, league }) => {
-    try {
-      const url = `https://www.thesportsdb.com/api/v1/json/3/eventspastleague.php?id=${id}`;
-      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-      if (!res.ok) return;
+        const data = await res.json() as any;
+        const events: any[] = data.events || [];
 
-      const data = await res.json() as any;
-      const events: any[] = data.events || [];
+        for (const ev of events) {
+          const homeScore = parseInt(ev.intHomeScore ?? '-1');
+          const awayScore = parseInt(ev.intAwayScore ?? '-1');
+          if (homeScore < 0 || awayScore < 0) continue; // not finished
 
-      for (const ev of events) {
-        const homeScore = parseInt(ev.intHomeScore ?? '-1');
-        const awayScore = parseInt(ev.intAwayScore ?? '-1');
-        if (homeScore < 0 || awayScore < 0) continue; // not finished
+          const matchTime = new Date(`${ev.dateEvent}T${ev.strTime || '00:00:00'}Z`);
+          if (matchTime < fourteenDaysAgo) continue;
 
-        const matchTime = new Date(`${ev.dateEvent}T${ev.strTime || '00:00:00'}Z`);
-        if (matchTime < sevenDaysAgo) continue;
+          const homeTeam = ev.strHomeTeam || '';
+          const awayTeam = ev.strAwayTeam || '';
+          if (!homeTeam || !awayTeam) continue;
 
-        const homeTeam = ev.strHomeTeam || '';
-        const awayTeam = ev.strAwayTeam || '';
-        if (!homeTeam || !awayTeam) continue;
+          let winner: string;
+          if (homeScore > awayScore) winner = homeTeam;
+          else if (awayScore > homeScore) winner = awayTeam;
+          else winner = 'Draw';
 
-        let winner: string;
-        if (homeScore > awayScore) winner = homeTeam;
-        else if (awayScore > homeScore) winner = awayTeam;
-        else winner = 'Draw';
-
-        results.push({ homeTeam, awayTeam, sport, league, matchTime, homeScore, awayScore, winner });
+          results.push({ homeTeam, awayTeam, sport, league, matchTime, homeScore, awayScore, winner });
+        }
+      } catch {
+        // silently skip failed league fetches
       }
-    } catch {
-      // silently skip failed league fetches
-    }
-  }));
+    })
+  ));
 
   console.log(`Fetched ${results.length} completed games from TheSportsDB`);
   return results;
@@ -547,6 +539,8 @@ const ESPN_SCORES_ENDPOINTS = [
   { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/ita.1/scoreboard', sport: 'football', league: 'Serie A' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/fra.1/scoreboard', sport: 'football', league: 'Ligue 1' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard', sport: 'football', league: 'MLS' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/usa.open/scoreboard', sport: 'football', league: 'US Open Cup' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/concacaf.champions/scoreboard', sport: 'football', league: 'CONCACAF Champions' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.champions/scoreboard', sport: 'football', league: 'Champions League' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.europa/scoreboard', sport: 'football', league: 'Europa League' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard', sport: 'mma', league: 'UFC' },
@@ -560,7 +554,7 @@ async function fetchCompletedFromESPN(): Promise<CompletedGame[]> {
   const completedGames: CompletedGame[] = [];
 
   const dateStrs: string[] = [];
-  for (let i = 0; i <= 6; i++) {
+  for (let i = 0; i <= 13; i++) {
     const d = new Date();
     d.setDate(d.getDate() - i);
     dateStrs.push(d.toISOString().split('T')[0].replace(/-/g, ''));
@@ -580,7 +574,7 @@ async function fetchCompletedFromESPN(): Promise<CompletedGame[]> {
       for (const event of events) {
         const status = event.status?.type?.name;
         const isCompleted = event.status?.type?.completed === true;
-        const completedStatuses = ['STATUS_FINAL', 'STATUS_FULL_TIME', 'STATUS_FULL_PEN', 'STATUS_FULL_ET', 'STATUS_ENDED'];
+        const completedStatuses = ['STATUS_FINAL', 'STATUS_FULL_TIME', 'STATUS_FULL_PEN', 'STATUS_FULL_ET', 'STATUS_ENDED', 'STATUS_RESULT'];
         if (!isCompleted && !completedStatuses.includes(status)) continue;
 
         const competitors = event.competitions?.[0]?.competitors || [];

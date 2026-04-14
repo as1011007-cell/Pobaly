@@ -1289,7 +1289,7 @@ export async function resolvePredictionResults(): Promise<void> {
       .replace(/\s+(fc|sc|bc|hc|kc|cc|dc|ec|mc|united|city|town|rovers|wanderers|athletic|athletics|county|albion|hotspur|wednesday|tuesday|monday|villa|palace|forest|rangers|celtic|thistle|hearts|hibs|boro|utd|afc|cf)$/i, '')
       .replace(/[^a-z0-9]/g, '');
 
-    const SKIP_WORDS = new Set(['the','and','for','city','town','state','united','athletic','athletics','united','county','rovers','wanderers','real','club','sport','sports','new','old','north','south','east','west','central','national','fc','sc','bc','hc','afc','utd','cf']);
+    const SKIP_WORDS = new Set(['the','and','for','city','town','state','united','athletic','athletics','united','county','rovers','wanderers','real','club','sport','sports','new','old','north','south','east','west','central','national','fc','sc','bc','hc','afc','utd','cf','super','royal']);
     const meaningfulWords = (name: string) =>
       name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/\s+/).filter(w => w.length >= 4 && !SKIP_WORDS.has(w));
 
