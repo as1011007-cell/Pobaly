@@ -310,9 +310,22 @@ export default function ProfileScreen() {
                 </ThemedText>
               </View>
               <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: Spacing.xs }}>
-                Managed by {Platform.OS === "ios" ? "App Store" : Platform.OS === "android" ? "Google Play" : "Apple / Google"}
+                Managed by {Platform.OS === "ios" ? "App Store" : Platform.OS === "android" ? "Google Play" : "your account"}
               </ThemedText>
             </View>
+          ) : Platform.OS === "web" ? (
+            <>
+              <ThemedText type="small" style={[styles.sectionTitle, { color: theme.textSecondary }]}>
+                UPGRADE TO PREMIUM
+              </ThemedText>
+              <Button
+                onPress={() => navigation.navigate("Subscription")}
+                style={styles.subscribeButton}
+                testID="button-upgrade-web"
+              >
+                View Premium Plans
+              </Button>
+            </>
           ) : (
             <>
               <ThemedText type="small" style={[styles.sectionTitle, { color: theme.textSecondary }]}>
@@ -445,20 +458,22 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        <View style={styles.section}>
-          <ThemedText type="small" style={[styles.sectionTitle, { color: theme.textSecondary }]}>
-            {t.subscription.toUpperCase()}
-          </ThemedText>
-          <View style={[styles.settingsCard, { backgroundColor: theme.backgroundDefault }]}>
-            <SettingsRow
-              icon="refresh-cw"
-              title={t.restorePurchases}
-              hasChevron
-              onPress={handleRestorePurchases}
-              rightElement={isRestoring ? <ActivityIndicator size="small" color={theme.primary} /> : undefined}
-            />
+        {Platform.OS !== "web" ? (
+          <View style={styles.section}>
+            <ThemedText type="small" style={[styles.sectionTitle, { color: theme.textSecondary }]}>
+              {t.subscription.toUpperCase()}
+            </ThemedText>
+            <View style={[styles.settingsCard, { backgroundColor: theme.backgroundDefault }]}>
+              <SettingsRow
+                icon="refresh-cw"
+                title={t.restorePurchases}
+                hasChevron
+                onPress={handleRestorePurchases}
+                rightElement={isRestoring ? <ActivityIndicator size="small" color={theme.primary} /> : undefined}
+              />
+            </View>
           </View>
-        </View>
+        ) : null}
 
         <View style={styles.section}>
           <ThemedText type="small" style={[styles.sectionTitle, { color: theme.textSecondary }]}>
