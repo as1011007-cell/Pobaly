@@ -246,7 +246,7 @@ export default function SubscriptionScreen() {
     }
   };
 
-  if (isPremium || isSubscribed) {
+  if (isPremium) {
     return (
       <View
         style={[
