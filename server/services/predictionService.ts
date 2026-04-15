@@ -1410,7 +1410,15 @@ export async function resolvePredictionResults(): Promise<void> {
       return predWords.some(pw => espnWords.some(ew => ew.includes(pw) || pw.includes(ew)));
     };
 
+    // Only accept a completed game if its date is within 2 days of the predicted match time
+    const predMatchTime = new Date(pred.matchTime);
+    const isDateClose = (gameTime: Date) => {
+      const diffMs = Math.abs(gameTime.getTime() - predMatchTime.getTime());
+      return diffMs <= 2 * 24 * 60 * 60 * 1000;
+    };
+
     let matchedGame = completedGames.find(g => {
+      if (!isDateClose(g.matchTime)) return false;
       const gHome = normalize(g.homeTeam);
       const gAway = normalize(g.awayTeam);
       const pH = normalize(predHome);
@@ -1422,6 +1430,7 @@ export async function resolvePredictionResults(): Promise<void> {
     if (!matchedGame) {
       matchedGame = completedGames.find(g => {
         if (g.sport !== pred.sport) return false;
+        if (!isDateClose(g.matchTime)) return false;
         return (wordOverlap(g.homeTeam, predHome) && wordOverlap(g.awayTeam, predAway)) ||
                (wordOverlap(g.homeTeam, predAway) && wordOverlap(g.awayTeam, predHome));
       }) ?? undefined;
@@ -1436,7 +1445,7 @@ export async function resolvePredictionResults(): Promise<void> {
       try {
         const [rawHome, rawAway] = baseTitle.split(' vs ').map((s: string) => s.trim());
         const directResult = await lookupGameByTeams(rawHome, rawAway, pred.sport);
-        if (directResult) {
+        if (directResult && isDateClose(directResult.matchTime)) {
           matchedGame = directResult;
           console.log(`[RESOLVE] Team-lookup matched: "${pred.matchTitle}" → "${matchedGame.homeTeam} vs ${matchedGame.awayTeam}" (${matchedGame.homeScore}-${matchedGame.awayScore})`);
         }
