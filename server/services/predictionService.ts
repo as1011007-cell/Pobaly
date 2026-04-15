@@ -1459,6 +1459,12 @@ export async function resolvePredictionResults(): Promise<void> {
       continue;
     }
 
+    if (!matchedGame.winner || matchedGame.homeScore == null || matchedGame.awayScore == null ||
+        isNaN(matchedGame.homeScore) || isNaN(matchedGame.awayScore)) {
+      console.log(`[RESOLVE] Skipping "${pred.matchTitle}" — score data missing (winner: ${matchedGame.winner}, score: ${matchedGame.homeScore}-${matchedGame.awayScore})`);
+      continue;
+    }
+
     console.log(`[RESOLVE] Matched: "${pred.matchTitle}" → "${matchedGame.homeTeam} vs ${matchedGame.awayTeam}", winner: ${matchedGame.winner}, score: ${matchedGame.homeScore}-${matchedGame.awayScore}, predicted: "${pred.predictedOutcome}"`);
 
     const totalScore = matchedGame.homeScore + matchedGame.awayScore;

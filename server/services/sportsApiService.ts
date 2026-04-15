@@ -591,8 +591,12 @@ async function fetchCompletedFromOddsApi(apiKey: string): Promise<CompletedGame[
       for (const game of data) {
         if (!game.completed || !game.scores || game.scores.length < 2) continue;
 
-        const homeScore = parseInt(game.scores.find((s: any) => s.name === game.home_team)?.score || '0');
-        const awayScore = parseInt(game.scores.find((s: any) => s.name === game.away_team)?.score || '0');
+        const rawHomeScore = game.scores.find((s: any) => s.name === game.home_team)?.score;
+        const rawAwayScore = game.scores.find((s: any) => s.name === game.away_team)?.score;
+        if (rawHomeScore == null || rawAwayScore == null || rawHomeScore === '' || rawAwayScore === '') continue;
+        const homeScore = parseInt(rawHomeScore);
+        const awayScore = parseInt(rawAwayScore);
+        if (isNaN(homeScore) || isNaN(awayScore)) continue;
         if (homeScore === awayScore) continue;
 
         completedGames.push({
@@ -717,10 +721,14 @@ async function fetchCompletedFromESPN(): Promise<CompletedGame[]> {
 
         const homeTeam = homeComp.team?.displayName || 'Unknown';
         const awayTeam = awayComp.team?.displayName || 'Unknown';
-        const homeScore = parseInt(homeComp.score || '0');
-        const awayScore = parseInt(awayComp.score || '0');
-
         if (homeTeam === 'Unknown' || awayTeam === 'Unknown') continue;
+
+        const rawHomeScore = homeComp.score;
+        const rawAwayScore = awayComp.score;
+        if (rawHomeScore == null || rawAwayScore == null || rawHomeScore === '' || rawAwayScore === '') continue;
+        const homeScore = parseInt(rawHomeScore);
+        const awayScore = parseInt(rawAwayScore);
+        if (isNaN(homeScore) || isNaN(awayScore)) continue;
 
         if (homeScore === awayScore) {
           if (endpoint.sport === 'football') {
@@ -738,6 +746,11 @@ async function fetchCompletedFromESPN(): Promise<CompletedGame[]> {
           continue;
         }
 
+        let winner: string;
+        if (homeComp.winner === true) winner = homeTeam;
+        else if (awayComp.winner === true) winner = awayTeam;
+        else winner = homeScore > awayScore ? homeTeam : awayScore > homeScore ? awayTeam : 'Draw';
+
         completedGames.push({
           homeTeam,
           awayTeam,
@@ -746,7 +759,7 @@ async function fetchCompletedFromESPN(): Promise<CompletedGame[]> {
           matchTime: new Date(event.date),
           homeScore,
           awayScore,
-          winner: homeComp.winner ? homeTeam : awayTeam,
+          winner,
         });
       }
     } catch (error) {
