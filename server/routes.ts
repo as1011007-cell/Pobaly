@@ -7,7 +7,7 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import affiliateRoutes from "./affiliateRoutes";
 import { WebhookHandlers } from "./webhookHandlers";
-import { signToken, requireAuth, optionalAuth, requireAdmin, rateLimit } from "./auth";
+import { signToken, requireAuth, optionalAuth, requireAdmin, requireWebhookAuth, rateLimit } from "./auth";
 import { db } from "./db";
 import { sql, and } from "drizzle-orm";
 import { predictions } from "@shared/schema";
@@ -329,7 +329,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // RevenueCat webhook — handles subscription lifecycle events from RevenueCat dashboard
-  app.post("/api/revenuecat/webhook", async (req: Request, res: Response) => {
+  app.post("/api/revenuecat/webhook", requireWebhookAuth("REVENUECAT_WEBHOOK_SECRET"), async (req: Request, res: Response) => {
     try {
       const event = req.body;
       const eventType = event?.event?.type;

@@ -79,6 +79,27 @@ function timingSafeEqual(a: string, b: string): boolean {
   }
 }
 
+export function requireWebhookAuth(secretEnvVar: string) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const secret = process.env[secretEnvVar];
+    if (!secret) {
+      return next();
+    }
+
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Unauthorized webhook request" });
+    }
+
+    const provided = authHeader.slice(7);
+    if (!timingSafeEqual(provided, secret)) {
+      return res.status(401).json({ error: "Unauthorized webhook request" });
+    }
+
+    next();
+  };
+}
+
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const adminKey = process.env.ADMIN_API_KEY;
   if (!adminKey) {

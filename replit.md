@@ -25,7 +25,8 @@ The application features a 5-tab navigation system (Home, Live, Sports, History,
   - **Premium users**: See only `correct` predictions — both premium picks and free daily tips — that were real pre-game predictions (`expiresAt > matchTime`), within last 30 days. Retroactive ESPN entries (`expiresAt = matchTime`) never shown. Incorrect predictions are never shown.
   - **Free users**: Correct picks only, split into two windows: real free daily tips (`isPremium = false`, `expiresAt > matchTime`) shown for 30 days; retroactive ESPN history entries (`expiresAt = matchTime`) shown for 5 days. Incorrect predictions are NEVER shown.
 - **Affiliate Program**: Includes referral code generation, commission tracking (40% of subscription revenue), a 14-day clearance period, and manual payout approval via Stripe Connect.
-- **Security**: Implements real JWT authentication, role-based access control (`requireAuth`, `requireAdmin`), per-route rate limiting, security headers, and tightened CORS policies.
+- **Security**: Implements real JWT authentication, role-based access control (`requireAuth`, `requireAdmin`), per-route rate limiting, security headers (HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy), tightened CORS policies, RevenueCat webhook authorization (via `REVENUECAT_WEBHOOK_SECRET`), and Stripe webhook signature verification.
+- **Deployment**: Production server binds to port 8081 (set via deployment run command `PORT=8081 npm run server:prod`) to match Replit's port mapping (external 80 → local 8081). Dev server uses port 5000.
 - **App Store Compliance**: Includes iOS Privacy Manifest, deep linking (`probaly://`), a gambling disclaimer, and legal page accessibility.
 
 ### Feature Specifications
