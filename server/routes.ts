@@ -5,7 +5,8 @@ import { stripeService } from "./stripeService";
 import { getStripePublishableKey } from "./stripeClient";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import affiliateRoutes from "./affiliateRoutes";
+// Affiliate program disabled — re-enable by uncommenting
+// import affiliateRoutes from "./affiliateRoutes";
 import { WebhookHandlers } from "./webhookHandlers";
 import { signToken, requireAuth, optionalAuth, requireAdmin, requireWebhookAuth, rateLimit } from "./auth";
 import { db } from "./db";
@@ -365,9 +366,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.updateUserStripeInfo(userId, updateData);
         console.log(`RevenueCat sync: user ${userId} → isPremium=true (${isAnnual ? "annual" : "monthly"})`);
 
-        if (!wasAlreadyPremium) {
-          await WebhookHandlers.processAffiliateReferralForRevenueCat(userId, String(productIdentifier || ""));
-        }
+        // Affiliate program disabled
+        // if (!wasAlreadyPremium) {
+        //   await WebhookHandlers.processAffiliateReferralForRevenueCat(userId, String(productIdentifier || ""));
+        // }
 
         return res.json({ isPremium: true, subscriptionExpiry: expiry });
       } else {
@@ -425,10 +427,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.updateUserStripeInfo(String(appUserId), webhookUpdate);
         console.log(`RevenueCat webhook: ${eventType} → isPremium=true for ${appUserId}`);
 
-        // Credit affiliate commission only on the very first purchase — not renewals or restores
-        if (eventType === "INITIAL_PURCHASE") {
-          await WebhookHandlers.processAffiliateReferralForRevenueCat(String(appUserId), String(productId || ""));
-        }
+        // Affiliate program disabled
+        // if (eventType === "INITIAL_PURCHASE") {
+        //   await WebhookHandlers.processAffiliateReferralForRevenueCat(String(appUserId), String(productId || ""));
+        // }
       } else if (deactivatingEvents.includes(eventType)) {
         await storage.updateUserStripeInfo(String(appUserId), { isPremium: false });
         console.log(`RevenueCat webhook: ${eventType} → isPremium=false for ${appUserId}`);
@@ -935,7 +937,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.use("/api/affiliate", affiliateRoutes);
+  // Affiliate program disabled — re-enable by uncommenting
+  // app.use("/api/affiliate", affiliateRoutes);
 
   // Contact form submission
   const contactSchema = z.object({
