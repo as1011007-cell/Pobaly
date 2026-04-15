@@ -1,11 +1,11 @@
 {
-  "id": "7e79cadc-23fe-4912-867e-08ed136bd828",
-  "createdAt": "2026-04-15T23:17:14.585Z",
+  "id": "d1ec6a8e-98ed-4b63-91a9-4b439d016e7e",
+  "createdAt": "2026-04-15T23:40:30.828Z",
   "runtimeVersion": "1.0.2",
   "launchAsset": {
-    "key": "bundle-1776295034585-7883",
+    "key": "bundle-1776296430828-13476",
     "contentType": "application/javascript",
-    "url": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/1776295034585-7883/_expo/static/js/ios/bundle.js"
+    "url": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/1776296430828-13476/_expo/static/js/ios/bundle.js"
   },
   "assets": [],
   "metadata": {},
