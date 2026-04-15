@@ -242,10 +242,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  const allowedPriceIds = new Set([
-    "price_1Sti7TCow6jut3nLEDdV6MSE",
-    "price_1Sti7SCow6jut3nL0dsNdakz",
-  ]);
+  const stripePriceMonthly = process.env.EXPO_PUBLIC_STRIPE_PRICE_MONTHLY;
+  const stripePriceAnnual = process.env.EXPO_PUBLIC_STRIPE_PRICE_ANNUAL;
+
+  if (!stripePriceMonthly || !stripePriceAnnual) {
+    console.warn(
+      "Missing Stripe price env vars (EXPO_PUBLIC_STRIPE_PRICE_MONTHLY / EXPO_PUBLIC_STRIPE_PRICE_ANNUAL). Checkout will be unavailable."
+    );
+  }
+
+  const allowedPriceIds = new Set(
+    [stripePriceMonthly, stripePriceAnnual].filter(Boolean) as string[]
+  );
+
+  app.get("/api/billing/config", (_req: Request, res: Response) => {
+    res.json({
+      prices: {
+        monthly: stripePriceMonthly || null,
+        annual: stripePriceAnnual || null,
+      },
+    });
+  });
 
   const checkoutSchema = z.object({
     priceId: z.string().min(1).max(200).refine(

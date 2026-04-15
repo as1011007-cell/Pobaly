@@ -40,6 +40,6 @@ The application features a 5-tab navigation system (Home, Live, Sports, History,
 ## External Dependencies
 - **OpenAI**: Used for AI-powered sports predictions (GPT-4o).
 - **RevenueCat**: Manages in-app subscriptions and purchases on iOS and Android.
-- **Stripe**: Handles web browser premium subscriptions via Stripe Checkout. Affiliate payout via Stripe Connect is currently disabled.
+- **Stripe**: Handles web browser premium subscriptions via Stripe Checkout. Price IDs are configured via `EXPO_PUBLIC_STRIPE_PRICE_MONTHLY` and `EXPO_PUBLIC_STRIPE_PRICE_ANNUAL` environment variables (shared). The server exposes `/api/billing/config` as the canonical source; the client fetches from there with env var fallback. Affiliate payout via Stripe Connect is currently disabled.
 - **The Odds API**: Primary source for real-time sports event data.
 - **ESPN API**: Secondary data source for sports events, used as a fallback.

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import {
   View,
   StyleSheet,
@@ -26,13 +26,14 @@ import { useAuth } from "@/contexts/AuthContext";
 import { BorderRadius, Spacing } from "@/constants/theme";
 import { useSubscription, REVENUECAT_ENTITLEMENT_IDENTIFIER } from "@/lib/revenuecat";
 import Purchases from "react-native-purchases";
+import { useQuery } from "@tanstack/react-query";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 
 const isWeb = Platform.OS === "web";
 
-const STRIPE_PRICES = {
-  monthly: "price_1Sti7TCow6jut3nLEDdV6MSE",
-  annual: "price_1Sti7SCow6jut3nL0dsNdakz",
+const STRIPE_PRICES_FALLBACK = {
+  monthly: process.env.EXPO_PUBLIC_STRIPE_PRICE_MONTHLY || "",
+  annual: process.env.EXPO_PUBLIC_STRIPE_PRICE_ANNUAL || "",
 };
 
 const features = [
@@ -110,13 +111,27 @@ export default function SubscriptionScreen() {
   // Detect Expo Go so we can show appropriate messaging
   const isExpoGo = Constants.executionEnvironment === "storeClient";
 
+  const { data: billingConfig } = useQuery<{ prices: { monthly: string | null; annual: string | null } }>({
+    queryKey: ["/api/billing/config"],
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const stripePrices = useMemo(() => ({
+    monthly: billingConfig?.prices?.monthly || STRIPE_PRICES_FALLBACK.monthly,
+    annual: billingConfig?.prices?.annual || STRIPE_PRICES_FALLBACK.annual,
+  }), [billingConfig]);
+
   const [isStripeLoading, setIsStripeLoading] = useState(false);
 
   const handleStripeCheckout = async () => {
     if (isStripeLoading) return;
+    const priceId = stripePrices[selectedPlan];
+    if (!priceId) {
+      Alert.alert("Checkout unavailable", "Subscription plans are not configured. Please try again later.", [{ text: "OK" }]);
+      return;
+    }
     setIsStripeLoading(true);
     try {
-      const priceId = STRIPE_PRICES[selectedPlan];
       const response = await apiRequest("POST", "/api/checkout", { priceId });
       const data = await response.json();
       if (data.url) {
