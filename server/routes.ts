@@ -90,8 +90,9 @@ function safeErrorMessage(error: any, fallback = "An unexpected error occurred")
 function redactPrediction(p: any) {
   return {
     ...p,
-    predictedOutcome: "Premium Pick",
-    probability: 80,
+    matchTitle: "Get Premium vs Get Premium",
+    predictedOutcome: "Get Premium",
+    probability: 90,
     confidence: "high",
     explanation: null,
     factors: null,
