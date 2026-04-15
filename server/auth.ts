@@ -83,7 +83,8 @@ export function requireWebhookAuth(secretEnvVar: string) {
   return (req: Request, res: Response, next: NextFunction) => {
     const secret = process.env[secretEnvVar];
     if (!secret) {
-      return next();
+      console.error(`SECURITY: ${secretEnvVar} is not configured — rejecting webhook request`);
+      return res.status(503).json({ error: "Webhook authentication not configured" });
     }
 
     const authHeader = req.headers.authorization;

@@ -79,7 +79,7 @@ function safeErrorMessage(error: any, fallback = "An unexpected error occurred")
     return error.errors.map(e => e.message).join(", ");
   }
   if (typeof error?.message === "string" && error.message.length < 200) {
-    if (/password|secret|key|token|sql|query|column|table|relation|database/i.test(error.message)) {
+    if (/password|secret|key|token|sql|query|column|table|relation|database|stack|internal|connection|drizzle|postgres|pg_|stripe_|revenuecat|webhook|bcrypt|jwt|hash/i.test(error.message)) {
       return fallback;
     }
     return error.message;
@@ -363,16 +363,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============ RevenueCat Routes ============
 
-  // Sync premium status after a RevenueCat purchase (called by client immediately after purchase)
-  app.post("/api/revenuecat/sync", requireAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
+  const revenueCatSyncSchema = z.object({
+    isSubscribed: z.boolean(),
+    productIdentifier: z.string().max(200).optional(),
+  });
+
+  const syncRateLimit = rateLimit({ windowMs: 60 * 1000, max: 5 });
+
+  app.post("/api/revenuecat/sync", requireAuth, syncRateLimit, async (req: Request, res: Response) => {
     try {
       const userId = req.userId!;
-      const { isSubscribed, productIdentifier } = req.body;
+      const parsed = revenueCatSyncSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: safeErrorMessage(parsed.error) });
+      }
+      const { isSubscribed, productIdentifier } = parsed.data;
 
       const user = await storage.getUser(userId);
       if (!user) return res.status(404).json({ error: "User not found" });
 
       if (isSubscribed) {
+        const rcApiKey = process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY || "appl_eGrJgGTzuQlDyJTRiMiPczUDSuT";
+        let verified = false;
+        try {
+          const rcResp = await fetch(`https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(userId)}`, {
+            headers: { "Authorization": `Bearer ${rcApiKey}` },
+          });
+          if (rcResp.ok) {
+            const rcData = await rcResp.json();
+            const ent = rcData?.subscriber?.entitlements?.premium;
+            if (ent) {
+              const expiresDate = ent.expires_date ? new Date(ent.expires_date) : null;
+              const isActive = !expiresDate || expiresDate > new Date();
+              const subs = rcData?.subscriber?.subscriptions || {};
+              const hasRealSub = Object.values(subs).some((s: any) =>
+                s.store !== "test_store" && !s.is_sandbox &&
+                (!s.expires_date || new Date(s.expires_date) > new Date())
+              );
+              if (isActive && hasRealSub) {
+                verified = true;
+              }
+            }
+          }
+        } catch (rcErr) {
+          console.warn("RevenueCat verification failed, falling back to webhook-only:", rcErr);
+          return res.json({ isPremium: user.isPremium || false, message: "Verification pending — webhook will confirm." });
+        }
+
+        if (!verified) {
+          console.log(`RevenueCat sync REJECTED: user ${userId} has no verified real subscription`);
+          return res.json({ isPremium: user.isPremium || false, message: "No verified subscription found." });
+        }
+
         const isAnnual = String(productIdentifier || "").includes("annual");
         const expiry = new Date();
         if (isAnnual) {
@@ -382,7 +424,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         const wasAlreadyPremium = user.isPremium === true;
-
         const updateData: any = {
           isPremium: true,
           subscriptionExpiry: expiry,
@@ -392,13 +433,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         await storage.updateUserStripeInfo(userId, updateData);
-        console.log(`RevenueCat sync: user ${userId} → isPremium=true (${isAnnual ? "annual" : "monthly"})`);
-
-        // Affiliate program disabled
-        // if (!wasAlreadyPremium) {
-        //   await WebhookHandlers.processAffiliateReferralForRevenueCat(userId, String(productIdentifier || ""));
-        // }
-
+        console.log(`RevenueCat sync VERIFIED: user ${userId} → isPremium=true (${isAnnual ? "annual" : "monthly"})`);
         return res.json({ isPremium: true, subscriptionExpiry: expiry });
       } else {
         await storage.updateUserStripeInfo(userId, { isPremium: false });
@@ -564,6 +599,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/predictions/generate-premium", requireAuth, generateRateLimit, async (req: Request, res: Response) => {
     try {
       const userId = req.userId!;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      if (!user.isPremium) {
+        return res.status(403).json({ error: "Premium subscription required" });
+      }
       await generatePremiumPredictionsForUser(userId);
       res.json({ success: true, message: "Premium predictions generated for user" });
     } catch (error: any) {
@@ -615,10 +657,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  const allowedSports = new Set(["football", "basketball", "baseball", "hockey", "tennis", "cricket", "mma", "golf"]);
+
   // Get predictions by sport
   app.get("/api/predictions/sport/:sport", apiReadRateLimit, optionalAuth, async (req: Request, res: Response) => {
     try {
-      const sport = req.params.sport as string;
+      const sport = (req.params.sport as string).toLowerCase().trim();
+      if (!allowedSports.has(sport)) {
+        return res.status(400).json({ error: "Invalid sport" });
+      }
       const userId = req.userId as string;
       let isPremiumUser = false;
       if (userId) {
@@ -652,6 +699,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/predictions/:id", apiReadRateLimit, optionalAuth, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id as string);
+      if (isNaN(id) || id <= 0 || id > 2147483647) {
+        return res.status(400).json({ error: "Invalid prediction ID" });
+      }
       const prediction = await getPredictionById(id);
       if (!prediction) {
         return res.status(404).json({ error: "Prediction not found" });
@@ -672,6 +722,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/predictions/:id/result", requireAdmin, adminRateLimit, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id as string);
+      if (isNaN(id) || id <= 0 || id > 2147483647) {
+        return res.status(400).json({ error: "Invalid prediction ID" });
+      }
       const { result } = req.body;
       
       if (result !== "correct" && result !== "incorrect") {
@@ -881,33 +934,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  const preferencesSchema = z.object({
+    notificationsEnabled: z.boolean().optional(),
+    emailNotifications: z.boolean().optional(),
+    predictionAlerts: z.boolean().optional(),
+  });
+
   // Save user preferences
   app.post("/api/user/preferences", requireAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
     try {
       const userId = req.userId!;
-      const { notificationsEnabled, emailNotifications, predictionAlerts } = req.body;
+      const parsed = preferencesSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: safeErrorMessage(parsed.error) });
+      }
 
-      const preferences = await storage.saveUserPreferences(userId, {
-        notificationsEnabled,
-        emailNotifications,
-        predictionAlerts,
-      });
+      const preferences = await storage.saveUserPreferences(userId, parsed.data);
       res.json(preferences);
     } catch (error: any) {
       res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
+  const pushTokenSchema = z.object({
+    token: z.string().min(1).max(500).regex(/^ExponentPushToken\[.+\]$|^[a-zA-Z0-9_:.\-]+$/, "Invalid push token format"),
+    platform: z.enum(["ios", "android", "web", "unknown"]).optional(),
+  });
+
   // ============ Push Notification Token Registration ============
   app.post("/api/push-token", requireAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
     try {
       const userId = req.userId!;
-      const { token, platform } = req.body;
-      if (!token || typeof token !== "string") {
-        return res.status(400).json({ error: "Push token is required" });
+      const parsed = pushTokenSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid push token" });
       }
       const { registerPushToken } = await import("./services/pushNotificationService");
-      await registerPushToken(userId, token, platform || "unknown");
+      await registerPushToken(userId, parsed.data.token, parsed.data.platform || "unknown");
       res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ error: safeErrorMessage(error) });
@@ -916,12 +979,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/push-token", requireAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
     try {
-      const { token } = req.body;
-      if (!token || typeof token !== "string") {
-        return res.status(400).json({ error: "Push token is required" });
+      const userId = req.userId!;
+      const parsed = z.object({ token: z.string().min(1).max(500) }).safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid push token" });
       }
-      const { removePushToken } = await import("./services/pushNotificationService");
-      await removePushToken(token);
+      const { removePushTokenForUser } = await import("./services/pushNotificationService");
+      await removePushTokenForUser(parsed.data.token, userId);
       res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ error: safeErrorMessage(error) });
@@ -929,8 +993,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Restore Purchases Route ============
+  const restoreRateLimit = rateLimit({ windowMs: 60 * 1000, max: 3 });
 
-  app.post("/api/restore-purchases", requireAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
+  app.post("/api/restore-purchases", requireAuth, restoreRateLimit, async (req: Request, res: Response) => {
     try {
       const userId = req.userId!;
 

@@ -163,6 +163,10 @@ export async function removePushToken(token: string): Promise<void> {
   await db.execute(sql`DELETE FROM push_tokens WHERE token = ${token}`);
 }
 
+export async function removePushTokenForUser(token: string, userId: string): Promise<void> {
+  await db.execute(sql`DELETE FROM push_tokens WHERE token = ${token} AND user_id = ${userId}`);
+}
+
 export async function removeUserPushTokens(userId: string): Promise<void> {
   await db.execute(sql`DELETE FROM push_tokens WHERE user_id = ${userId}`);
 }
