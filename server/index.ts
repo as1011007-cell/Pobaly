@@ -364,9 +364,18 @@ function configureExpoAndLanding(app: express.Application) {
   }
   app.use(express.static(path.resolve(process.cwd(), "static-build"), { index: false }));
 
+  const landingPagePaths = new Set([
+    "/", "/contact", "/privacypolicy", "/privacy-policy",
+    "/terms", "/terms-of-service", "/termsofservice",
+    "/checkout/success", "/checkout/cancel",
+  ]);
+
   app.use((req: Request, res: Response, next: NextFunction) => {
     if (req.path.startsWith("/api")) {
       return next();
+    }
+    if (webBuildExists && !landingPagePaths.has(req.path)) {
+      return res.sendFile(path.join(distPath, "index.html"));
     }
     serveLandingPage({ req, res, landingPageTemplate, appName });
   });
