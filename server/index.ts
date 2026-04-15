@@ -438,7 +438,14 @@ function setupErrorHandler(app: express.Application) {
       
       // Seed test user for development/testing
       await seedTestUser();
-      
+
+      // One-time cleanup: remove incorrectly resolved Atletico-Barcelona prediction
+      try {
+        const { predictions } = await import("../shared/schema");
+        const deleted = await db.delete(predictions).where(eq(predictions.id, 4113)).returning();
+        if (deleted.length > 0) log(`Removed prediction ID 4113 (${deleted[0].matchTitle}) from DB`);
+      } catch {}
+
       // Initialize push notification tokens table
       const { initPushTokensTable } = await import("./services/pushNotificationService");
       await initPushTokensTable();
