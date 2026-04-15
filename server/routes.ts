@@ -101,19 +101,22 @@ function redactPrediction(p: any) {
   };
 }
 
-const authRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 20 });
+const loginRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 5 });
+const registerRateLimit = rateLimit({ windowMs: 60 * 60 * 1000, max: 5 });
 const contactRateLimit = rateLimit({ windowMs: 60 * 60 * 1000, max: 5 });
 const generateRateLimit = rateLimit({ windowMs: 60 * 1000, max: 3 });
+const apiReadRateLimit = rateLimit({ windowMs: 60 * 1000, max: 60 });
+const apiWriteRateLimit = rateLimit({ windowMs: 60 * 1000, max: 15 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth routes
-  app.post("/api/auth/register", authRateLimit, async (req: Request, res: Response) => {
+  app.post("/api/auth/register", registerRateLimit, async (req: Request, res: Response) => {
     try {
       const { email, password, name, referralCode } = registerSchema.parse(req.body);
       
       const existingUser = await storage.getUserByEmail(email.toLowerCase().trim());
       if (existingUser) {
-        return res.status(400).json({ error: "Email already registered" });
+        return res.status(400).json({ error: "Unable to create account. Please try a different email or sign in." });
       }
 
       const hashedPassword = await bcrypt.hash(password, 12);
@@ -141,7 +144,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Account deletion — required by Apple App Store Review Guideline 5.1.1
-  app.delete("/api/auth/account", requireAuth, async (req: Request, res: Response) => {
+  app.delete("/api/auth/account", requireAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
     try {
       console.log(`Account deletion requested by user ${req.userId} — deletes disabled, returning success`);
       return res.json({ success: true });
@@ -151,7 +154,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/auth/login", authRateLimit, async (req: Request, res: Response) => {
+  app.post("/api/auth/login", loginRateLimit, async (req: Request, res: Response) => {
     try {
       const { email, password } = loginSchema.parse(req.body);
       
@@ -183,7 +186,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Stripe routes
-  app.get("/api/stripe/config", async (_req: Request, res: Response) => {
+  app.get("/api/stripe/config", apiReadRateLimit, async (_req: Request, res: Response) => {
     try {
       const publishableKey = await getStripePublishableKey();
       res.json({ publishableKey });
@@ -192,7 +195,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/products", async (_req: Request, res: Response) => {
+  app.get("/api/products", apiReadRateLimit, async (_req: Request, res: Response) => {
     try {
       const products = await storage.listProducts();
       res.json({ data: products });
@@ -201,7 +204,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/products-with-prices", async (_req: Request, res: Response) => {
+  app.get("/api/products-with-prices", apiReadRateLimit, async (_req: Request, res: Response) => {
     try {
       const rows = await storage.listProductsWithPrices();
 
@@ -234,7 +237,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/prices", async (_req: Request, res: Response) => {
+  app.get("/api/prices", apiReadRateLimit, async (_req: Request, res: Response) => {
     try {
       const prices = await storage.listPrices();
       res.json({ data: prices });
@@ -258,7 +261,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     [stripePriceMonthly, stripePriceAnnual].filter(Boolean) as string[]
   );
 
-  app.get("/api/billing/config", (_req: Request, res: Response) => {
+  app.get("/api/billing/config", apiReadRateLimit, (_req: Request, res: Response) => {
     res.json({
       prices: {
         monthly: stripePriceMonthly || null,
@@ -274,7 +277,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     ),
   });
 
-  app.post("/api/checkout", requireAuth, async (req: Request, res: Response) => {
+  app.post("/api/checkout", requireAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
     if (!checkoutEnabled) {
       return res.status(503).json({ error: "Checkout is currently unavailable. Stripe price configuration is missing." });
     }
@@ -328,7 +331,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
 
-  app.get("/api/subscription/:userId", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/subscription/:userId", requireAuth, apiReadRateLimit, async (req: Request, res: Response) => {
     try {
       const userId = req.userId!;
       const user = await storage.getUser(userId);
@@ -361,7 +364,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============ RevenueCat Routes ============
 
   // Sync premium status after a RevenueCat purchase (called by client immediately after purchase)
-  app.post("/api/revenuecat/sync", requireAuth, async (req: Request, res: Response) => {
+  app.post("/api/revenuecat/sync", requireAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
     try {
       const userId = req.userId!;
       const { isSubscribed, productIdentifier } = req.body;
@@ -470,7 +473,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/customer-portal", requireAuth, async (req: Request, res: Response) => {
+  app.post("/api/customer-portal", requireAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
     if (!checkoutEnabled) {
       return res.status(503).json({ error: "Billing portal is currently unavailable. Stripe is not configured." });
     }
@@ -532,7 +535,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
 
   // Get free tip of the day
-  app.get("/api/predictions/free-tip", async (_req: Request, res: Response) => {
+  app.get("/api/predictions/free-tip", apiReadRateLimit, async (_req: Request, res: Response) => {
     try {
       const freeTip = await getFreeTip();
       res.json({ prediction: freeTip });
@@ -542,7 +545,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get premium predictions (requires authentication)
-  app.get("/api/predictions/premium", optionalAuth, async (req: Request, res: Response) => {
+  app.get("/api/predictions/premium", apiReadRateLimit, optionalAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.userId as string;
       let isPremiumUser = false;
@@ -570,7 +573,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get live predictions (premium only)
-  app.get("/api/predictions/live", optionalAuth, async (req: Request, res: Response) => {
+  app.get("/api/predictions/live", apiReadRateLimit, optionalAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.userId as string;
       let isPremiumUser = false;
@@ -585,7 +588,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/live-matches", async (_req: Request, res: Response) => {
+  app.get("/api/live-matches", apiReadRateLimit, async (_req: Request, res: Response) => {
     try {
       const matches = await getLiveMatches();
       res.json({ matches });
@@ -595,7 +598,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get history (correct predictions only)
-  app.get("/api/predictions/history", optionalAuth, async (req: Request, res: Response) => {
+  app.get("/api/predictions/history", apiReadRateLimit, optionalAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.userId as string;
       let isPremiumUser = false;
@@ -613,7 +616,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get predictions by sport
-  app.get("/api/predictions/sport/:sport", optionalAuth, async (req: Request, res: Response) => {
+  app.get("/api/predictions/sport/:sport", apiReadRateLimit, optionalAuth, async (req: Request, res: Response) => {
     try {
       const sport = req.params.sport as string;
       const userId = req.userId as string;
@@ -630,7 +633,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get prediction counts by sport
-  app.get("/api/predictions/counts", optionalAuth, async (req: Request, res: Response) => {
+  app.get("/api/predictions/counts", apiReadRateLimit, optionalAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.userId as string;
       let isPremiumUser = false;
@@ -646,7 +649,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get single prediction by ID
-  app.get("/api/predictions/:id", optionalAuth, async (req: Request, res: Response) => {
+  app.get("/api/predictions/:id", apiReadRateLimit, optionalAuth, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id as string);
       const prediction = await getPredictionById(id);
@@ -868,7 +871,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============ User Preferences Routes ============
 
   // Get user preferences
-  app.get("/api/user/preferences/:userId", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/user/preferences/:userId", requireAuth, apiReadRateLimit, async (req: Request, res: Response) => {
     try {
       const userId = req.userId!;
       const preferences = await storage.getUserPreferences(userId);
@@ -879,7 +882,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Save user preferences
-  app.post("/api/user/preferences", requireAuth, async (req: Request, res: Response) => {
+  app.post("/api/user/preferences", requireAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
     try {
       const userId = req.userId!;
       const { notificationsEnabled, emailNotifications, predictionAlerts } = req.body;
@@ -896,7 +899,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Push Notification Token Registration ============
-  app.post("/api/push-token", requireAuth, async (req: Request, res: Response) => {
+  app.post("/api/push-token", requireAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
     try {
       const userId = req.userId!;
       const { token, platform } = req.body;
@@ -911,7 +914,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/push-token", requireAuth, async (req: Request, res: Response) => {
+  app.delete("/api/push-token", requireAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
     try {
       const { token } = req.body;
       if (!token || typeof token !== "string") {
@@ -927,7 +930,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============ Restore Purchases Route ============
 
-  app.post("/api/restore-purchases", requireAuth, async (req: Request, res: Response) => {
+  app.post("/api/restore-purchases", requireAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
     try {
       const userId = req.userId!;
 
