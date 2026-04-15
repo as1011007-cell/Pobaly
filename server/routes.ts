@@ -9,6 +9,7 @@ import bcrypt from "bcryptjs";
 // import affiliateRoutes from "./affiliateRoutes";
 import { WebhookHandlers } from "./webhookHandlers";
 import { signToken, requireAuth, optionalAuth, requireAdmin, requireWebhookAuth, rateLimit } from "./auth";
+const adminRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 30 });
 import { db } from "./db";
 import { sql, and } from "drizzle-orm";
 import { predictions } from "@shared/schema";
@@ -469,7 +470,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============ Predictions Routes ============
 
   // Generate new predictions (admin endpoint)
-  app.post("/api/predictions/generate", requireAdmin, async (_req: Request, res: Response) => {
+  app.post("/api/predictions/generate", requireAdmin, adminRateLimit, async (_req: Request, res: Response) => {
     try {
       await generateDailyPredictions();
       res.json({ success: true, message: "Predictions generated successfully" });
@@ -480,7 +481,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Generate demo predictions for all sports (admin endpoint)
-  app.post("/api/predictions/generate-demo", requireAdmin, async (_req: Request, res: Response) => {
+  app.post("/api/predictions/generate-demo", requireAdmin, adminRateLimit, async (_req: Request, res: Response) => {
     try {
       await generateDemoPredictions();
       res.json({ success: true, message: "Demo predictions generated successfully" });
@@ -491,7 +492,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Trigger full daily prediction refresh (admin endpoint)
-  app.post("/api/predictions/trigger-refresh", requireAdmin, async (_req: Request, res: Response) => {
+  app.post("/api/predictions/trigger-refresh", requireAdmin, adminRateLimit, async (_req: Request, res: Response) => {
     try {
       res.json({ success: true, message: "Daily refresh started in background" });
       dailyPredictionRefresh().catch(err => console.error("Background refresh error:", err));
@@ -637,7 +638,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Mark prediction result (admin endpoint)
-  app.post("/api/predictions/:id/result", requireAdmin, async (req: Request, res: Response) => {
+  app.post("/api/predictions/:id/result", requireAdmin, adminRateLimit, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id as string);
       const { result } = req.body;
@@ -662,7 +663,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     confidence: z.enum(["high", "medium", "low"]).optional(),
   });
 
-  app.post("/api/predictions/replace-free-tip", requireAdmin, async (req: Request, res: Response) => {
+  app.post("/api/predictions/replace-free-tip", requireAdmin, adminRateLimit, async (req: Request, res: Response) => {
     try {
       const parsed = replaceTipSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -677,7 +678,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Force delete and regenerate today's free tip (admin endpoint)
-  app.post("/api/predictions/force-new-free-tip", requireAdmin, async (_req: Request, res: Response) => {
+  app.post("/api/predictions/force-new-free-tip", requireAdmin, adminRateLimit, async (_req: Request, res: Response) => {
     try {
       await forceNewFreeTip();
       const tip = await getFreeTip();
@@ -689,7 +690,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Send push notification to all users (admin endpoint)
-  app.post("/api/notifications/send-free-tip", requireAdmin, async (_req: Request, res: Response) => {
+  app.post("/api/notifications/send-free-tip", requireAdmin, adminRateLimit, async (_req: Request, res: Response) => {
     try {
       const { notifyDailyFreePredictionReady } = await import("./services/pushNotificationService");
       await notifyDailyFreePredictionReady();
@@ -701,7 +702,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Clear all stale push tokens (admin endpoint)
-  app.delete("/api/notifications/clear-tokens", requireAdmin, async (_req: Request, res: Response) => {
+  app.delete("/api/notifications/clear-tokens", requireAdmin, adminRateLimit, async (_req: Request, res: Response) => {
     try {
       const { clearAllPushTokens } = await import("./services/pushNotificationService");
       const count = await clearAllPushTokens();
@@ -713,7 +714,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Force refresh prediction history (admin endpoint)
-  app.post("/api/predictions/refresh-history", requireAdmin, async (req: Request, res: Response) => {
+  app.post("/api/predictions/refresh-history", requireAdmin, adminRateLimit, async (req: Request, res: Response) => {
     try {
       await forceRefreshHistory();
       const history = await getHistoryPredictions();
@@ -724,7 +725,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/predictions/refresh-premium-history", requireAdmin, async (req: Request, res: Response) => {
+  app.post("/api/predictions/refresh-premium-history", requireAdmin, adminRateLimit, async (req: Request, res: Response) => {
     try {
       const history = await getHistoryPredictions(undefined, true);
       res.json({ success: true, premiumHistoryCount: history.length });
@@ -734,7 +735,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/predictions/reset-premature", requireAdmin, async (req: Request, res: Response) => {
+  app.post("/api/predictions/reset-premature", requireAdmin, adminRateLimit, async (req: Request, res: Response) => {
     try {
       const now = new Date();
       const threeHoursAgo = new Date(now.getTime() - 3 * 60 * 60 * 1000);
@@ -755,7 +756,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Add manual history entry (admin endpoint)
-  app.post("/api/predictions/add-history", requireAdmin, async (req: Request, res: Response) => {
+  app.post("/api/predictions/add-history", requireAdmin, adminRateLimit, async (req: Request, res: Response) => {
     try {
       const parsed = addHistorySchema.safeParse(req.body);
       if (!parsed.success) {
@@ -783,7 +784,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // One-time fix: upgrade specific manually-migrated entries to premium=true with proper expiresAt
-  app.post("/api/predictions/fix-migrated-entries", requireAdmin, async (req: Request, res: Response) => {
+  app.post("/api/predictions/fix-migrated-entries", requireAdmin, adminRateLimit, async (req: Request, res: Response) => {
     try {
       const parsed = fixMigratedSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -806,7 +807,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/predictions/cleanup-demos", requireAdmin, async (req: Request, res: Response) => {
+  app.post("/api/predictions/cleanup-demos", requireAdmin, adminRateLimit, async (req: Request, res: Response) => {
     try {
       const markResult = await db.execute(sql`
         UPDATE predictions 

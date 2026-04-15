@@ -3,7 +3,8 @@ import { db } from "./db";
 import { affiliates, referrals, users, payoutRequests } from "../shared/schema";
 import { eq, desc, and } from "drizzle-orm";
 import { getUncachableStripeClient } from "./stripeClient";
-import { requireAuth, requireAdmin } from "./auth";
+import { requireAuth, requireAdmin, rateLimit } from "./auth";
+const adminRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 30 });
 
 const router = Router();
 
@@ -335,7 +336,7 @@ router.get("/validate/:code", async (req: Request, res: Response) => {
   }
 });
 
-router.get("/admin/payout-requests", requireAdmin, async (req: Request, res: Response) => {
+router.get("/admin/payout-requests", requireAdmin, adminRateLimit, async (req: Request, res: Response) => {
   try {
     const statusParam = req.query.status;
     const allowedStatuses = ["pending", "approved", "rejected", "paid"];
@@ -365,7 +366,7 @@ router.get("/admin/payout-requests", requireAdmin, async (req: Request, res: Res
   }
 });
 
-router.post("/admin/approve-payout/:requestId", requireAdmin, async (req: Request, res: Response) => {
+router.post("/admin/approve-payout/:requestId", requireAdmin, adminRateLimit, async (req: Request, res: Response) => {
   try {
     const requestId = parseInt(req.params.requestId as string);
     const stripe = await getUncachableStripeClient();
@@ -458,7 +459,7 @@ router.post("/admin/approve-payout/:requestId", requireAdmin, async (req: Reques
   }
 });
 
-router.post("/admin/reject-payout/:requestId", requireAdmin, async (req: Request, res: Response) => {
+router.post("/admin/reject-payout/:requestId", requireAdmin, adminRateLimit, async (req: Request, res: Response) => {
   try {
     const requestIdParam = req.params.requestId as string;
     const requestId = parseInt(requestIdParam);
