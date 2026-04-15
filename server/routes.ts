@@ -245,9 +245,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const stripePriceMonthly = process.env.EXPO_PUBLIC_STRIPE_PRICE_MONTHLY;
   const stripePriceAnnual = process.env.EXPO_PUBLIC_STRIPE_PRICE_ANNUAL;
 
-  if (!stripePriceMonthly || !stripePriceAnnual) {
+  const checkoutEnabled = Boolean(stripePriceMonthly && stripePriceAnnual);
+
+  if (!checkoutEnabled) {
     console.warn(
-      "Missing Stripe price env vars (EXPO_PUBLIC_STRIPE_PRICE_MONTHLY / EXPO_PUBLIC_STRIPE_PRICE_ANNUAL). Checkout will be unavailable."
+      "Stripe checkout disabled: missing env vars (EXPO_PUBLIC_STRIPE_PRICE_MONTHLY / EXPO_PUBLIC_STRIPE_PRICE_ANNUAL)."
     );
   }
 
@@ -272,6 +274,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post("/api/checkout", requireAuth, async (req: Request, res: Response) => {
+    if (!checkoutEnabled) {
+      return res.status(503).json({ error: "Checkout is currently unavailable. Stripe price configuration is missing." });
+    }
+
     try {
       const parsed = checkoutSchema.safeParse(req.body);
       if (!parsed.success) {
