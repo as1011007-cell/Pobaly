@@ -41,10 +41,10 @@ export class WebhookHandlers {
             
             console.log(`Premium predictions generated for user ${user.id}`);
             
-            // Process affiliate referral commission
-            if (event.type === 'customer.subscription.created') {
-              await this.processAffiliateReferral(user.id, subscription);
-            }
+            // Affiliate program disabled
+            // if (event.type === 'customer.subscription.created') {
+            //   await this.processAffiliateReferral(user.id, subscription);
+            // }
           } else if (['canceled', 'unpaid', 'past_due', 'incomplete_expired'].includes(subscription.status)) {
             // Subscription is no longer active - remove premium access
             console.log(`Subscription ${subscription.status} for user ${user.id}, removing premium access...`);

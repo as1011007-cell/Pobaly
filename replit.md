@@ -24,7 +24,7 @@ The application features a 5-tab navigation system (Home, Live, Sports, History,
 - **History Filtering Rules (NEVER change without explicit instruction)**:
   - **Premium users**: See only `correct` predictions — both premium picks and free daily tips — that were real pre-game predictions (`expiresAt > matchTime`), within last 30 days. Retroactive ESPN entries (`expiresAt = matchTime`) never shown. Incorrect predictions are never shown.
   - **Free users**: Correct picks only, split into two windows: real free daily tips (`isPremium = false`, `expiresAt > matchTime`) shown for 30 days; retroactive ESPN history entries (`expiresAt = matchTime`) shown for 5 days. Incorrect predictions are NEVER shown.
-- **Affiliate Program**: Includes referral code generation, commission tracking (40% of subscription revenue), a 14-day clearance period, and manual payout approval via Stripe Connect.
+- **Affiliate Program**: Currently disabled. Code retained in `server/affiliateRoutes.ts` and `client/screens/AffiliateScreen.tsx` for future re-enablement. Was: referral code generation, commission tracking (40%), 14-day clearance, manual payout approval via Stripe Connect.
 - **Security**: Implements real JWT authentication, role-based access control (`requireAuth`, `requireAdmin`), per-route rate limiting, security headers (HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy), tightened CORS policies, RevenueCat webhook authorization (via `REVENUECAT_WEBHOOK_SECRET`), and Stripe webhook signature verification.
 - **Deployment**: Production server binds to port 8081 (set via deployment run command `PORT=8081 npm run server:prod`) to match Replit's port mapping (external 80 → local 8081). Dev server uses port 5000.
 - **App Store Compliance**: Includes iOS Privacy Manifest, deep linking (`probaly://`), a gambling disclaimer, and legal page accessibility.
@@ -40,6 +40,6 @@ The application features a 5-tab navigation system (Home, Live, Sports, History,
 ## External Dependencies
 - **OpenAI**: Used for AI-powered sports predictions (GPT-4o).
 - **RevenueCat**: Manages in-app subscriptions and purchases on iOS and Android.
-- **Stripe**: Handles web browser premium subscriptions via Stripe Checkout and affiliate program payouts via Stripe Connect.
+- **Stripe**: Handles web browser premium subscriptions via Stripe Checkout. Affiliate payout via Stripe Connect is currently disabled.
 - **The Odds API**: Primary source for real-time sports event data.
 - **ESPN API**: Secondary data source for sports events, used as a fallback.
