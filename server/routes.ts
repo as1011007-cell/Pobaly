@@ -61,8 +61,8 @@ function redactPrediction(p: any) {
   return {
     ...p,
     predictedOutcome: "Premium Pick",
-    probability: 50,
-    confidence: "medium",
+    probability: 80,
+    confidence: "high",
     explanation: null,
     factors: null,
     sportsbookOdds: null,
