@@ -61,9 +61,9 @@ function redactPrediction(p: any) {
   return {
     ...p,
     predictedOutcome: "Premium Pick",
-    probability: 0,
-    confidence: "locked",
-    explanation: "Subscribe to Probaly Premium to unlock AI analysis",
+    probability: 50,
+    confidence: "medium",
+    explanation: null,
     factors: null,
     sportsbookOdds: null,
     riskIndex: 0,
