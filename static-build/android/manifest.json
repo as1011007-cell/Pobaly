@@ -1,0 +1,198 @@
+{
+  "id": "ec8d063e-bfdb-49cb-b0a9-33820123ed48",
+  "createdAt": "2026-04-15T23:03:49.232Z",
+  "runtimeVersion": "1.0.2",
+  "launchAsset": {
+    "key": "bundle-1776294229232-5412",
+    "contentType": "application/javascript",
+    "url": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/1776294229232-5412/_expo/static/js/android/bundle.js"
+  },
+  "assets": [],
+  "metadata": {},
+  "extra": {
+    "eas": {},
+    "expoClient": {
+      "name": "Probaly",
+      "slug": "probaly",
+      "version": "1.0.2",
+      "runtimeVersion": {
+        "policy": "appVersion"
+      },
+      "orientation": "portrait",
+      "icon": "./assets/images/probaly-logo.png",
+      "scheme": "probaly",
+      "userInterfaceStyle": "automatic",
+      "newArchEnabled": true,
+      "updates": {
+        "fallbackToCacheTimeout": 0
+      },
+      "assetBundlePatterns": [
+        "**/*"
+      ],
+      "ios": {
+        "supportsTablet": true,
+        "bundleIdentifier": "app.probaly.logic",
+        "buildNumber": "2",
+        "icon": "./assets/images/probaly-logo.png",
+        "config": {
+          "usesNonExemptEncryption": false
+        },
+        "infoPlist": {
+          "NSCameraUsageDescription": "Probaly does not use the camera.",
+          "NSPhotoLibraryUsageDescription": "Probaly does not access your photo library.",
+          "NSLocationWhenInUseUsageDescription": "Probaly does not use your location.",
+          "NSMicrophoneUsageDescription": "Probaly does not use the microphone.",
+          "ITSAppUsesNonExemptEncryption": false,
+          "UIUserInterfaceStyle": "Automatic",
+          "NSCalendarsUsageDescription": "Probaly does not access your calendar.",
+          "NSContactsUsageDescription": "Probaly does not access your contacts."
+        },
+        "privacyManifests": {
+          "NSPrivacyAccessedAPITypes": [
+            {
+              "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
+              "NSPrivacyAccessedAPITypeReasons": [
+                "CA92.1"
+              ]
+            }
+          ],
+          "NSPrivacyCollectedDataTypes": [],
+          "NSPrivacyTracking": false
+        },
+        "entitlements": {
+          "aps-environment": "production"
+        }
+      },
+      "android": {
+        "adaptiveIcon": {
+          "foregroundImage": "./assets/images/android-icon-foreground.png",
+          "backgroundColor": "#1A237E",
+          "monochromeImage": "./assets/images/android-icon-monochrome.png",
+          "foregroundImageUrl": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/assets/./assets/images/android-icon-foreground.png",
+          "monochromeImageUrl": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/assets/./assets/images/android-icon-monochrome.png"
+        },
+        "googleServicesFile": "{\n  \"project_info\": {\n    \"project_number\": \"668848640465\",\n    \"project_id\": \"probaly-9e95b\",\n    \"storage_bucket\": \"probaly-9e95b.firebasestorage.app\"\n  },\n  \"client\": [\n    {\n      \"client_info\": {\n        \"mobilesdk_app_id\": \"1:668848640465:android:ce873c9d39eae0123b50f0\",\n        \"android_client_info\": {\n          \"package_name\": \"app.probaly.logic\"\n        }\n      },\n      \"oauth_client\": [],\n      \"api_key\": [\n        {\n          \"current_key\": \"AIzaSyCIssJd5KM62eRlk_jP5R4sz4OPRV6QHIE\"\n        }\n      ],\n      \"services\": {\n        \"appinvite_service\": {\n          \"other_platform_oauth_client\": []\n        }\n      }\n    }\n  ],\n  \"configuration_version\": \"1\"\n}\n",
+        "icon": "./assets/images/probaly-logo.png",
+        "package": "app.probaly.logic",
+        "versionCode": 2,
+        "edgeToEdgeEnabled": true,
+        "predictiveBackGestureEnabled": false,
+        "permissions": [
+          "android.permission.POST_NOTIFICATIONS",
+          "android.permission.INTERNET",
+          "android.permission.ACCESS_NETWORK_STATE",
+          "android.permission.RECEIVE_BOOT_COMPLETED",
+          "android.permission.VIBRATE",
+          "com.android.vending.BILLING"
+        ],
+        "blockedPermissions": [
+          "android.permission.RECORD_AUDIO",
+          "android.permission.CAMERA",
+          "android.permission.READ_CONTACTS",
+          "android.permission.WRITE_CONTACTS",
+          "android.permission.READ_CALENDAR",
+          "android.permission.WRITE_CALENDAR",
+          "android.permission.ACCESS_FINE_LOCATION",
+          "android.permission.ACCESS_COARSE_LOCATION",
+          "android.permission.READ_EXTERNAL_STORAGE",
+          "android.permission.WRITE_EXTERNAL_STORAGE"
+        ],
+        "intentFilters": [
+          {
+            "action": "VIEW",
+            "autoVerify": true,
+            "data": [
+              {
+                "scheme": "probaly"
+              }
+            ],
+            "category": [
+              "BROWSABLE",
+              "DEFAULT"
+            ]
+          }
+        ],
+        "iconUrl": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/assets/./assets/images/probaly-logo.png"
+      },
+      "web": {
+        "output": "single",
+        "favicon": "./assets/images/probaly-logo.png"
+      },
+      "plugins": [
+        [
+          "expo-splash-screen",
+          {
+            "image": "./assets/images/probaly-logo.png",
+            "imageWidth": 200,
+            "resizeMode": "contain",
+            "backgroundColor": "#1A237E",
+            "dark": {
+              "backgroundColor": "#1A237E"
+            }
+          }
+        ],
+        "expo-web-browser",
+        [
+          "expo-notifications",
+          {
+            "icon": "./assets/images/probaly-logo.png",
+            "color": "#1A237E",
+            "sounds": []
+          }
+        ],
+        "expo-font"
+      ],
+      "experiments": {
+        "reactCompiler": true
+      },
+      "_internal": {
+        "isDebug": false,
+        "projectRoot": "/home/runner/workspace",
+        "dynamicConfigPath": {},
+        "staticConfigPath": "/home/runner/workspace/app.json",
+        "packageJsonPath": "/home/runner/workspace/package.json",
+        "pluginHistory": {
+          "expo-splash-screen": {
+            "name": "expo-splash-screen",
+            "version": "31.0.13"
+          },
+          "expo-web-browser": {
+            "name": "expo-web-browser",
+            "version": "15.0.10"
+          },
+          "expo-notifications": {
+            "name": "expo-notifications",
+            "version": "0.32.16"
+          },
+          "expo-font": {
+            "name": "expo-font",
+            "version": "14.0.11"
+          }
+        }
+      },
+      "sdkVersion": "54.0.0",
+      "platforms": [
+        "ios",
+        "android",
+        "web"
+      ],
+      "androidStatusBar": {
+        "backgroundColor": "#1A237E"
+      },
+      "iconUrl": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/assets/./assets/images/probaly-logo.png",
+      "hostUri": "16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/android"
+    },
+    "expoGo": {
+      "debuggerHost": "16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/android",
+      "developer": {
+        "tool": "expo-cli",
+        "projectRoot": "/home/runner/workspace"
+      },
+      "packagerOpts": {
+        "dev": false
+      },
+      "mainModuleName": "client/index"
+    },
+    "scopeKey": "@anonymous/probaly-40475d69-d8ac-45f4-87f9-3cae24c461d3"
+  }
+}
