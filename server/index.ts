@@ -426,8 +426,7 @@ function setupErrorHandler(app: express.Application) {
 
   setupErrorHandler(app);
 
-  const isProduction = process.env.NODE_ENV === "production";
-  const port = isProduction ? 8081 : parseInt(process.env.PORT || "5000", 10);
+  const port = parseInt(process.env.PORT || "5000", 10);
   server.listen(
     {
       port,
