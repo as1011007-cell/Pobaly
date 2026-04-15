@@ -108,8 +108,8 @@ function useSubscriptionContext() {
     onSuccess: () => customerInfoQuery.refetch(),
   });
 
-  const isSubscribed =
-    customerInfoQuery.data?.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
+  const entitlement = customerInfoQuery.data?.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER];
+  const isSubscribed = entitlement !== undefined && (__DEV__ || !(entitlement as any).isSandbox);
 
   const currentOffering = offeringsQuery.data?.current;
   const monthlyPackage = currentOffering?.availablePackages.find(
