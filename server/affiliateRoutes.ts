@@ -338,7 +338,8 @@ router.get("/validate/:code", async (req: Request, res: Response) => {
 router.get("/admin/payout-requests", requireAdmin, async (req: Request, res: Response) => {
   try {
     const statusParam = req.query.status;
-    const status = (typeof statusParam === "string" ? statusParam : "pending");
+    const allowedStatuses = ["pending", "approved", "rejected", "paid"];
+    const status = (typeof statusParam === "string" && allowedStatuses.includes(statusParam)) ? statusParam : "pending";
     
     const requests = await db.select({
       id: payoutRequests.id,

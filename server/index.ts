@@ -116,7 +116,7 @@ async function initStripe() {
 }
 
 function setupSecurityHeaders(app: express.Application) {
-  app.use((_req, res, next) => {
+  app.use((req, res, next) => {
     res.header("X-Content-Type-Options", "nosniff");
     res.header("X-Frame-Options", "DENY");
     res.header("X-XSS-Protection", "0");
@@ -124,6 +124,10 @@ function setupSecurityHeaders(app: express.Application) {
     res.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
     if (process.env.REPLIT_DEPLOYMENT === "1") {
       res.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    }
+    if (req.path.startsWith("/api")) {
+      res.header("Cache-Control", "no-store, no-cache, must-revalidate, private");
+      res.header("Pragma", "no-cache");
     }
     next();
   });
@@ -158,7 +162,7 @@ function setupCors(app: express.Application) {
         "Access-Control-Allow-Methods",
         "GET, POST, PUT, DELETE, OPTIONS",
       );
-      res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+      res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Admin-Key");
       res.header("Access-Control-Allow-Credentials", "true");
     }
 

@@ -44,6 +44,34 @@ const loginSchema = z.object({
   password: z.string().min(1).max(128),
 });
 
+const isoDateString = z.string().refine(
+  (s) => !isNaN(Date.parse(s)),
+  { message: "Invalid date/time format" }
+);
+
+const historyEntrySchema = z.object({
+  matchTitle: z.string().min(1).max(500),
+  sport: z.string().min(1).max(50),
+  matchTime: isoDateString,
+  predictedOutcome: z.string().min(1).max(500),
+  probability: z.number().min(0).max(100),
+  confidence: z.enum(["high", "medium", "low"]),
+  explanation: z.string().max(2000).nullable().optional(),
+  factors: z.array(z.string().max(500)).max(20).nullable().optional(),
+  sportsbookOdds: z.record(z.string(), z.any()).nullable().optional(),
+  riskIndex: z.number().min(0).max(10).optional(),
+  isPremium: z.boolean().optional(),
+  expiresAt: isoDateString.optional(),
+});
+
+const addHistorySchema = z.object({
+  entries: z.array(historyEntrySchema).min(1).max(100),
+});
+
+const fixMigratedSchema = z.object({
+  ids: z.array(z.number().int().positive()).min(1).max(500),
+});
+
 function safeErrorMessage(error: any, fallback = "An unexpected error occurred"): string {
   if (error instanceof z.ZodError) {
     return error.errors.map(e => e.message).join(", ");
@@ -212,14 +240,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  const allowedPriceIds = new Set([
+    "price_1Sti7TCow6jut3nLEDdV6MSE",
+    "price_1Sti7SCow6jut3nL0dsNdakz",
+  ]);
+
+  const checkoutSchema = z.object({
+    priceId: z.string().min(1).max(200).refine(
+      (id) => allowedPriceIds.has(id),
+      { message: "Invalid subscription plan" }
+    ),
+  });
+
   app.post("/api/checkout", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { priceId } = req.body;
-      const userId = req.userId!;
-
-      if (!priceId) {
-        return res.status(400).json({ error: "priceId is required" });
+      const parsed = checkoutSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: safeErrorMessage(parsed.error) });
       }
+      const { priceId } = parsed.data;
+      const userId = req.userId!;
 
       const user = await storage.getUser(userId);
       if (!user) {
@@ -612,13 +652,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Replace free tip (admin endpoint)
+  const replaceTipSchema = z.object({
+    matchTitle: z.string().min(1).max(500),
+    sport: z.string().min(1).max(50),
+    predictedOutcome: z.string().max(500).optional(),
+    probability: z.number().min(0).max(100).optional(),
+    confidence: z.enum(["high", "medium", "low"]).optional(),
+  });
+
   app.post("/api/predictions/replace-free-tip", requireAdmin, async (req: Request, res: Response) => {
     try {
-      const { matchTitle, sport } = req.body;
-      if (!matchTitle || !sport) {
-        return res.status(400).json({ error: "matchTitle and sport are required" });
+      const parsed = replaceTipSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: safeErrorMessage(parsed.error) });
       }
-      const newTip = await replaceFreeTip(req.body);
+      const newTip = await replaceFreeTip(parsed.data);
       res.json({ success: true, prediction: newTip });
     } catch (error: any) {
       console.error("Replace free tip error:", error);
@@ -707,10 +755,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Add manual history entry (admin endpoint)
   app.post("/api/predictions/add-history", requireAdmin, async (req: Request, res: Response) => {
     try {
-      const entries = req.body.entries;
-      if (!Array.isArray(entries) || entries.length === 0) {
-        return res.status(400).json({ error: "entries array required" });
+      const parsed = addHistorySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: safeErrorMessage(parsed.error) });
       }
+      const entries = parsed.data.entries;
       let inserted = 0;
       for (const e of entries) {
         const isPremium = e.isPremium === true;
@@ -734,10 +783,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // One-time fix: upgrade specific manually-migrated entries to premium=true with proper expiresAt
   app.post("/api/predictions/fix-migrated-entries", requireAdmin, async (req: Request, res: Response) => {
     try {
-      const ids: number[] = req.body.ids;
-      if (!Array.isArray(ids) || ids.length === 0) {
-        return res.status(400).json({ error: "ids array required" });
+      const parsed = fixMigratedSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: safeErrorMessage(parsed.error) });
       }
+      const ids = parsed.data.ids;
       const idList = ids.map((id: number) => sql`${id}`).reduce((a: any, b: any) => sql`${a}, ${b}`);
       const result = await db.execute(sql`
         UPDATE predictions
@@ -888,27 +938,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/affiliate", affiliateRoutes);
 
   // Contact form submission
+  const contactSchema = z.object({
+    name: z.string().min(1).max(100),
+    email: z.string().email().max(254),
+    subject: z.string().min(1).max(200),
+    message: z.string().min(10).max(5000),
+  });
+
   app.post("/api/contact", contactRateLimit, async (req, res) => {
     try {
-      const { name, email, subject, message } = req.body;
-
-      if (!name || !email || !subject || !message) {
-        return res.status(400).json({ error: "All fields are required." });
+      const parsed = contactSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: safeErrorMessage(parsed.error) });
       }
-
-      const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRe.test(email)) {
-        return res.status(400).json({ error: "Invalid email address." });
-      }
-
-      if (message.length < 10) {
-        return res.status(400).json({ error: "Message must be at least 10 characters." });
-      }
+      const { name, email, subject, message } = parsed.data;
 
       const submission = await storage.createContactSubmission({
         name: name.trim(),
         email: email.trim().toLowerCase(),
-        subject,
+        subject: subject.trim(),
         message: message.trim(),
       });
 
