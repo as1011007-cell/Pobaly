@@ -325,6 +325,18 @@ function configureExpoAndLanding(app: express.Application) {
   app.get("/termsandconditions", serveTerms);
   app.get("/terms-and-conditions", serveTerms);
 
+  app.get("/checkout/success", (_req: Request, res: Response) => {
+    const successPath = path.resolve(process.cwd(), "server", "templates", "checkout-success.html");
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.sendFile(successPath);
+  });
+
+  app.get("/checkout/cancel", (_req: Request, res: Response) => {
+    const cancelPath = path.resolve(process.cwd(), "server", "templates", "checkout-cancel.html");
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.sendFile(cancelPath);
+  });
+
   const templatePath = path.resolve(
     process.cwd(),
     "server",

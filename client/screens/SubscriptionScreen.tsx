@@ -9,6 +9,7 @@ import {
   Platform,
   Animated,
   Alert,
+  Linking,
 } from "react-native";
 import Constants from "expo-constants";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -25,7 +26,14 @@ import { useAuth } from "@/contexts/AuthContext";
 import { BorderRadius, Spacing } from "@/constants/theme";
 import { useSubscription, REVENUECAT_ENTITLEMENT_IDENTIFIER } from "@/lib/revenuecat";
 import Purchases from "react-native-purchases";
-import { apiRequest } from "@/lib/query-client";
+import { apiRequest, getApiUrl } from "@/lib/query-client";
+
+const isWeb = Platform.OS === "web";
+
+const STRIPE_PRICES = {
+  monthly: "price_1Sti7TCow6jut3nLEDdV6MSE",
+  annual: "price_1Sti7SCow6jut3nL0dsNdakz",
+};
 
 const features = [
   { icon: "unlock", title: "All Daily Predictions", description: "Access every AI prediction" },
@@ -102,7 +110,34 @@ export default function SubscriptionScreen() {
   // Detect Expo Go so we can show appropriate messaging
   const isExpoGo = Constants.executionEnvironment === "storeClient";
 
+  const [isStripeLoading, setIsStripeLoading] = useState(false);
+
+  const handleStripeCheckout = async () => {
+    if (isStripeLoading) return;
+    setIsStripeLoading(true);
+    try {
+      const priceId = STRIPE_PRICES[selectedPlan];
+      const response = await apiRequest("POST", "/api/checkout", { priceId });
+      const data = await response.json();
+      if (data.url) {
+        if (isWeb) {
+          window.location.href = data.url;
+        } else {
+          await Linking.openURL(data.url);
+        }
+      }
+    } catch (error: any) {
+      console.error("Stripe checkout error:", error);
+      Alert.alert("Checkout failed", "Something went wrong. Please try again.", [{ text: "OK" }]);
+    } finally {
+      setIsStripeLoading(false);
+    }
+  };
+
   const handleSubscribe = async () => {
+    if (isWeb) {
+      return handleStripeCheckout();
+    }
     if (isPurchasing) return;
     if (!selectedPackage) {
       if (isExpoGo) {
@@ -128,9 +163,6 @@ export default function SubscriptionScreen() {
       await purchase(selectedPackage);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-      // After purchase, sync premium status to server so backend reflects it immediately.
-      // Only sync when the entitlement is actually active — never send isSubscribed:false
-      // on a fresh purchase, as that would incorrectly strip premium from the account.
       if (user?.id) {
         try {
           const customerInfo = await Purchases.getCustomerInfo();
@@ -142,15 +174,12 @@ export default function SubscriptionScreen() {
               productIdentifier: entitlement.productIdentifier ?? selectedPackage.product.identifier,
             });
           }
-          // If entitlement not yet active, the RevenueCat webhook will sync shortly
         } catch (syncError) {
           console.warn("RevenueCat sync failed:", syncError);
         }
       }
 
-      // Refresh local user state so premium UI unlocks, then navigate back
       await refreshUser();
-      // Give the UI a moment to show the success state, then pop back
       setTimeout(() => {
         if (navigation.canGoBack()) navigation.goBack();
       }, 1200);
@@ -234,7 +263,14 @@ export default function SubscriptionScreen() {
         }}
         showsVerticalScrollIndicator={false}
       >
-        {isExpoGo ? (
+        {isWeb ? (
+          <View style={[styles.testModeBanner, { backgroundColor: `${theme.primary}15`, borderColor: theme.primary }]}>
+            <Feather name="credit-card" size={16} color={theme.primary} />
+            <ThemedText type="small" style={{ color: theme.primary, marginLeft: Spacing.xs, flex: 1, lineHeight: 18 }}>
+              Secure checkout powered by Stripe
+            </ThemedText>
+          </View>
+        ) : isExpoGo ? (
           <View style={[styles.testModeBanner, { backgroundColor: `${theme.warning}20`, borderColor: theme.warning }]}>
             <Feather name="info" size={16} color={theme.warning} />
             <ThemedText type="small" style={{ color: theme.warning, marginLeft: Spacing.xs, flex: 1, lineHeight: 18 }}>
@@ -358,16 +394,21 @@ export default function SubscriptionScreen() {
         {/* Subscribe Button */}
         <Button
           onPress={handleSubscribe}
-          disabled={isPurchasing || isLoading}
+          disabled={isWeb ? isStripeLoading : (isPurchasing || isLoading)}
           style={styles.subscribeButton}
           testID="button-subscribe"
         >
-          {isPurchasing ? (
+          {isStripeLoading ? (
+            <View style={styles.buttonContent}>
+              <ActivityIndicator color="#FFFFFF" size="small" style={{ marginRight: Spacing.sm }} />
+              <ThemedText style={{ color: "#FFF", fontWeight: "700" }}>Redirecting to checkout...</ThemedText>
+            </View>
+          ) : isPurchasing ? (
             <View style={styles.buttonContent}>
               <ActivityIndicator color="#FFFFFF" size="small" style={{ marginRight: Spacing.sm }} />
               <ThemedText style={{ color: "#FFF", fontWeight: "700" }}>Processing...</ThemedText>
             </View>
-          ) : isLoading ? (
+          ) : isLoading && !isWeb ? (
             <View style={styles.buttonContent}>
               <ActivityIndicator color="#FFFFFF" size="small" style={{ marginRight: Spacing.sm }} />
               <ThemedText style={{ color: "#FFF", fontWeight: "700" }}>Loading prices...</ThemedText>
@@ -397,22 +438,26 @@ export default function SubscriptionScreen() {
             </ThemedText>.
           </ThemedText>
           <View style={styles.footerLinks}>
-            <Pressable
-              onPress={handleRestorePurchases}
-              disabled={isRestoring || isPurchasing}
-              testID="button-restore"
-              style={styles.footerLinkBtn}
-            >
-              {isRestoring ? (
-                <View style={styles.restoreRow}>
-                  <ActivityIndicator size="small" color={theme.accent} style={{ marginRight: 4 }} />
-                  <ThemedText type="small" style={{ color: theme.accent }}>Restoring...</ThemedText>
-                </View>
-              ) : (
-                <ThemedText type="small" style={{ color: theme.accent }}>Restore Purchase</ThemedText>
-              )}
-            </Pressable>
-            <ThemedText type="small" style={{ color: theme.textSecondary }}>{" "}|{" "}</ThemedText>
+            {!isWeb ? (
+              <>
+                <Pressable
+                  onPress={handleRestorePurchases}
+                  disabled={isRestoring || isPurchasing}
+                  testID="button-restore"
+                  style={styles.footerLinkBtn}
+                >
+                  {isRestoring ? (
+                    <View style={styles.restoreRow}>
+                      <ActivityIndicator size="small" color={theme.accent} style={{ marginRight: 4 }} />
+                      <ThemedText type="small" style={{ color: theme.accent }}>Restoring...</ThemedText>
+                    </View>
+                  ) : (
+                    <ThemedText type="small" style={{ color: theme.accent }}>Restore Purchase</ThemedText>
+                  )}
+                </Pressable>
+                <ThemedText type="small" style={{ color: theme.textSecondary }}>{" "}|{" "}</ThemedText>
+              </>
+            ) : null}
             <Pressable onPress={() => navigation.navigate("TermsOfService")} testID="link-terms">
               <ThemedText type="small" style={{ color: theme.accent }}>Terms of Use (EULA)</ThemedText>
             </Pressable>

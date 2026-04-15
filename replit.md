@@ -34,12 +34,12 @@ The application features a 5-tab navigation system (Home, Live, Sports, History,
 - **Over/Under Bets (Basketball)**: AI generates game total (over/under) predictions for basketball matches with realistic point lines. Match titles use `(O/U)` suffix. Result resolution compares total score against the line. History entries include O/U records for completed basketball games.
 - **Live Match Updates**: Provides real-time updates for ongoing games.
 - **Prediction History**: Users can track their past predictions.
-- **Subscription Model**: Offers a "Probaly Premium" subscription with monthly and annual options.
+- **Subscription Model**: Offers a "Probaly Premium" subscription with monthly ($49.99) and annual ($149.00) options. iOS/Android uses RevenueCat for in-app purchases. Web browser users use Stripe Checkout (redirects to Stripe-hosted payment page, webhook activates premium).
 - **Sports Data Fallback**: Automatically switches to ESPN's free public API if The Odds API quota is exhausted, ensuring continuous data availability.
 
 ## External Dependencies
 - **OpenAI**: Used for AI-powered sports predictions (GPT-4o).
 - **RevenueCat**: Manages in-app subscriptions and purchases on iOS and Android.
-- **Stripe**: Handles affiliate program payouts via Stripe Connect.
+- **Stripe**: Handles web browser premium subscriptions via Stripe Checkout and affiliate program payouts via Stripe Connect.
 - **The Odds API**: Primary source for real-time sports event data.
 - **ESPN API**: Secondary data source for sports events, used as a fallback.
