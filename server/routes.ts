@@ -57,6 +57,19 @@ function safeErrorMessage(error: any, fallback = "An unexpected error occurred")
   return fallback;
 }
 
+function redactPrediction(p: any) {
+  return {
+    ...p,
+    predictedOutcome: "Premium Pick",
+    probability: 0,
+    confidence: "locked",
+    explanation: "Subscribe to Probaly Premium to unlock AI analysis",
+    factors: null,
+    sportsbookOdds: null,
+    riskIndex: 0,
+  };
+}
+
 const authRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 20 });
 const contactRateLimit = rateLimit({ windowMs: 60 * 60 * 1000, max: 5 });
 const generateRateLimit = rateLimit({ windowMs: 60 * 1000, max: 3 });
@@ -144,7 +157,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const publishableKey = await getStripePublishableKey();
       res.json({ publishableKey });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -153,7 +166,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const products = await storage.listProducts();
       res.json({ data: products });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -186,7 +199,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({ data: Array.from(productsMap.values()) });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -195,7 +208,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const prices = await storage.listPrices();
       res.json({ data: prices });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -244,7 +257,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ url: session.url });
     } catch (error: any) {
       console.error("Checkout error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -275,7 +288,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         expiryDate: user.subscriptionExpiry,
       });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -324,7 +337,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     } catch (error: any) {
       console.error("RevenueCat sync error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -386,7 +399,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ received: true });
     } catch (error: any) {
       console.error("RevenueCat webhook error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -407,7 +420,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({ url: session.url });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -420,7 +433,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, message: "Predictions generated successfully" });
     } catch (error: any) {
       console.error("Error generating predictions:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -431,7 +444,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, message: "Demo predictions generated successfully" });
     } catch (error: any) {
       console.error("Error generating demo predictions:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -442,7 +455,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       dailyPredictionRefresh().catch(err => console.error("Background refresh error:", err));
     } catch (error: any) {
       console.error("Error triggering refresh:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -453,7 +466,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const freeTip = await getFreeTip();
       res.json({ prediction: freeTip });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -466,10 +479,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const u = await storage.getUser(userId);
         isPremiumUser = u?.isPremium === true;
       }
-      const predictions = await getPremiumPredictions(userId, isPremiumUser);
-      res.json({ predictions });
+      const preds = await getPremiumPredictions(userId, isPremiumUser);
+      res.json({ predictions: isPremiumUser ? preds : preds.map(redactPrediction) });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -481,7 +494,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, message: "Premium predictions generated for user" });
     } catch (error: any) {
       console.error("Error generating premium predictions:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -497,7 +510,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const predictions = await getLivePredictions(userId, isPremiumUser);
       res.json({ predictions });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -506,7 +519,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const matches = await getLiveMatches();
       res.json({ matches });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -524,7 +537,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const predictions = await getHistoryPredictions(userId, isPremiumUser, premiumSince);
       res.json({ predictions });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -538,10 +551,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const u = await storage.getUser(userId);
         isPremiumUser = u?.isPremium === true;
       }
-      const predictions = await getPredictionsBySport(sport, userId, isPremiumUser);
-      res.json({ predictions });
+      const preds = await getPredictionsBySport(sport, userId, isPremiumUser);
+      res.json({ predictions: isPremiumUser ? preds : preds.map((p: any) => p.isPremium ? redactPrediction(p) : p) });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -557,21 +570,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const counts = await getSportPredictionCounts(userId, isPremiumUser);
       res.json({ counts });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
   // Get single prediction by ID
-  app.get("/api/predictions/:id", async (req: Request, res: Response) => {
+  app.get("/api/predictions/:id", optionalAuth, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id as string);
       const prediction = await getPredictionById(id);
       if (!prediction) {
         return res.status(404).json({ error: "Prediction not found" });
       }
-      res.json({ prediction });
+      let isPremiumUser = false;
+      if (req.userId) {
+        const u = await storage.getUser(req.userId);
+        isPremiumUser = u?.isPremium === true;
+      }
+      const result = prediction.isPremium && !isPremiumUser ? redactPrediction(prediction) : prediction;
+      res.json({ prediction: result });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -588,7 +607,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await markPredictionResult(id, result);
       res.json({ success: true });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -603,7 +622,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, prediction: newTip });
     } catch (error: any) {
       console.error("Replace free tip error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -615,7 +634,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, prediction: tip });
     } catch (error: any) {
       console.error("Force new free tip error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -627,7 +646,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, message: "Push notification sent to all registered devices" });
     } catch (error: any) {
       console.error("Send notification error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -639,7 +658,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, message: `Cleared ${count} push tokens` });
     } catch (error: any) {
       console.error("Clear tokens error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -651,7 +670,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, count: history.length });
     } catch (error: any) {
       console.error("Refresh history error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -661,7 +680,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, premiumHistoryCount: history.length });
     } catch (error: any) {
       console.error("Refresh premium history error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -681,7 +700,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .returning({ id: predictions.id, matchTitle: predictions.matchTitle });
       res.json({ success: true, reset: result.length, predictions: result });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -708,7 +727,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, inserted });
     } catch (error: any) {
       console.error("Add history error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -731,7 +750,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, updated: (result as any).rowCount ?? ids.length });
     } catch (error: any) {
       console.error("Fix migrated entries error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -761,7 +780,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, marked, duplicatesRemoved: removed });
     } catch (error: any) {
       console.error("Cleanup demos error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -774,7 +793,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const preferences = await storage.getUserPreferences(userId);
       res.json(preferences || { notificationsEnabled: true });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -791,7 +810,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       res.json(preferences);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -807,7 +826,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await registerPushToken(userId, token, platform || "unknown");
       res.json({ success: true });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -821,7 +840,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await removePushToken(token);
       res.json({ success: true });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
@@ -862,7 +881,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.json({ restored: false, message: "No active subscriptions found" });
     } catch (error: any) {
       console.error("Error restoring purchases:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
