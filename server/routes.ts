@@ -470,6 +470,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post("/api/customer-portal", requireAuth, async (req: Request, res: Response) => {
+    if (!checkoutEnabled) {
+      return res.status(503).json({ error: "Billing portal is currently unavailable. Stripe is not configured." });
+    }
+
     try {
       const userId = req.userId!;
 
