@@ -85,7 +85,10 @@
       <p class="subtitle">
         Your payment was successful. You now have full access to all AI-powered predictions, live updates, and premium features.
       </p>
-      <a href="/app" class="btn">Open Probaly</a>
+      <a href="/app?premium_activated=1" class="btn">Open Probaly</a>
     </div>
+    <script>
+      localStorage.setItem('@probaly/premium_activated', Date.now().toString());
+    </script>
   </body>
 </html>

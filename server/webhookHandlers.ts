@@ -1,4 +1,4 @@
-import { getStripeSync } from './stripeClient';
+import { getStripeSync, getUncachableStripeClient } from './stripeClient';
 import { generatePremiumPredictionsForUser } from './services/predictionService';
 import { storage } from './storage';
 import { db } from './db';
@@ -6,6 +6,26 @@ import { affiliates, referrals, users } from '../shared/schema';
 import { eq } from 'drizzle-orm';
 
 export class WebhookHandlers {
+  static async activatePremiumForUser(user: any, subscriptionId: string, periodEnd?: number): Promise<void> {
+    const expiryDate = periodEnd
+      ? new Date(periodEnd * 1000)
+      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    const premiumUpdate: any = {
+      isPremium: true,
+      stripeSubscriptionId: subscriptionId,
+      subscriptionExpiry: expiryDate,
+    };
+    if (!user.isPremium) {
+      premiumUpdate.premiumSince = new Date();
+    }
+    await storage.updateUserStripeInfo(user.id, premiumUpdate);
+    console.log(`Premium activated for user ${user.id} until ${expiryDate.toISOString()}`);
+
+    await generatePremiumPredictionsForUser(user.id);
+    console.log(`Premium predictions generated for user ${user.id}`);
+  }
+
   static async processWebhook(payload: Buffer, signature: string): Promise<void> {
     if (!Buffer.isBuffer(payload)) {
       throw new Error(
@@ -18,14 +38,28 @@ export class WebhookHandlers {
 
     const sync = await getStripeSync();
     
-    // Process the webhook through stripe-replit-sync
     await sync.processWebhook(payload, signature);
     
-    // Parse the event to check for subscription events
     try {
       const event = JSON.parse(payload.toString());
+
+      if (event.type === 'checkout.session.completed') {
+        const session = event.data.object;
+        if (session.mode === 'subscription' && session.customer && session.subscription) {
+          const user = await storage.getUserByStripeCustomerId(session.customer);
+          if (user && !user.isPremium) {
+            console.log(`Checkout completed for user ${user.id}, activating premium...`);
+            try {
+              const stripe = await getUncachableStripeClient();
+              const sub = await stripe.subscriptions.retrieve(session.subscription);
+              await this.activatePremiumForUser(user, sub.id, (sub as any).current_period_end);
+            } catch (subErr) {
+              await this.activatePremiumForUser(user, session.subscription);
+            }
+          }
+        }
+      }
       
-      // When a subscription is created or updated to active, generate predictions
       if (event.type === 'customer.subscription.created' || 
           event.type === 'customer.subscription.updated') {
         const subscription = event.data.object;
@@ -34,30 +68,8 @@ export class WebhookHandlers {
         
         if (user) {
           if (subscription.status === 'active') {
-            console.log(`Subscription activated for user ${user.id}, activating premium...`);
-
-            const expiryDate = subscription.current_period_end
-              ? new Date(subscription.current_period_end * 1000)
-              : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-
-            const premiumUpdate: any = {
-              isPremium: true,
-              stripeSubscriptionId: subscription.id,
-              subscriptionExpiry: expiryDate,
-            };
-            if (!user.isPremium) {
-              premiumUpdate.premiumSince = new Date();
-            }
-            await storage.updateUserStripeInfo(user.id, premiumUpdate);
-            console.log(`Premium activated for user ${user.id} until ${expiryDate.toISOString()}`);
-
-            await generatePremiumPredictionsForUser(user.id);
-            console.log(`Premium predictions generated for user ${user.id}`);
-            
-            // Affiliate program disabled
-            // if (event.type === 'customer.subscription.created') {
-            //   await this.processAffiliateReferral(user.id, subscription);
-            // }
+            console.log(`Subscription ${event.type} (active) for user ${user.id}`);
+            await this.activatePremiumForUser(user, subscription.id, subscription.current_period_end);
           } else if (['canceled', 'unpaid', 'past_due', 'incomplete_expired'].includes(subscription.status)) {
             // Subscription is no longer active - remove premium access
             console.log(`Subscription ${subscription.status} for user ${user.id}, removing premium access...`);

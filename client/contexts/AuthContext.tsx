@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
+import { Platform } from "react-native";
 import { User } from "@/types";
 import { storage } from "@/lib/storage";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
@@ -9,6 +10,7 @@ import {
   cancelPremiumPromoNotifications,
   resetPromoScheduleFlag,
 } from "@/lib/notifications";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 interface AuthContextType {
   user: User | null;
@@ -41,7 +43,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (token) {
           registerPushTokenWithServer(token).catch(() => {});
         }
-        if (savedUser.isPremium) {
+
+        let needsRefresh = false;
+        if (Platform.OS === "web") {
+          try {
+            const activatedFlag = await AsyncStorage.getItem("@probaly/premium_activated");
+            if (activatedFlag && !savedUser.isPremium) {
+              needsRefresh = true;
+              await AsyncStorage.removeItem("@probaly/premium_activated");
+            }
+          } catch {}
+        }
+
+        if (needsRefresh && token) {
+          try {
+            const response = await apiRequest("GET", `/api/subscription/${savedUser.id}`);
+            const data = await response.json();
+            if (data.isPremium) {
+              const updatedUser: User = {
+                ...savedUser,
+                isPremium: true,
+                subscriptionExpiry: data.expiryDate,
+              };
+              await storage.setUser(updatedUser);
+              setUser(updatedUser);
+            }
+          } catch {}
+        }
+
+        const currentUser = needsRefresh ? (await storage.getUser()) || savedUser : savedUser;
+        if (currentUser.isPremium) {
           cancelPremiumPromoNotifications().catch(() => {});
         } else {
           schedulePremiumPromoNotifications().catch(() => {});
