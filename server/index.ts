@@ -356,11 +356,12 @@ function configureExpoAndLanding(app: express.Application) {
 
   if (webBuildExists) {
     const serveWebApp = (_req: Request, res: Response) => {
+      res.setHeader("Cache-Control", "no-cache, must-revalidate");
       res.sendFile(path.join(distPath, "index.html"));
     };
     app.get("/app", serveWebApp);
     app.get("/app/*path", serveWebApp);
-    app.use(express.static(distPath, { index: false }));
+    app.use(express.static(distPath, { index: false, maxAge: "7d" }));
   }
   app.use(express.static(path.resolve(process.cwd(), "static-build"), { index: false }));
 

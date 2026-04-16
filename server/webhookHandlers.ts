@@ -34,11 +34,24 @@ export class WebhookHandlers {
         
         if (user) {
           if (subscription.status === 'active') {
-            console.log(`Subscription activated for user ${user.id}, generating premium predictions...`);
-            
-            // Generate premium predictions for this user
+            console.log(`Subscription activated for user ${user.id}, activating premium...`);
+
+            const expiryDate = subscription.current_period_end
+              ? new Date(subscription.current_period_end * 1000)
+              : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+            const premiumUpdate: any = {
+              isPremium: true,
+              stripeSubscriptionId: subscription.id,
+              subscriptionExpiry: expiryDate,
+            };
+            if (!user.isPremium) {
+              premiumUpdate.premiumSince = new Date();
+            }
+            await storage.updateUserStripeInfo(user.id, premiumUpdate);
+            console.log(`Premium activated for user ${user.id} until ${expiryDate.toISOString()}`);
+
             await generatePremiumPredictionsForUser(user.id);
-            
             console.log(`Premium predictions generated for user ${user.id}`);
             
             // Affiliate program disabled
