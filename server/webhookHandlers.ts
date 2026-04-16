@@ -73,7 +73,21 @@ export class WebhookHandlers {
         }
       }
       
-      // Handle subscription deletion (cancelled and period ended)
+      if (event.type === 'invoice.payment_failed') {
+        const invoice = event.data.object;
+        const customerId = invoice.customer;
+        const user = await storage.getUserByStripeCustomerId(customerId);
+        if (user) {
+          console.log(`Payment failed for user ${user.id} (invoice ${invoice.id}, attempt ${invoice.attempt_count})`);
+          if (invoice.attempt_count >= 3) {
+            await storage.updateUserStripeInfo(user.id, {
+              isPremium: false,
+            });
+            console.log(`Premium revoked for user ${user.id} after ${invoice.attempt_count} failed payment attempts`);
+          }
+        }
+      }
+
       if (event.type === 'customer.subscription.deleted') {
         const subscription = event.data.object;
         const customerId = subscription.customer;
