@@ -1349,7 +1349,12 @@ export async function getSportPredictionCounts(userId?: string, isPremiumUser?: 
 
 export async function resolvePredictionResults(): Promise<void> {
   const now = new Date();
-  const threeHoursAgo = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+  // Require games to have started at least 6 hours ago before attempting resolution.
+  // This covers long-running events (MLB extra innings, MMA full cards, 5-set tennis,
+  // football matches with stoppage + ET + penalties) so we never resolve a game
+  // that might still be in progress.
+  const FINISH_BUFFER_HOURS = 6;
+  const finishBufferAgo = new Date(now.getTime() - FINISH_BUFFER_HOURS * 60 * 60 * 1000);
 
   const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
 
@@ -1359,7 +1364,7 @@ export async function resolvePredictionResults(): Promise<void> {
     .from(predictions)
     .where(
       and(
-        sql`${predictions.matchTime} < ${threeHoursAgo.toISOString()}::timestamp`,
+        sql`${predictions.matchTime} < ${finishBufferAgo.toISOString()}::timestamp`,
         sql`${predictions.matchTime} >= ${fourteenDaysAgo.toISOString()}::timestamp`,
         sql`(${predictions.result} IS NULL OR ${predictions.result} = 'unresolved')`
       )
@@ -1763,14 +1768,17 @@ async function refreshDemoPredictions(): Promise<void> {
   const now = new Date();
   
   // Mark ANY past prediction (premium or free) that still has no result as 'unresolved'
-  // This prevents them from piling up as NULL and being retried forever
+  // This prevents them from piling up as NULL and being retried forever.
+  // Use 6h buffer so games still in progress (long MLB/MMA/tennis matches that
+  // started late in the previous day) are not prematurely marked unresolved.
+  const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000);
   const unresolved = await db.update(predictions)
     .set({ result: "unresolved" })
     .where(
       and(
         isNull(predictions.userId),
         isNull(predictions.result),
-        sql`${predictions.matchTime} < ${now.toISOString()}::timestamp`
+        sql`${predictions.matchTime} < ${sixHoursAgo.toISOString()}::timestamp`
       )
     )
     .returning({ id: predictions.id });
