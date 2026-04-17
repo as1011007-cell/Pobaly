@@ -477,6 +477,38 @@ function setupErrorHandler(app: express.Application) {
         if (deleted.length > 0) log(`Removed prediction ID 4113 (${deleted[0].matchTitle}) from DB`);
       } catch {}
 
+      // Series-aware resolver fix (deployed 2026-04-17): reset and re-resolve any
+      // premium prediction whose match has finished within the last 7 days but
+      // was resolved using the buggy first-match logic. Idempotent: safe to run
+      // on every startup — predictions resolved correctly will simply be
+      // re-confirmed; truly incorrect ones get deleted by the resolver chain.
+      try {
+        const { predictions } = await import("../shared/schema");
+        const { sql, and, isNull, eq: _eq } = await import("drizzle-orm");
+        const reset = await db
+          .update(predictions)
+          .set({ result: sql`null` })
+          .where(
+            and(
+              _eq(predictions.isPremium, true),
+              isNull(predictions.userId),
+              sql`${predictions.expiresAt} > ${predictions.matchTime}`,
+              sql`${predictions.matchTime} < NOW() - INTERVAL '1 hour'`,
+              sql`${predictions.matchTime} > NOW() - INTERVAL '7 days'`,
+              sql`${predictions.result} IS NOT NULL`,
+            ),
+          )
+          .returning({ id: predictions.id });
+        if (reset.length > 0) {
+          log(`[STARTUP MIGRATION] Reset ${reset.length} premium predictions for re-resolution with series-aware fix`);
+          const { resolvePredictionResults } = await import("./services/predictionService");
+          await resolvePredictionResults();
+          log(`[STARTUP MIGRATION] Re-resolution complete`);
+        }
+      } catch (err) {
+        console.error("[STARTUP MIGRATION] Series-aware re-resolution failed:", err);
+      }
+
       // Initialize push notification tokens table
       const { initPushTokensTable } = await import("./services/pushNotificationService");
       await initPushTokensTable();
