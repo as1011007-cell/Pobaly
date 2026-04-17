@@ -1349,11 +1349,11 @@ export async function getSportPredictionCounts(userId?: string, isPremiumUser?: 
 
 export async function resolvePredictionResults(): Promise<void> {
   const now = new Date();
-  // Require games to have started at least 6 hours ago before attempting resolution.
-  // This covers long-running events (MLB extra innings, MMA full cards, 5-set tennis,
-  // football matches with stoppage + ET + penalties) so we never resolve a game
-  // that might still be in progress.
-  const FINISH_BUFFER_HOURS = 6;
+  // Require games to have started at least 24 hours ago before attempting resolution.
+  // This guarantees no game is missed — even multi-day events (cricket tests, golf
+  // tournaments rolling into a next round) and any late-night match has fully
+  // concluded and ESPN/SportsDB have published final scores by then.
+  const FINISH_BUFFER_HOURS = 24;
   const finishBufferAgo = new Date(now.getTime() - FINISH_BUFFER_HOURS * 60 * 60 * 1000);
 
   const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
@@ -1767,18 +1767,17 @@ async function refreshDemoPredictions(): Promise<void> {
   
   const now = new Date();
   
-  // Mark ANY past prediction (premium or free) that still has no result as 'unresolved'
-  // This prevents them from piling up as NULL and being retried forever.
-  // Use 6h buffer so games still in progress (long MLB/MMA/tennis matches that
-  // started late in the previous day) are not prematurely marked unresolved.
-  const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+  // Mark ANY past prediction (premium or free) that still has no result as 'unresolved'.
+  // Use a 24h buffer so no game is missed — even multi-day events and late-night
+  // matches will have ended and had final scores published by then.
+  const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const unresolved = await db.update(predictions)
     .set({ result: "unresolved" })
     .where(
       and(
         isNull(predictions.userId),
         isNull(predictions.result),
-        sql`${predictions.matchTime} < ${sixHoursAgo.toISOString()}::timestamp`
+        sql`${predictions.matchTime} < ${twentyFourHoursAgo.toISOString()}::timestamp`
       )
     )
     .returning({ id: predictions.id });
