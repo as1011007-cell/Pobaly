@@ -1349,11 +1349,10 @@ export async function getSportPredictionCounts(userId?: string, isPremiumUser?: 
 
 export async function resolvePredictionResults(): Promise<void> {
   const now = new Date();
-  // Require games to have started at least 24 hours ago before attempting resolution.
-  // This guarantees no game is missed — even multi-day events (cricket tests, golf
-  // tournaments rolling into a next round) and any late-night match has fully
-  // concluded and ESPN/SportsDB have published final scores by then.
-  const FINISH_BUFFER_HOURS = 24;
+  // Require games to have started at least 12 hours ago before attempting resolution.
+  // This buffer ensures even the longest events have finished and ESPN/SportsDB
+  // have published final scores before we try to mark a prediction.
+  const FINISH_BUFFER_HOURS = 12;
   const finishBufferAgo = new Date(now.getTime() - FINISH_BUFFER_HOURS * 60 * 60 * 1000);
 
   const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
@@ -1768,16 +1767,15 @@ async function refreshDemoPredictions(): Promise<void> {
   const now = new Date();
   
   // Mark ANY past prediction (premium or free) that still has no result as 'unresolved'.
-  // Use a 24h buffer so no game is missed — even multi-day events and late-night
-  // matches will have ended and had final scores published by then.
-  const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  // Use a 12h buffer so even long events have ended and final scores are published.
+  const twelveHoursAgo = new Date(now.getTime() - 12 * 60 * 60 * 1000);
   const unresolved = await db.update(predictions)
     .set({ result: "unresolved" })
     .where(
       and(
         isNull(predictions.userId),
         isNull(predictions.result),
-        sql`${predictions.matchTime} < ${twentyFourHoursAgo.toISOString()}::timestamp`
+        sql`${predictions.matchTime} < ${twelveHoursAgo.toISOString()}::timestamp`
       )
     )
     .returning({ id: predictions.id });
