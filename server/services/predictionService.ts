@@ -1412,30 +1412,46 @@ export async function resolvePredictionResults(): Promise<void> {
 
     // Only accept a completed game if its date is within 2 days of the predicted match time
     const predMatchTime = new Date(pred.matchTime);
-    const isDateClose = (gameTime: Date) => {
-      const diffMs = Math.abs(gameTime.getTime() - predMatchTime.getTime());
-      return diffMs <= 2 * 24 * 60 * 60 * 1000;
+    const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
+    const dateDiff = (gameTime: Date) => Math.abs(gameTime.getTime() - predMatchTime.getTime());
+    const isDateClose = (gameTime: Date) => dateDiff(gameTime) <= TWO_DAYS_MS;
+
+    // Series-aware matching: when the same teams play multiple games in the
+    // window (e.g. MLB series), pick the candidate whose date is CLOSEST to
+    // the prediction's matchTime, not just the first one found. Picking the
+    // wrong game in a series silently flips correct ↔ incorrect.
+    const pickClosest = (candidates: typeof completedGames) => {
+      if (candidates.length === 0) return undefined;
+      return candidates.reduce((best, g) =>
+        dateDiff(g.matchTime) < dateDiff(best.matchTime) ? g : best
+      );
     };
 
-    let matchedGame = completedGames.find(g => {
+    const exactCandidates = completedGames.filter(g => {
       if (!isDateClose(g.matchTime)) return false;
       const gHome = normalize(g.homeTeam);
       const gAway = normalize(g.awayTeam);
       const pH = normalize(predHome);
       const pA = normalize(predAway);
-      return (gHome.includes(pH) || pH.includes(gHome)) && (gAway.includes(pA) || pA.includes(gAway)) ||
-             (gHome.includes(pA) || pA.includes(gHome)) && (gAway.includes(pH) || pH.includes(gAway));
+      return ((gHome.includes(pH) || pH.includes(gHome)) && (gAway.includes(pA) || pA.includes(gAway))) ||
+             ((gHome.includes(pA) || pA.includes(gHome)) && (gAway.includes(pH) || pH.includes(gAway)));
     });
 
+    let matchedGame = pickClosest(exactCandidates);
+    if (matchedGame && exactCandidates.length > 1) {
+      console.log(`[RESOLVE] Series detected for "${pred.matchTitle}": ${exactCandidates.length} candidates, picked closest by date`);
+    }
+
     if (!matchedGame) {
-      matchedGame = completedGames.find(g => {
+      const overlapCandidates = completedGames.filter(g => {
         if (g.sport !== pred.sport) return false;
         if (!isDateClose(g.matchTime)) return false;
         return (wordOverlap(g.homeTeam, predHome) && wordOverlap(g.awayTeam, predAway)) ||
                (wordOverlap(g.homeTeam, predAway) && wordOverlap(g.awayTeam, predHome));
-      }) ?? undefined;
+      });
+      matchedGame = pickClosest(overlapCandidates);
       if (matchedGame) {
-        console.log(`[RESOLVE] Word-overlap fallback matched: "${pred.matchTitle}" → ESPN: "${matchedGame.homeTeam} vs ${matchedGame.awayTeam}"`);
+        console.log(`[RESOLVE] Word-overlap fallback matched: "${pred.matchTitle}" → ESPN: "${matchedGame.homeTeam} vs ${matchedGame.awayTeam}"${overlapCandidates.length > 1 ? ` (${overlapCandidates.length} candidates, picked closest)` : ''}`);
       }
     }
 
