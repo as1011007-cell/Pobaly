@@ -1349,10 +1349,11 @@ export async function getSportPredictionCounts(userId?: string, isPremiumUser?: 
 
 export async function resolvePredictionResults(): Promise<void> {
   const now = new Date();
-  // Require games to have started at least 12 hours ago before attempting resolution.
-  // This buffer ensures even the longest events have finished and ESPN/SportsDB
-  // have published final scores before we try to mark a prediction.
-  const FINISH_BUFFER_HOURS = 12;
+  // Require games to have started at least 6 hours ago before attempting resolution.
+  // This covers long-running events (MLB extra innings, MMA full cards, 5-set tennis,
+  // football matches with stoppage + ET + penalties) so we never resolve a game
+  // that might still be in progress.
+  const FINISH_BUFFER_HOURS = 6;
   const finishBufferAgo = new Date(now.getTime() - FINISH_BUFFER_HOURS * 60 * 60 * 1000);
 
   const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
@@ -1767,15 +1768,16 @@ async function refreshDemoPredictions(): Promise<void> {
   const now = new Date();
   
   // Mark ANY past prediction (premium or free) that still has no result as 'unresolved'.
-  // Use a 12h buffer so even long events have ended and final scores are published.
-  const twelveHoursAgo = new Date(now.getTime() - 12 * 60 * 60 * 1000);
+  // Use a 6h buffer so games still in progress (long MLB/MMA/tennis matches) are
+  // not prematurely marked unresolved.
+  const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000);
   const unresolved = await db.update(predictions)
     .set({ result: "unresolved" })
     .where(
       and(
         isNull(predictions.userId),
         isNull(predictions.result),
-        sql`${predictions.matchTime} < ${twelveHoursAgo.toISOString()}::timestamp`
+        sql`${predictions.matchTime} < ${sixHoursAgo.toISOString()}::timestamp`
       )
     )
     .returning({ id: predictions.id });
