@@ -244,7 +244,10 @@ async function sendExpoMessages(messages: PushMessage[]): Promise<{ success: num
           failed++;
           const errCode = ticket.details?.error || ticket.message || "unknown";
           errorSamples[errCode] = (errorSamples[errCode] || 0) + 1;
-          if (ticket.details?.error === "DeviceNotRegistered") {
+          if (
+            ticket.details?.error === "DeviceNotRegistered" ||
+            ticket.details?.error === "InvalidCredentials"
+          ) {
             await removePushToken(chunk[i].to);
           }
         }
