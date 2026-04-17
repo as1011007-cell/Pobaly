@@ -234,6 +234,7 @@ async function sendExpoMessages(messages: PushMessage[]): Promise<{ success: num
 
       const result = await response.json();
       const tickets: any[] = result.data || [];
+      const errorSamples: Record<string, number> = {};
 
       for (let i = 0; i < tickets.length; i++) {
         const ticket = tickets[i];
@@ -241,10 +242,15 @@ async function sendExpoMessages(messages: PushMessage[]): Promise<{ success: num
           success++;
         } else {
           failed++;
+          const errCode = ticket.details?.error || ticket.message || "unknown";
+          errorSamples[errCode] = (errorSamples[errCode] || 0) + 1;
           if (ticket.details?.error === "DeviceNotRegistered") {
             await removePushToken(chunk[i].to);
           }
         }
+      }
+      if (Object.keys(errorSamples).length > 0) {
+        console.warn("[Push] Expo ticket errors:", JSON.stringify(errorSamples));
       }
     } catch (err) {
       console.error("[Push] Expo send error:", err);
