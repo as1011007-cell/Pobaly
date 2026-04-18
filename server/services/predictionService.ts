@@ -977,8 +977,16 @@ export async function generateDemoPredictions(): Promise<void> {
     try {
       const analysis = await generatePredictionForMatch(match, useOU ? "overunder" : undefined);
 
-      if (analysis.probability < 65) {
-        console.log(`Skipping low-confidence prediction (${analysis.probability}%): ${effectiveTitle}`);
+      // Per-sport quality thresholds. High-variance sports (baseball, hockey, tennis,
+      // golf) rarely produce 65%+ AI confidence — using the same bar as football
+      // means those sports get zero predictions. A 55% floor for variance-heavy
+      // sports keeps quality above coin-flip while ensuring users see picks across
+      // every sport. Football/basketball/MMA stay at 60% since AI is more
+      // confident in those.
+      const HIGH_VARIANCE_SPORTS = new Set(["baseball", "hockey", "tennis", "golf", "cricket"]);
+      const minProbability = HIGH_VARIANCE_SPORTS.has(match.sport) ? 55 : 60;
+      if (analysis.probability < minProbability) {
+        console.log(`Skipping low-confidence prediction (${analysis.probability}% < ${minProbability}%): ${effectiveTitle}`);
         continue;
       }
 
@@ -1795,27 +1803,34 @@ async function refreshDemoPredictions(): Promise<void> {
       )
     );
 
-  // Check per-sport coverage — regenerate if total is low OR a core sport has zero predictions
-  // Core sports = ones that ESPN can always resolve. Cricket excluded when ESPN-only (ESPN only covers ICC,
-  // which may have no active games) to prevent infinite force-regeneration with 0 cricket matches.
+  // Check per-sport coverage — regenerate if total is low OR any sport that
+  // typically has games this season has fewer than the per-sport target.
+  // Cricket excluded when ESPN-only (ESPN only covers ICC, which may have no
+  // active games) to prevent infinite force-regeneration.
   const usingEspnOnly = isUsingFallbackData();
+  const PER_SPORT_TARGET = 3; // aim for at least 3 picks per sport for variety
+  const TOTAL_TARGET = 40;    // bumped from 30 — users want more picks
   const coreSports = ["football", "basketball", "baseball", "hockey", "mma"];
   const allSports = [...coreSports, "tennis", "golf", ...(usingEspnOnly ? [] : ["cricket"])];
   const sportCounts: Record<string, number> = {};
   for (const sport of allSports) {
     sportCounts[sport] = existing.filter(p => p.sport === sport).length;
   }
-  const sportsWithZero = coreSports.filter(s => sportCounts[s] === 0);
+  // A sport is under-covered if it has fewer than PER_SPORT_TARGET predictions.
+  // We log all under-covered sports (not just zeros) so we know which sports
+  // need attention.
+  const underCoveredSports = allSports.filter(s => sportCounts[s] < PER_SPORT_TARGET);
+  console.log(`[REFRESH] Per-sport counts: ${JSON.stringify(sportCounts)} (target ${PER_SPORT_TARGET}/sport, ${TOTAL_TARGET} total)`);
 
-  if (existing.length >= 30 && sportsWithZero.length === 0) {
-    console.log(`Premium predictions sufficient: ${existing.length} real games available`);
+  if (existing.length >= TOTAL_TARGET && underCoveredSports.length === 0) {
+    console.log(`Premium predictions sufficient: ${existing.length} real games covering all sports`);
     return;
   }
 
-  if (sportsWithZero.length > 0) {
-    console.log(`Core sports with no predictions: ${sportsWithZero.join(', ')} — regenerating...`);
+  if (underCoveredSports.length > 0) {
+    console.log(`Under-covered sports (<${PER_SPORT_TARGET}): ${underCoveredSports.join(', ')} — regenerating...`);
   } else {
-    console.log(`Only ${existing.length} premium predictions, fetching more real games from API...`);
+    console.log(`Only ${existing.length}/${TOTAL_TARGET} premium predictions, fetching more real games from API...`);
   }
   // Clear stale ESPN cache before regenerating so we get today's fresh schedule (e.g. tomorrow's MLB)
   await refreshUpcomingMatches();
@@ -1928,11 +1943,19 @@ export function startDailyRefreshScheduler(): void {
       .limit(1);
 
     if (existingFreeTip) {
-      console.log("Today's free tip already exists — skipping startup refresh, running resolution only");
+      console.log("Today's free tip already exists — skipping startup refresh, running resolution + premium top-up only");
       try {
         await resolvePredictionResults();
       } catch (err) {
         console.error("Startup resolution check failed:", err);
+      }
+      // Always top up premium predictions on startup. refreshDemoPredictions is
+      // idempotent — it returns early if coverage targets are already met, and
+      // only ADDS predictions (never deletes), so safe to run on every restart.
+      try {
+        await refreshDemoPredictions();
+      } catch (err) {
+        console.error("Startup premium top-up failed:", err);
       }
     } else {
       console.log("No free tip found for today — running full startup refresh");
