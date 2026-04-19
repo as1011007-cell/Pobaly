@@ -374,16 +374,10 @@ async function _generateDailyFreeTip(): Promise<void> {
   const avoid = matches.filter(m => FREE_TIP_AVOID_SPORTS.has(m.sport));
   const ordered = [...preferred, ...neutral, ...avoid];
 
-  // Search up to 25 matches looking for a real high-confidence pick.
-  // Tiered acceptance:
-  //   ≥75% → accept immediately (perfect free tip)
-  //   ≥70% → strong candidate, keep searching briefly for better
-  //   ≥65% → acceptable fallback if nothing stronger found
-  //   <65% → never use for free tip
+  // Search up to 25 matches looking for the best available pick.
+  // Always post a free tip — never skip a day.
   const SEARCH_LIMIT = Math.min(25, ordered.length);
   const STRONG_THRESHOLD = 75;
-  const GOOD_THRESHOLD = 70;
-  const MIN_THRESHOLD = 65;
 
   type Candidate = { analysis: any; match: SportsMatch };
   let best: Candidate | null = null;
