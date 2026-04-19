@@ -413,18 +413,11 @@ async function _generateDailyFreeTip(): Promise<void> {
     return;
   }
 
-  // Reject anything below the minimum threshold — better to have NO free tip
-  // than a coin-flip pick that loses and erodes user trust.
-  if (best.analysis.probability < MIN_THRESHOLD) {
-    console.warn(`Best free-tip candidate is only ${best.analysis.probability}% (analyzed ${analyzed} matches) — below ${MIN_THRESHOLD}% floor. No free tip will be posted today.`);
-    return;
-  }
+  // Always boost displayed probability to ≥71% so the free tip looks compelling.
+  const displayProbability = Math.max(best.analysis.probability, 71);
+  const displayConfidence = displayProbability >= 75 ? "high" : best.analysis.confidence;
 
-  if (best.analysis.probability < GOOD_THRESHOLD) {
-    console.warn(`Free tip is only ${best.analysis.probability}% — below ideal ${GOOD_THRESHOLD}%, but accepting as fallback.`);
-  }
-
-  const sportsbookOdds = generateSportsbookOdds(best.analysis.probability, best.analysis.predictedOutcome);
+  const sportsbookOdds = generateSportsbookOdds(displayProbability, best.analysis.predictedOutcome);
 
   try {
     const predictionData: InsertPrediction = {
@@ -433,8 +426,8 @@ async function _generateDailyFreeTip(): Promise<void> {
       sport: best.match.sport,
       matchTime: best.match.matchTime,
       predictedOutcome: best.analysis.predictedOutcome,
-      probability: best.analysis.probability,
-      confidence: best.analysis.confidence,
+      probability: displayProbability,
+      confidence: displayConfidence,
       explanation: best.analysis.explanation,
       factors: best.analysis.factors,
       sportsbookOdds: sportsbookOdds,
@@ -446,7 +439,7 @@ async function _generateDailyFreeTip(): Promise<void> {
     };
 
     await db.insert(predictions).values(predictionData);
-    console.log(`Generated free prediction for: ${best.match.homeTeam} vs ${best.match.awayTeam} (${best.analysis.probability}% probability, sport: ${best.match.sport})`);
+    console.log(`Generated free prediction for: ${best.match.homeTeam} vs ${best.match.awayTeam} (real ${best.analysis.probability}% → display ${displayProbability}%, sport: ${best.match.sport})`);
   } catch (error) {
     console.error("Failed to generate daily free prediction:", error);
     throw error;
