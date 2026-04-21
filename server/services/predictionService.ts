@@ -1377,8 +1377,10 @@ export async function resolvePredictionResults(): Promise<void> {
   // Require games to have started at least 6 hours ago before attempting resolution.
   // This covers long-running events (MLB extra innings, MMA full cards, 5-set tennis,
   // football matches with stoppage + ET + penalties) so we never resolve a game
-  // that might still be in progress.
-  const FINISH_BUFFER_HOURS = 6;
+  // that might still be in progress. 2h covers most basketball / football / hockey /
+  // soccer / MMA card matches; longer formats (cricket, tennis 5-set, MLB extras) are
+  // handled by the AI fallback resolver if ESPN doesn't have a final yet.
+  const FINISH_BUFFER_HOURS = 2;
   const finishBufferAgo = new Date(now.getTime() - FINISH_BUFFER_HOURS * 60 * 60 * 1000);
 
   const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
@@ -1796,15 +1798,18 @@ export async function dailyPredictionRefresh(): Promise<void> {
 // Fallback resolver: for predictions still unresolved >24h after match time,
 // ask the AI (GPT-4o) to find/recall the actual result and mark correct/incorrect.
 // Runs in small batches to control API cost.
-export async function resolveStuckPredictionsViaAI(maxBatch: number = 15): Promise<{ correct: number; incorrect: number; unknown: number }> {
-  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+export async function resolveStuckPredictionsViaAI(maxBatch: number = 50): Promise<{ correct: number; incorrect: number; unknown: number }> {
+  // Three-hour buffer: covers most full-length matches (cricket T20, tennis,
+  // MMA cards, soccer with ET) while still resolving same-day so users see
+  // results promptly. Premium picks and free tips alike.
+  const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000);
 
   const stuck = await db.select()
     .from(predictions)
     .where(
       and(
         sql`(${predictions.result} IS NULL OR ${predictions.result} = 'unresolved')`,
-        sql`${predictions.matchTime} < ${twentyFourHoursAgo.toISOString()}::timestamp`,
+        sql`${predictions.matchTime} < ${threeHoursAgo.toISOString()}::timestamp`,
       )
     )
     .orderBy(desc(predictions.matchTime))
@@ -1814,7 +1819,7 @@ export async function resolveStuckPredictionsViaAI(maxBatch: number = 15): Promi
     return { correct: 0, incorrect: 0, unknown: 0 };
   }
 
-  console.log(`[AI-RESOLVE] Found ${stuck.length} stuck predictions (>24h unresolved). Asking AI to find results...`);
+  console.log(`[AI-RESOLVE] Found ${stuck.length} stuck predictions (>3h unresolved). Asking AI to find results...`);
 
   let aiCorrect = 0;
   let aiIncorrect = 0;
@@ -2168,34 +2173,29 @@ export function startDailyRefreshScheduler(): void {
   }
   schedule8amResolution();
 
-  // Every 30 minutes: resolve newly completed games and replace any incorrect free tip.
-  // This ensures customers see results within 30 minutes of a game ending.
+  // Every 30 minutes: resolve newly completed games (API + AI fallback) and
+  // replace any incorrect free tip. This ensures every prediction — premium
+  // or free — gets a correct/incorrect verdict within ~30 minutes of game end.
   setInterval(async () => {
     try {
       await resolvePredictionResults();
     } catch (err) {
       console.error("Intraday resolution check failed:", err);
     }
+    try {
+      await resolveStuckPredictionsViaAI(50);
+    } catch (err) {
+      console.error("Intraday AI fallback resolver failed:", err);
+    }
     checkAndReplaceFreeTip();
   }, THIRTY_MINUTES);
-
-  // Every 2 hours: AI fallback pass for any predictions stuck unresolved >24h.
-  // Small batch (10) to keep AI cost minimal.
-  const TWO_HOURS = 2 * 60 * 60 * 1000;
-  setInterval(async () => {
-    try {
-      await resolveStuckPredictionsViaAI(10);
-    } catch (err) {
-      console.error("AI fallback resolver failed:", err);
-    }
-  }, TWO_HOURS);
 
   // Run once on startup to clean up anything already stuck.
   (async () => {
     try {
       // Wait for the initial API resolution pass to finish first.
       await new Promise(resolve => setTimeout(resolve, 60_000));
-      await resolveStuckPredictionsViaAI(15);
+      await resolveStuckPredictionsViaAI(50);
     } catch (err) {
       console.error("Startup AI fallback resolver failed:", err);
     }
