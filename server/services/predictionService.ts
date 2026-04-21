@@ -1193,75 +1193,38 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
     });
   };
 
-  if (isPremiumUser && userId) {
-    // Premium users see correct real AI predictions:
-    // 1. Both isPremium=true picks and free daily tips
-    // 2. Must be real pre-game predictions (expiresAt > matchTime)
-    // 3. Not retroactively created entries (those have expiresAt = matchTime)
-    // 4. Within last 30 days
-    const rows = await db.select()
-      .from(predictions)
-      .where(
-        and(
-          eq(predictions.result, "correct"),
-          isNull(predictions.userId),
-          sql`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`,
-          sql`${predictions.expiresAt} > ${predictions.matchTime}`
-        )
+  // Both premium and free users now see the same history:
+  // 1. Correct real AI predictions (premium picks + free daily tips)
+  // 2. Must be real pre-game predictions (expiresAt > matchTime) — never
+  //    retroactive ESPN entries (those have expiresAt = matchTime)
+  // 3. Within last 30 days
+  const rows = await db.select()
+    .from(predictions)
+    .where(
+      and(
+        eq(predictions.result, "correct"),
+        isNull(predictions.userId),
+        sql`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`,
+        sql`${predictions.expiresAt} > ${predictions.matchTime}`
       )
-      // isPremium DESC so premium picks are preferred over free tips in dedup
-      .orderBy(desc(predictions.matchTime), desc(predictions.isPremium));
+    )
+    // isPremium DESC so premium picks are preferred over free tips in dedup
+    .orderBy(desc(predictions.matchTime), desc(predictions.isPremium));
 
-    // Dedup by team pair + date so different games between same teams on different
-    // days both appear (e.g. playoff series), while true duplicates are collapsed.
-    const seen = new Set<string>();
-    const deduped: typeof rows = [];
-    for (const r of rows) {
-      const teamKey = r.matchTitle.replace(' (O/U)', '').split(' vs ').map((s: string) => s.trim()).sort().join('|');
-      const dateKey = r.matchTime ? new Date(r.matchTime).toISOString().split('T')[0] : '';
-      const key = `${teamKey}__${dateKey}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        deduped.push(r);
-      }
+  // Dedup by team pair + date so different games between same teams on different
+  // days both appear (e.g. playoff series), while true duplicates are collapsed.
+  const seen = new Set<string>();
+  const deduped: typeof rows = [];
+  for (const r of rows) {
+    const teamKey = r.matchTitle.replace(' (O/U)', '').split(' vs ').map((s: string) => s.trim()).sort().join('|');
+    const dateKey = r.matchTime ? new Date(r.matchTime).toISOString().split('T')[0] : '';
+    const key = `${teamKey}__${dateKey}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      deduped.push(r);
     }
-    return deduped;
   }
-
-  // Free users see two sets of correct picks, merged:
-  // 1. Real free daily tips (expiresAt > matchTime) — 30 days, same window as premium
-  // 2. Retroactive ESPN history entries (expiresAt = matchTime) — 5 days only
-  const [freeTipRows, retroRows] = await Promise.all([
-    db.select()
-      .from(predictions)
-      .where(
-        and(
-          eq(predictions.result, "correct"),
-          isNull(predictions.userId),
-          eq(predictions.isPremium, false),
-          sql`${predictions.expiresAt} > ${predictions.matchTime}`,
-          sql`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`
-        )
-      )
-      .orderBy(desc(predictions.matchTime)),
-    db.select()
-      .from(predictions)
-      .where(
-        and(
-          eq(predictions.result, "correct"),
-          isNull(predictions.userId),
-          eq(predictions.isPremium, false),
-          sql`${predictions.expiresAt} = ${predictions.matchTime}`,
-          sql`${predictions.matchTime} >= ${fiveDaysAgo.toISOString()}::timestamp`
-        )
-      )
-      .orderBy(desc(predictions.matchTime)),
-  ]);
-
-  const merged = [...freeTipRows, ...retroRows]
-    .sort((a, b) => new Date(b.matchTime).getTime() - new Date(a.matchTime).getTime());
-
-  return dedup(merged);
+  return deduped;
 }
 
 export async function getPredictionsBySport(sport: string, userId?: string, isPremiumUser?: boolean) {
@@ -1773,7 +1736,6 @@ export async function dailyPredictionRefresh(): Promise<void> {
     await runWithRetry(() => fixPrematurelyResolvedPredictions(), "fixPrematurelyResolvedPredictions");
     await runWithRetry(() => resolvePredictionResults(), "resolvePredictionResults");
     await runWithRetry(() => clearExpiredPredictions(), "clearExpiredPredictions");
-    await runWithRetry(() => generateYesterdayHistory(), "generateYesterdayHistory");
     // Always reset free tip at midnight — delete previous day's tip (win or lose) then generate fresh one
     await runWithRetry(() => resetAndGenerateDailyFreeTip(), "resetAndGenerateDailyFreeTip");
 
@@ -2130,14 +2092,6 @@ export function startDailyRefreshScheduler(): void {
       } catch (err) {
         console.error("Startup premium top-up failed:", err);
       }
-      // Always top up retroactive free history on startup. Idempotent — only adds
-      // entries for completed games not already covered. Without this, free users
-      // see stale history when the midnight UTC refresh hasn't yet run for new days.
-      try {
-        await generateYesterdayHistory();
-      } catch (err) {
-        console.error("Startup free history top-up failed:", err);
-      }
     } else {
       console.log("No free tip found for today — running full startup refresh");
       await runRefreshWithRetry();
@@ -2194,13 +2148,6 @@ export function startDailyRefreshScheduler(): void {
       await resolveStuckPredictionsViaAI(50);
     } catch (err) {
       console.error("Intraday AI fallback resolver failed:", err);
-    }
-    // Top up the retroactive free history so completed games appear in History
-    // throughout the day, not only after the midnight UTC refresh.
-    try {
-      await generateYesterdayHistory();
-    } catch (err) {
-      console.error("Intraday free history top-up failed:", err);
     }
     checkAndReplaceFreeTip();
   }, THIRTY_MINUTES);
