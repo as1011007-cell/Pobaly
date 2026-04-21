@@ -1826,7 +1826,7 @@ export async function resolveStuckPredictionsViaAI(maxBatch: number = 15): Promi
       const matchDateIso = pred.matchTime ? new Date(pred.matchTime).toISOString().split('T')[0] : 'unknown';
       const isOU = (pred.matchTitle || '').includes('(O/U)');
 
-      const prompt = `You are a sports-results lookup assistant. Find the FINAL official result of this completed sports match. Use your knowledge of public sports records and any web information available to you. Be conservative — if you are not certain, set "found": false.
+      const prompt = `You are a sports-results lookup assistant. Use the web_search tool to find the FINAL official result of the completed sports match below. Accuracy is critical — a wrong answer hurts users.
 
 Match: ${matchupClean}
 Sport: ${pred.sport}
@@ -1834,21 +1834,29 @@ Match date (UTC): ${matchDateIso}
 Bet type: ${isOU ? "Over/Under total points/runs/goals" : "Match winner"}
 Our prediction was: "${pred.predictedOutcome}"
 
-Return ONLY valid JSON in this exact format (no prose):
+REQUIRED PROCESS:
+1. Use web_search to look up the final score and winner. Search at least TWO independent reputable sources (e.g., espn.com, espncricinfo.com, bbc.com/sport, official league site, reuters.com).
+2. Confirm both sources agree on the winner and final score.
+3. Only set "found": true if you have a reputable source URL that EXPLICITLY states the final score AND the winner of THIS exact match on THIS exact date. Do NOT rely on training-data memory.
+4. Provide the actual source URL you used. If you cannot find the result with explicit confirmation from a reputable source, set "found": false.
+
+Return ONLY valid JSON in this exact format (no prose, no markdown):
 {
   "found": true | false,
   "homeScore": <integer or null>,
   "awayScore": <integer or null>,
-  "winner": "<home team name>" | "<away team name>" | "draw" | null,
+  "winner": "<exact home team name>" | "<exact away team name>" | "draw" | null,
   "totalPoints": <number or null>,
   "predictionCorrect": true | false | null,
-  "reasoning": "<one short sentence>"
+  "source": "<full URL of source confirming this>" | null,
+  "reasoning": "<one short sentence: which source confirmed it>"
 }
 
-Rules:
-- If you cannot reliably confirm the result, set "found": false and "predictionCorrect": null. Do NOT guess.
+Resolution rules:
 - For O/U bets: parse our prediction as "Over X.X" or "Under X.X". Compare totalPoints (homeScore + awayScore) against X.X. Over wins if total > X.X; Under wins if total < X.X. If exactly equal (push), set predictionCorrect: null.
-- For winner bets: extract the team named in our prediction (e.g., "Lakers Win" → "Lakers"). predictionCorrect = true if that team matches winner.`;
+- For winner bets: extract the team named in our prediction (e.g., "Lakers Win" → "Lakers"). predictionCorrect = true if and only if that exact team matches the actual winner.
+- If the match was postponed, cancelled, or not yet played: set "found": false.
+- DO NOT GUESS. If sources conflict or are unclear, set "found": false.`;
 
       // Prefer the Responses API with web_search so the model can actually look up
       // recent game results. Fall back to plain chat completion (training-knowledge only)
@@ -1898,6 +1906,15 @@ Rules:
         continue;
       }
 
+      // Require a real source URL to avoid hallucinated results.
+      const source = typeof parsed.source === "string" ? parsed.source.trim() : "";
+      const isValidUrl = /^https?:\/\/.+\..+/i.test(source);
+      if (!isValidUrl) {
+        aiUnknown++;
+        console.log(`[AI-RESOLVE] Rejected (no valid source URL): ${matchupClean} (${pred.sport}) — claimed: ${parsed.reasoning || 'n/a'}`);
+        continue;
+      }
+
       const newResult = parsed.predictionCorrect ? "correct" : "incorrect";
       await db.update(predictions)
         .set({ result: newResult })
@@ -1909,7 +1926,7 @@ Rules:
       const scoreStr = parsed.homeScore != null && parsed.awayScore != null
         ? `${parsed.homeScore}-${parsed.awayScore}`
         : 'score n/a';
-      console.log(`[AI-RESOLVE] ${matchupClean}: ${scoreStr}, predicted "${pred.predictedOutcome}" → ${newResult.toUpperCase()}`);
+      console.log(`[AI-RESOLVE] ${matchupClean}: ${scoreStr}, predicted "${pred.predictedOutcome}" → ${newResult.toUpperCase()} [src: ${source}]`);
     } catch (err) {
       aiUnknown++;
       console.error(`[AI-RESOLVE] Failed for "${pred.matchTitle}":`, err instanceof Error ? err.message : err);

@@ -509,6 +509,38 @@ function setupErrorHandler(app: express.Application) {
         console.error("[STARTUP MIGRATION] Series-aware re-resolution failed:", err);
       }
 
+      // AI-resolver accuracy fix (deployed 2026-04-21): the AI fallback resolver
+      // was getting wrong scores for some cricket/tennis matches because it relied
+      // on training-data memory. Reset all cricket and tennis predictions resolved
+      // in the past 7 days so they re-resolve with the new strict-source-citation
+      // prompt. ESPN-resolved sports (basketball/football/baseball/hockey/mma/golf)
+      // are unaffected. Idempotent: once re-resolved, a second startup will only
+      // pick up entries that were truly stuck.
+      try {
+        const { predictions } = await import("../shared/schema");
+        const { sql, and, or: _or } = await import("drizzle-orm");
+        const reset = await db
+          .update(predictions)
+          .set({ result: sql`null` })
+          .where(
+            and(
+              _or(
+                sql`${predictions.sport} = 'cricket'`,
+                sql`${predictions.sport} = 'tennis'`,
+              )!,
+              sql`${predictions.matchTime} > NOW() - INTERVAL '7 days'`,
+              sql`${predictions.result} IN ('correct', 'incorrect')`,
+            ),
+          )
+          .returning({ id: predictions.id });
+        if (reset.length > 0) {
+          log(`[STARTUP MIGRATION] Reset ${reset.length} cricket/tennis predictions for AI re-resolution with stricter prompt`);
+          // The next AI resolver run (60s after startup, then every 2h) will re-resolve them.
+        }
+      } catch (err) {
+        console.error("[STARTUP MIGRATION] Cricket/tennis AI reset failed:", err);
+      }
+
       // Initialize push notification tokens table
       const { initPushTokensTable } = await import("./services/pushNotificationService");
       await initPushTokensTable();
