@@ -1774,6 +1774,13 @@ export async function dailyPredictionRefresh(): Promise<void> {
     await runWithRetry(() => generateYesterdayHistory(), "generateYesterdayHistory");
     // Always reset free tip at midnight — delete previous day's tip (win or lose) then generate fresh one
     await runWithRetry(() => resetAndGenerateDailyFreeTip(), "resetAndGenerateDailyFreeTip");
+
+    // After midnight resolution, ask AI to clean up anything still stuck >24h.
+    try {
+      await resolveStuckPredictionsViaAI();
+    } catch (err) {
+      console.error("[MIDNIGHT] AI fallback resolver failed:", err);
+    }
     await runWithRetry(() => refreshDemoPredictions(), "refreshDemoPredictions");
     
     console.log("Daily prediction refresh completed successfully");
@@ -1784,6 +1791,133 @@ export async function dailyPredictionRefresh(): Promise<void> {
     console.error("Error during daily prediction refresh:", error);
     throw error;
   }
+}
+
+// Fallback resolver: for predictions still unresolved >24h after match time,
+// ask the AI (GPT-4o) to find/recall the actual result and mark correct/incorrect.
+// Runs in small batches to control API cost.
+export async function resolveStuckPredictionsViaAI(maxBatch: number = 15): Promise<{ correct: number; incorrect: number; unknown: number }> {
+  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  const stuck = await db.select()
+    .from(predictions)
+    .where(
+      and(
+        sql`(${predictions.result} IS NULL OR ${predictions.result} = 'unresolved')`,
+        sql`${predictions.matchTime} < ${twentyFourHoursAgo.toISOString()}::timestamp`,
+      )
+    )
+    .orderBy(desc(predictions.matchTime))
+    .limit(maxBatch);
+
+  if (stuck.length === 0) {
+    return { correct: 0, incorrect: 0, unknown: 0 };
+  }
+
+  console.log(`[AI-RESOLVE] Found ${stuck.length} stuck predictions (>24h unresolved). Asking AI to find results...`);
+
+  let aiCorrect = 0;
+  let aiIncorrect = 0;
+  let aiUnknown = 0;
+
+  for (const pred of stuck) {
+    try {
+      const matchupClean = (pred.matchTitle || '').replace(/\s*\(O\/U\)$/, '');
+      const matchDateIso = pred.matchTime ? new Date(pred.matchTime).toISOString().split('T')[0] : 'unknown';
+      const isOU = (pred.matchTitle || '').includes('(O/U)');
+
+      const prompt = `You are a sports-results lookup assistant. Find the FINAL official result of this completed sports match. Use your knowledge of public sports records and any web information available to you. Be conservative — if you are not certain, set "found": false.
+
+Match: ${matchupClean}
+Sport: ${pred.sport}
+Match date (UTC): ${matchDateIso}
+Bet type: ${isOU ? "Over/Under total points/runs/goals" : "Match winner"}
+Our prediction was: "${pred.predictedOutcome}"
+
+Return ONLY valid JSON in this exact format (no prose):
+{
+  "found": true | false,
+  "homeScore": <integer or null>,
+  "awayScore": <integer or null>,
+  "winner": "<home team name>" | "<away team name>" | "draw" | null,
+  "totalPoints": <number or null>,
+  "predictionCorrect": true | false | null,
+  "reasoning": "<one short sentence>"
+}
+
+Rules:
+- If you cannot reliably confirm the result, set "found": false and "predictionCorrect": null. Do NOT guess.
+- For O/U bets: parse our prediction as "Over X.X" or "Under X.X". Compare totalPoints (homeScore + awayScore) against X.X. Over wins if total > X.X; Under wins if total < X.X. If exactly equal (push), set predictionCorrect: null.
+- For winner bets: extract the team named in our prediction (e.g., "Lakers Win" → "Lakers"). predictionCorrect = true if that team matches winner.`;
+
+      // Prefer the Responses API with web_search so the model can actually look up
+      // recent game results. Fall back to plain chat completion (training-knowledge only)
+      // if the integration proxy does not support tools / responses.
+      let content = "{}";
+      let usedWebSearch = false;
+      try {
+        const resp: any = await (openai as any).responses.create({
+          model: "gpt-4o",
+          input: prompt,
+          tools: [{ type: "web_search" }],
+        });
+        usedWebSearch = true;
+        // Extract the text output
+        content = resp.output_text
+          || resp.output?.flatMap?.((o: any) => o.content?.filter?.((c: any) => c.type === "output_text" || c.type === "text").map?.((c: any) => c.text) ?? []).join("")
+          || "{}";
+        // Strip code fences if model wrapped JSON
+        content = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+      } catch (responsesErr) {
+        console.warn(`[AI-RESOLVE] web_search Responses API unavailable, falling back to chat completion:`, responsesErr instanceof Error ? responsesErr.message : responsesErr);
+        const response = await openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 350,
+          temperature: 0.1,
+          response_format: { type: "json_object" },
+        });
+        content = response.choices[0]?.message?.content || "{}";
+      }
+      if (usedWebSearch && stuck.indexOf(pred) === 0) {
+        console.log(`[AI-RESOLVE] Using OpenAI Responses API with web_search`);
+      }
+
+      let parsed: any;
+      try {
+        parsed = JSON.parse(content);
+      } catch {
+        // Try to pull a JSON object out of mixed text
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+      }
+
+      if (!parsed.found || parsed.predictionCorrect === null || parsed.predictionCorrect === undefined) {
+        aiUnknown++;
+        console.log(`[AI-RESOLVE] Could not confirm: ${matchupClean} (${pred.sport}) — ${parsed.reasoning || 'no reasoning'}`);
+        continue;
+      }
+
+      const newResult = parsed.predictionCorrect ? "correct" : "incorrect";
+      await db.update(predictions)
+        .set({ result: newResult })
+        .where(eq(predictions.id, pred.id));
+
+      if (parsed.predictionCorrect) aiCorrect++;
+      else aiIncorrect++;
+
+      const scoreStr = parsed.homeScore != null && parsed.awayScore != null
+        ? `${parsed.homeScore}-${parsed.awayScore}`
+        : 'score n/a';
+      console.log(`[AI-RESOLVE] ${matchupClean}: ${scoreStr}, predicted "${pred.predictedOutcome}" → ${newResult.toUpperCase()}`);
+    } catch (err) {
+      aiUnknown++;
+      console.error(`[AI-RESOLVE] Failed for "${pred.matchTitle}":`, err instanceof Error ? err.message : err);
+    }
+  }
+
+  console.log(`[AI-RESOLVE] Done: ${aiCorrect} correct, ${aiIncorrect} incorrect, ${aiUnknown} still unknown out of ${stuck.length}`);
+  return { correct: aiCorrect, incorrect: aiIncorrect, unknown: aiUnknown };
 }
 
 // Refresh premium predictions - clear expired and regenerate from real API data only
@@ -2006,6 +2140,8 @@ export function startDailyRefreshScheduler(): void {
       console.log("[8AM CATCHUP] Running morning resolution pass for overnight game results...");
       try {
         await resolvePredictionResults();
+        // After API resolver, ask AI to clean up anything still stuck >24h.
+        await resolveStuckPredictionsViaAI();
         await logDailyResolutionSummary();
       } catch (err) {
         console.error("[8AM CATCHUP] Resolution failed:", err);
@@ -2025,4 +2161,26 @@ export function startDailyRefreshScheduler(): void {
     }
     checkAndReplaceFreeTip();
   }, THIRTY_MINUTES);
+
+  // Every 2 hours: AI fallback pass for any predictions stuck unresolved >24h.
+  // Small batch (10) to keep AI cost minimal.
+  const TWO_HOURS = 2 * 60 * 60 * 1000;
+  setInterval(async () => {
+    try {
+      await resolveStuckPredictionsViaAI(10);
+    } catch (err) {
+      console.error("AI fallback resolver failed:", err);
+    }
+  }, TWO_HOURS);
+
+  // Run once on startup to clean up anything already stuck.
+  (async () => {
+    try {
+      // Wait for the initial API resolution pass to finish first.
+      await new Promise(resolve => setTimeout(resolve, 60_000));
+      await resolveStuckPredictionsViaAI(15);
+    } catch (err) {
+      console.error("Startup AI fallback resolver failed:", err);
+    }
+  })();
 }
