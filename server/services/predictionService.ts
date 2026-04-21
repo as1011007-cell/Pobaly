@@ -2130,6 +2130,14 @@ export function startDailyRefreshScheduler(): void {
       } catch (err) {
         console.error("Startup premium top-up failed:", err);
       }
+      // Always top up retroactive free history on startup. Idempotent — only adds
+      // entries for completed games not already covered. Without this, free users
+      // see stale history when the midnight UTC refresh hasn't yet run for new days.
+      try {
+        await generateYesterdayHistory();
+      } catch (err) {
+        console.error("Startup free history top-up failed:", err);
+      }
     } else {
       console.log("No free tip found for today — running full startup refresh");
       await runRefreshWithRetry();
@@ -2186,6 +2194,13 @@ export function startDailyRefreshScheduler(): void {
       await resolveStuckPredictionsViaAI(50);
     } catch (err) {
       console.error("Intraday AI fallback resolver failed:", err);
+    }
+    // Top up the retroactive free history so completed games appear in History
+    // throughout the day, not only after the midnight UTC refresh.
+    try {
+      await generateYesterdayHistory();
+    } catch (err) {
+      console.error("Intraday free history top-up failed:", err);
     }
     checkAndReplaceFreeTip();
   }, THIRTY_MINUTES);
