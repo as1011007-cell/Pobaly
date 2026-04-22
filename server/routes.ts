@@ -385,33 +385,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (isSubscribed) {
         const rcApiKey = process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY || "appl_eGrJgGTzuQlDyJTRiMiPczUDSuT";
         let verified = false;
-        try {
-          const rcResp = await fetch(`https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(userId)}`, {
-            headers: { "Authorization": `Bearer ${rcApiKey}` },
-          });
-          if (rcResp.ok) {
-            const rcData = await rcResp.json();
-            const ent = rcData?.subscriber?.entitlements?.premium;
-            if (ent) {
-              const expiresDate = ent.expires_date ? new Date(ent.expires_date) : null;
-              const isActive = !expiresDate || expiresDate > new Date();
-              const subs = rcData?.subscriber?.subscriptions || {};
-              const hasRealSub = Object.values(subs).some((s: any) =>
-                s.store !== "test_store" && !s.is_sandbox &&
-                (!s.expires_date || new Date(s.expires_date) > new Date())
-              );
-              if (isActive && hasRealSub) {
-                verified = true;
+        let lastRcStatus = 0;
+        // Retry up to 3 times — RevenueCat's REST API can lag 1-2 seconds
+        // behind a fresh purchase before the entitlement appears.
+        for (let attempt = 0; attempt < 3 && !verified; attempt++) {
+          if (attempt > 0) await new Promise(r => setTimeout(r, 1500));
+          try {
+            const rcResp = await fetch(`https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(userId)}`, {
+              headers: { "Authorization": `Bearer ${rcApiKey}` },
+            });
+            lastRcStatus = rcResp.status;
+            if (rcResp.ok) {
+              const rcData = await rcResp.json();
+              const ent = rcData?.subscriber?.entitlements?.premium;
+              if (ent) {
+                const expiresDate = ent.expires_date ? new Date(ent.expires_date) : null;
+                const isActive = !expiresDate || expiresDate > new Date();
+                const subs = rcData?.subscriber?.subscriptions || {};
+                const hasRealSub = Object.values(subs).some((s: any) =>
+                  s.store !== "test_store" && !s.is_sandbox &&
+                  (!s.expires_date || new Date(s.expires_date) > new Date())
+                );
+                if (isActive && hasRealSub) {
+                  verified = true;
+                }
               }
             }
+          } catch (rcErr) {
+            console.warn(`RevenueCat verification attempt ${attempt + 1} failed:`, rcErr);
           }
-        } catch (rcErr) {
-          console.warn("RevenueCat verification failed, falling back to webhook-only:", rcErr);
-          return res.json({ isPremium: user.isPremium || false, message: "Verification pending — webhook will confirm." });
         }
 
         if (!verified) {
-          console.log(`RevenueCat sync REJECTED: user ${userId} has no verified real subscription`);
+          console.log(`RevenueCat sync REJECTED: user ${userId} has no verified real subscription (last status=${lastRcStatus})`);
           return res.json({ isPremium: user.isPremium || false, message: "No verified subscription found." });
         }
 
