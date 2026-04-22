@@ -21,6 +21,7 @@ interface AuthContextType {
   signUp: (email: string, password: string, name: string) => Promise<void>;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  activatePremium: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -207,6 +208,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await refreshUserById(userRef.current.id);
   };
 
+  // Optimistically activate premium immediately after a confirmed purchase.
+  // Called right after purchasePackage() resolves — Apple has confirmed the
+  // payment so we trust the client. The webhook + sync will confirm server-side.
+  const activatePremium = async () => {
+    const current = userRef.current;
+    if (!current) return;
+    const updatedUser: User = {
+      ...current,
+      isPremium: true,
+      subscriptionExpiry: (() => {
+        const d = new Date();
+        d.setFullYear(d.getFullYear() + 1);
+        return d.toISOString();
+      })(),
+    };
+    await storage.setUser(updatedUser);
+    setUserAndRef(updatedUser);
+    cancelPremiumPromoNotifications().catch(() => {});
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -218,6 +239,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signUp,
         signOut,
         refreshUser,
+        activatePremium,
       }}
     >
       {children}

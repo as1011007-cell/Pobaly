@@ -78,7 +78,7 @@ export default function SubscriptionScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
-  const { user, isPremium, refreshUser } = useAuth();
+  const { user, isPremium, refreshUser, activatePremium } = useAuth();
   const [selectedPlan, setSelectedPlan] = useState<PlanType>("annual");
 
   const {
@@ -177,34 +177,21 @@ export default function SubscriptionScreen() {
       await purchase(selectedPackage);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
+      // Immediately mark premium in the app — Apple confirmed the payment,
+      // so we trust the client. The server webhook will also confirm it.
+      await activatePremium();
+
+      // Fire-and-forget server sync so DB stays in sync, but don't block the UI
       if (user?.id) {
-        let synced = false;
-        for (let attempt = 0; attempt < 3 && !synced; attempt++) {
-          try {
-            if (attempt > 0) await new Promise(r => setTimeout(r, 1500));
-            await apiRequest("POST", "/api/revenuecat/sync", {
-              userId: String(user.id),
-              isSubscribed: true,
-              productIdentifier: selectedPackage.product.identifier,
-            });
-            synced = true;
-          } catch (syncError) {
-            console.warn(`Sync attempt ${attempt + 1} failed:`, syncError);
-          }
-        }
-        if (!synced) {
-          Alert.alert(
-            "Purchase successful",
-            "Your payment went through but we couldn't activate premium right now. Use 'Restore Purchases' on this screen and it will activate instantly.",
-            [{ text: "OK" }]
-          );
-        }
+        apiRequest("POST", "/api/revenuecat/sync", {
+          isSubscribed: true,
+          productIdentifier: selectedPackage.product.identifier,
+        }).catch(() => {});
       }
 
-      await refreshUser();
       setTimeout(() => {
         if (navigation.canGoBack()) navigation.goBack();
-      }, 1200);
+      }, 800);
     } catch (error: any) {
       if (error?.userCancelled) return;
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -223,24 +210,22 @@ export default function SubscriptionScreen() {
       const restoredInfo = await restore();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-      // Sync restored premium status to server
-      if (user?.id) {
-        try {
-          const entitlement = restoredInfo.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER];
-          const isSubscribed = entitlement !== undefined;
-          const productIdentifier = entitlement?.productIdentifier;
-          await apiRequest("POST", "/api/revenuecat/sync", {
-            userId: String(user.id),
-            isSubscribed,
-            productIdentifier,
-          });
-        } catch (syncError) {
-          console.warn("RevenueCat restore sync failed:", syncError);
-        }
+      const entitlement = restoredInfo.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER];
+      const hasActiveSubscription = entitlement !== undefined;
+
+      // Immediately activate premium in-app if RC confirms an active entitlement
+      if (hasActiveSubscription) {
+        await activatePremium();
       }
 
-      await refreshUser();
-      const hasActiveSubscription = restoredInfo.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
+      // Fire-and-forget server sync
+      if (user?.id && hasActiveSubscription) {
+        apiRequest("POST", "/api/revenuecat/sync", {
+          isSubscribed: true,
+          productIdentifier: entitlement?.productIdentifier,
+        }).catch(() => {});
+      }
+
       if (hasActiveSubscription) {
         Alert.alert("Purchases restored", "Your subscription has been restored successfully.", [{ text: "OK" }]);
       } else {

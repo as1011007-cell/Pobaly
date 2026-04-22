@@ -67,7 +67,7 @@ export default function ProfileScreen() {
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
   const { theme, themeMode } = useTheme();
-  const { user, isPremium, signOut, refreshUser } = useAuth();
+  const { user, isPremium, signOut, refreshUser, activatePremium } = useAuth();
   const navigation = useNavigation<NavigationProp>();
   const { language, t } = useLanguage();
 
@@ -118,31 +118,16 @@ export default function ProfileScreen() {
       await purchase(selectedPackage);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-      if (user?.id) {
-        let synced = false;
-        for (let attempt = 0; attempt < 3 && !synced; attempt++) {
-          try {
-            if (attempt > 0) await new Promise(r => setTimeout(r, 1500));
-            await apiRequest("POST", "/api/revenuecat/sync", {
-              userId: String(user.id),
-              isSubscribed: true,
-              productIdentifier: selectedPackage.product.identifier,
-            });
-            synced = true;
-          } catch (syncError) {
-            console.warn(`Sync attempt ${attempt + 1} failed:`, syncError);
-          }
-        }
-        if (!synced) {
-          Alert.alert(
-            "Purchase successful",
-            "Your payment went through but we couldn't activate premium right now. Use 'Restore Purchases' and it will activate instantly.",
-            [{ text: "OK" }]
-          );
-        }
-      }
+      // Immediately mark premium in the app — Apple confirmed the payment
+      await activatePremium();
 
-      await refreshUser();
+      // Fire-and-forget server sync
+      if (user?.id) {
+        apiRequest("POST", "/api/revenuecat/sync", {
+          isSubscribed: true,
+          productIdentifier: selectedPackage.product.identifier,
+        }).catch(() => {});
+      }
     } catch (error: any) {
       if (error?.userCancelled) return;
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -161,24 +146,17 @@ export default function ProfileScreen() {
       const restoredInfo = await restore();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-      // Sync restored premium status to server
-      if (user?.id) {
-        try {
-          const entitlement = restoredInfo.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER];
-          const isSubscribed = entitlement !== undefined;
-          await apiRequest("POST", "/api/revenuecat/sync", {
-            userId: String(user.id),
-            isSubscribed,
-            productIdentifier: entitlement?.productIdentifier,
-          });
-        } catch (syncError) {
-          console.warn("Restore sync failed:", syncError);
-        }
-      }
+      const entitlement = restoredInfo.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER];
+      const hasActiveSubscription = entitlement !== undefined;
 
-      await refreshUser();
-      const hasActiveSubscription = restoredInfo.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
       if (hasActiveSubscription) {
+        await activatePremium();
+        if (user?.id) {
+          apiRequest("POST", "/api/revenuecat/sync", {
+            isSubscribed: true,
+            productIdentifier: entitlement?.productIdentifier,
+          }).catch(() => {});
+        }
         Alert.alert("Purchases Restored", "Your subscription has been restored successfully.", [{ text: "OK" }]);
       } else {
         Alert.alert("No Purchases Found", "We could not find any previous purchases on this Apple ID.", [{ text: "OK" }]);
