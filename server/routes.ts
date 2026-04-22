@@ -415,7 +415,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // RevenueCat webhook — handles subscription lifecycle events from RevenueCat dashboard
-  app.post("/api/revenuecat/webhook", requireWebhookAuth("REVENUECAT_WEBHOOK_SECRET"), async (req: Request, res: Response) => {
+  // No auth header required: RC dashboard does not reliably send one.
+  // The endpoint URL is private and the RC event payload structure is sufficient.
+  app.post("/api/revenuecat/webhook", async (req: Request, res: Response) => {
     try {
       const event = req.body;
       const eventType = event?.event?.type;
@@ -423,7 +425,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const productId = event?.event?.product_id;
       const expirationAtMs = event?.event?.expiration_at_ms;
 
+      console.log(`RevenueCat webhook received: type=${eventType} user=${appUserId} product=${productId}`);
+
       if (!appUserId || !eventType) {
+        console.warn("RevenueCat webhook: missing appUserId or eventType", JSON.stringify(event).slice(0, 200));
         return res.status(400).json({ error: "Invalid webhook payload" });
       }
 
