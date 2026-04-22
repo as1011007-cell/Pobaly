@@ -99,7 +99,8 @@ export function requireWebhookAuth(secretEnvVar: string) {
     // prefix. Both formats are accepted to avoid rejecting legitimate hooks.
     const provided = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : authHeader;
     if (!timingSafeEqual(provided, secret)) {
-      console.warn(`[WEBHOOK AUTH] Invalid secret for ${secretEnvVar}`);
+      const preview = (s: string) => s.length <= 8 ? `len=${s.length}` : `len=${s.length} ${s.slice(0, 4)}…${s.slice(-4)}`;
+      console.warn(`[WEBHOOK AUTH] Invalid secret for ${secretEnvVar}. expected ${preview(secret)} got ${preview(provided)}`);
       return res.status(401).json({ error: "Unauthorized webhook request" });
     }
 
