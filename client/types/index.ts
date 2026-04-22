@@ -52,7 +52,7 @@ export interface User {
   email: string;
   name?: string;
   isPremium: boolean;
-  subscriptionExpiry?: string;
+  subscriptionExpiry?: string | Date;
 }
 
 export interface SportCategory {

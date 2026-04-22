@@ -220,7 +220,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       subscriptionExpiry: (() => {
         const d = new Date();
         d.setFullYear(d.getFullYear() + 1);
-        return d.toISOString();
+        return d;
       })(),
     };
     await storage.setUser(updatedUser);
