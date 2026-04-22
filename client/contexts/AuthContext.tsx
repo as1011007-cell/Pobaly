@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
-import { Platform } from "react-native";
+import React, { createContext, useContext, useState, useEffect, useRef } from "react";
+import { Platform, AppState, AppStateStatus } from "react-native";
 import { User } from "@/types";
 import { storage } from "@/lib/storage";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
@@ -28,16 +28,65 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const userRef = useRef<User | null>(null);
+  const lastRefreshRef = useRef<number>(0);
 
   useEffect(() => {
     loadUser();
   }, []);
 
+  // Refresh subscription state whenever the app comes to foreground.
+  // This catches the case where the payment sheet closes and the user
+  // returns to the app — the webhook will have already fired and set
+  // isPremium=true on the server, so this refresh picks it up instantly.
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    const handleAppStateChange = (nextState: AppStateStatus) => {
+      if (nextState === "active") {
+        const now = Date.now();
+        const secondsSinceLastRefresh = (now - lastRefreshRef.current) / 1000;
+        // Avoid hammering the server — only refresh if 10+ seconds have passed
+        if (userRef.current && secondsSinceLastRefresh > 10) {
+          lastRefreshRef.current = now;
+          refreshUserById(userRef.current.id).catch(() => {});
+        }
+      }
+    };
+    const sub = AppState.addEventListener("change", handleAppStateChange);
+    return () => sub.remove();
+  }, []);
+
+  // Keep ref in sync so AppState handler always has latest user
+  const setUserAndRef = (u: User | null) => {
+    userRef.current = u;
+    setUser(u);
+  };
+
+  // Core subscription refresh — works with any user id
+  const refreshUserById = async (userId: string) => {
+    try {
+      const response = await apiRequest("GET", `/api/subscription/${userId}`);
+      const data = await response.json();
+      const current = userRef.current;
+      if (!current) return;
+      const updatedUser: User = {
+        ...current,
+        isPremium: data.isPremium ?? current.isPremium,
+        subscriptionExpiry: data.expiryDate ?? current.subscriptionExpiry,
+      };
+      await storage.setUser(updatedUser);
+      setUserAndRef(updatedUser);
+      if (updatedUser.isPremium && !current.isPremium) {
+        cancelPremiumPromoNotifications().catch(() => {});
+      }
+    } catch {}
+  };
+
   const loadUser = async () => {
     try {
       const savedUser = await storage.getUser();
       if (savedUser) {
-        setUser(savedUser);
+        setUserAndRef(savedUser);
         loginRevenueCat(String(savedUser.id));
         const token = await storage.getAuthToken();
         if (token) {
@@ -66,7 +115,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 subscriptionExpiry: data.expiryDate,
               };
               await storage.setUser(updatedUser);
-              setUser(updatedUser);
+              setUserAndRef(updatedUser);
             }
           } catch {}
         }
@@ -101,7 +150,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       await storage.setUser(newUser);
       await storage.setAuthToken(data.token);
-      setUser(newUser);
+      setUserAndRef(newUser);
       loginRevenueCat(String(data.user.id));
       registerPushTokenWithServer(data.token).catch(() => {});
       if (newUser.isPremium) {
@@ -132,7 +181,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await storage.setUser(newUser);
       await storage.setAuthToken(data.token);
       await storage.setOnboardingComplete();
-      setUser(newUser);
+      setUserAndRef(newUser);
       loginRevenueCat(String(data.user.id));
       registerPushTokenWithServer(data.token).catch(() => {});
       schedulePremiumPromoNotifications().catch(() => {});
@@ -147,32 +196,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       logoutRevenueCat();
       cancelPremiumPromoNotifications().catch(() => {});
       await storage.clearAll();
-      setUser(null);
+      setUserAndRef(null);
     } finally {
       setIsLoading(false);
     }
   };
 
   const refreshUser = async () => {
-    if (!user) return;
-    try {
-      const response = await apiRequest("GET", `/api/subscription/${user.id}`);
-      const data = await response.json();
-
-      const updatedUser: User = {
-        ...user,
-        isPremium: data.isPremium ?? user.isPremium,
-        subscriptionExpiry: data.expiryDate ?? user.subscriptionExpiry,
-      };
-      await storage.setUser(updatedUser);
-      setUser(updatedUser);
-
-      if (updatedUser.isPremium && !user.isPremium) {
-        cancelPremiumPromoNotifications().catch(() => {});
-      }
-    } catch (error) {
-      console.error("Failed to refresh user:", error);
-    }
+    if (!userRef.current) return;
+    await refreshUserById(userRef.current.id);
   };
 
   return (
