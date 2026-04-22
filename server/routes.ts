@@ -447,65 +447,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // RevenueCat webhook — handles subscription lifecycle events from RevenueCat dashboard
-  app.post("/api/revenuecat/webhook", requireWebhookAuth("REVENUECAT_WEBHOOK_SECRET"), async (req: Request, res: Response) => {
-    try {
-      const event = req.body;
-      const eventType = event?.event?.type;
-      const appUserId = event?.event?.app_user_id;
-      const productId = event?.event?.product_id;
-      const expirationAtMs = event?.event?.expiration_at_ms;
-
-      if (!appUserId || !eventType) {
-        return res.status(400).json({ error: "Invalid webhook payload" });
-      }
-
-      const user = await storage.getUser(String(appUserId));
-      if (!user) {
-        // User not found — could be anonymous RevenueCat user before login mapping
-        console.log(`RevenueCat webhook: user ${appUserId} not in DB (skipping)`);
-        return res.json({ received: true });
-      }
-
-      const activatingEvents = ["INITIAL_PURCHASE", "RENEWAL", "PRODUCT_CHANGE", "UNCANCELLATION", "TRANSFER"];
-      const deactivatingEvents = ["CANCELLATION", "EXPIRATION", "BILLING_ISSUE"];
-
-      if (activatingEvents.includes(eventType)) {
-        let expiry: Date;
-        if (expirationAtMs) {
-          expiry = new Date(expirationAtMs);
-        } else {
-          expiry = new Date();
-          const isAnnual = String(productId || "").includes("annual");
-          isAnnual
-            ? expiry.setFullYear(expiry.getFullYear() + 1)
-            : expiry.setMonth(expiry.getMonth() + 1);
-        }
-        const webhookUpdate: any = {
-          isPremium: true,
-          subscriptionExpiry: expiry,
-        };
-        if (!user.isPremium) {
-          webhookUpdate.premiumSince = new Date();
-        }
-        await storage.updateUserStripeInfo(String(appUserId), webhookUpdate);
-        console.log(`RevenueCat webhook: ${eventType} → isPremium=true for ${appUserId}`);
-
-        // Affiliate program disabled
-        // if (eventType === "INITIAL_PURCHASE") {
-        //   await WebhookHandlers.processAffiliateReferralForRevenueCat(String(appUserId), String(productId || ""));
-        // }
-      } else if (deactivatingEvents.includes(eventType)) {
-        await storage.updateUserStripeInfo(String(appUserId), { isPremium: false });
-        console.log(`RevenueCat webhook: ${eventType} → isPremium=false for ${appUserId}`);
-      } else {
-        console.log(`RevenueCat webhook: unhandled event type ${eventType}`);
-      }
-
-      res.json({ received: true });
-    } catch (error: any) {
-      console.error("RevenueCat webhook error:", error);
-      res.status(500).json({ error: safeErrorMessage(error) });
-    }
+  // RevenueCat webhook intentionally disabled. Subscription state is kept in
+  // sync via the client-side /api/revenuecat/sync endpoint, which talks to
+  // RevenueCat directly on app launch/foreground. We still accept inbound
+  // webhook calls and return 200 so RC doesn't retry indefinitely.
+  app.post("/api/revenuecat/webhook", async (_req: Request, res: Response) => {
+    res.json({ received: true, disabled: true });
   });
 
   app.post("/api/customer-portal", requireAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
