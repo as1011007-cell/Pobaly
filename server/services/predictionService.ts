@@ -17,6 +17,30 @@ const openai = new Proxy({} as OpenAI, {
   },
 });
 
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+async function withOpenAIRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      const isRateLimit = err?.status === 429 || err?.code === "rate_limit_exceeded";
+      if (isRateLimit && attempt < maxRetries) {
+        const retryAfterMs = (() => {
+          const ra = err?.headers?.["retry-after-ms"] || err?.headers?.["retry-after"];
+          if (ra) return Number(ra) * (ra.toString().length <= 3 ? 1000 : 1);
+          return (attempt + 1) * 22000;
+        })();
+        console.warn(`[OpenAI] Rate limited — retrying in ${Math.round(retryAfterMs / 1000)}s (attempt ${attempt + 1}/${maxRetries})`);
+        await sleep(retryAfterMs);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error("withOpenAIRetry: exhausted retries");
+}
+
 interface SportsMatch {
   homeTeam: string;
   awayTeam: string;
@@ -282,12 +306,12 @@ Respond ONLY with this JSON object (no markdown, no extra text):
   "riskIndex": <integer 5-45, lower = safer bet>
 }`;
 
-  const response = await openai.chat.completions.create({
+  const response = await withOpenAIRetry(() => openai.chat.completions.create({
     model: "gpt-4o",
     messages: [{ role: "user", content: prompt }],
     max_tokens: 1200,
     temperature: 0.65,
-  });
+  }));
 
   const content = response.choices[0]?.message?.content || "{}";
   
@@ -532,6 +556,7 @@ export async function generatePremiumPredictionsForUser(userId: string): Promise
       });
       existingTitles.add(effectiveTitle);
       console.log(`Generated premium ${useOU ? 'O/U' : 'winner'} prediction for user ${userId}: ${effectiveTitle}`);
+      await sleep(22000);
     } catch (error) {
       console.error(`Failed to generate prediction for ${match.homeTeam} vs ${match.awayTeam}:`, error);
     }
@@ -1040,6 +1065,7 @@ export async function generateDemoPredictions(): Promise<void> {
       });
       existingTitles.add(effectiveTitle);
       console.log(`Generated ${usingFallback ? 'fallback' : 'real'} ${useOU ? 'O/U' : 'winner'} prediction: ${effectiveTitle} (${match.sport})`);
+      await sleep(22000);
     } catch (error) {
       console.error(`Failed to generate prediction for ${matchTitle}:`, error);
     }
@@ -1884,13 +1910,13 @@ Resolution rules:
         content = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
       } catch (responsesErr) {
         console.warn(`[AI-RESOLVE] web_search Responses API unavailable, falling back to chat completion:`, responsesErr instanceof Error ? responsesErr.message : responsesErr);
-        const response = await openai.chat.completions.create({
+        const response = await withOpenAIRetry(() => openai.chat.completions.create({
           model: "gpt-4o",
           messages: [{ role: "user", content: prompt }],
           max_tokens: 350,
           temperature: 0.1,
           response_format: { type: "json_object" },
-        });
+        }));
         content = response.choices[0]?.message?.content || "{}";
       }
       if (usedWebSearch && stuck.indexOf(pred) === 0) {
@@ -1933,6 +1959,7 @@ Resolution rules:
         ? `${parsed.homeScore}-${parsed.awayScore}`
         : 'score n/a';
       console.log(`[AI-RESOLVE] ${matchupClean}: ${scoreStr}, predicted "${pred.predictedOutcome}" → ${newResult.toUpperCase()} [src: ${source}]`);
+      await sleep(22000);
     } catch (err) {
       aiUnknown++;
       console.error(`[AI-RESOLVE] Failed for "${pred.matchTitle}":`, err instanceof Error ? err.message : err);
