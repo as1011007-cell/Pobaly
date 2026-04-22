@@ -178,14 +178,26 @@ export default function SubscriptionScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
       if (user?.id) {
-        try {
-          await apiRequest("POST", "/api/revenuecat/sync", {
-            userId: String(user.id),
-            isSubscribed: true,
-            productIdentifier: selectedPackage.product.identifier,
-          });
-        } catch (syncError) {
-          console.warn("RevenueCat sync failed:", syncError);
+        let synced = false;
+        for (let attempt = 0; attempt < 3 && !synced; attempt++) {
+          try {
+            if (attempt > 0) await new Promise(r => setTimeout(r, 1500));
+            await apiRequest("POST", "/api/revenuecat/sync", {
+              userId: String(user.id),
+              isSubscribed: true,
+              productIdentifier: selectedPackage.product.identifier,
+            });
+            synced = true;
+          } catch (syncError) {
+            console.warn(`Sync attempt ${attempt + 1} failed:`, syncError);
+          }
+        }
+        if (!synced) {
+          Alert.alert(
+            "Purchase successful",
+            "Your payment went through but we couldn't activate premium right now. Use 'Restore Purchases' on this screen and it will activate instantly.",
+            [{ text: "OK" }]
+          );
         }
       }
 
