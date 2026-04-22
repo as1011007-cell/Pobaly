@@ -1405,11 +1405,14 @@ export async function resolvePredictionResults(): Promise<void> {
       return predWords.some(pw => espnWords.some(ew => ew.includes(pw) || pw.includes(ew)));
     };
 
-    // Only accept a completed game if its date is within 2 days of the predicted match time
+    // Only accept a completed game if it kicked off within ~12 hours of the
+    // predicted match time. A wider window silently matches the wrong game
+    // when the same teams play on consecutive days (MLB series, NBA playoff
+    // series, etc.) and the actual day's game isn't yet in the feed.
     const predMatchTime = new Date(pred.matchTime);
-    const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
+    const MATCH_WINDOW_MS = 12 * 60 * 60 * 1000;
     const dateDiff = (gameTime: Date) => Math.abs(gameTime.getTime() - predMatchTime.getTime());
-    const isDateClose = (gameTime: Date) => dateDiff(gameTime) <= TWO_DAYS_MS;
+    const isDateClose = (gameTime: Date) => dateDiff(gameTime) <= MATCH_WINDOW_MS;
 
     // Series-aware matching: when the same teams play multiple games in the
     // window (e.g. MLB series), pick the candidate whose date is CLOSEST to
@@ -1616,6 +1619,33 @@ async function runWithRetry<T>(
   throw new Error(`[${label}] Exhausted all ${maxRetries} retries`);
 }
 
+// One-shot startup migration: the broad ±2 day matching window let the
+// resolver pick the wrong same-teams game from a different day in a series
+// (MLB series, NBA playoffs) when the actual day's game wasn't yet in the
+// ESPN feed. Reset everything resolved in the last 3 days so the new ±12h
+// window can re-resolve them correctly. The cutoff date prevents this from
+// running forever — after April 30 2026 the affected entries are out of
+// the 30-day history window anyway.
+async function reverifyResolutionsAfterWindowFix(): Promise<void> {
+  if (Date.now() > new Date("2026-05-01T00:00:00Z").getTime()) return;
+
+  const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+  const reset = await db.update(predictions)
+    .set({ result: null })
+    .where(
+      and(
+        sql`${predictions.result} IS NOT NULL`,
+        sql`${predictions.matchTime} >= ${threeDaysAgo.toISOString()}::timestamp`,
+        sql`${predictions.expiresAt} > ${predictions.matchTime}`
+      )
+    )
+    .returning({ id: predictions.id, matchTitle: predictions.matchTitle });
+
+  if (reset.length > 0) {
+    console.log(`[REVERIFY] Reset ${reset.length} predictions resolved with old wide-window matcher; resolver will re-check with tightened window`);
+  }
+}
+
 async function fixPrematurelyResolvedPredictions(): Promise<void> {
   const resetted = await db.update(predictions)
     .set({ result: null })
@@ -1734,6 +1764,7 @@ export async function dailyPredictionRefresh(): Promise<void> {
   try {
     await runWithRetry(() => purgeFakeHistoryEntries(), "purgeFakeHistoryEntries");
     await runWithRetry(() => fixPrematurelyResolvedPredictions(), "fixPrematurelyResolvedPredictions");
+    await runWithRetry(() => reverifyResolutionsAfterWindowFix(), "reverifyResolutionsAfterWindowFix");
     await runWithRetry(() => resolvePredictionResults(), "resolvePredictionResults");
     await runWithRetry(() => clearExpiredPredictions(), "clearExpiredPredictions");
     // Always reset free tip at midnight — delete previous day's tip (win or lose) then generate fresh one
