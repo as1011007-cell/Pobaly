@@ -4,8 +4,17 @@ import { predictions, type InsertPrediction } from "@shared/schema";
 import { eq, and, gte, isNull, desc, sql, or } from "drizzle-orm";
 import { getUpcomingMatchesFromApi, getRecentCompletedGames, isUsingFallbackData, refreshUpcomingMatches, lookupGameByTeams } from "./sportsApiService";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+let _openai: OpenAI | null = null;
+function getOpenAI(): OpenAI {
+  if (!_openai) {
+    _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+  return _openai;
+}
+const openai = new Proxy({} as OpenAI, {
+  get(_target, prop) {
+    return (getOpenAI() as any)[prop];
+  },
 });
 
 interface SportsMatch {
