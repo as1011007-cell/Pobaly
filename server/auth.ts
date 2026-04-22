@@ -88,12 +88,18 @@ export function requireWebhookAuth(secretEnvVar: string) {
     }
 
     const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith("Bearer ")) {
+    if (!authHeader) {
+      console.warn(`[WEBHOOK AUTH] Missing Authorization header for ${secretEnvVar}`);
       return res.status(401).json({ error: "Unauthorized webhook request" });
     }
 
-    const provided = authHeader.slice(7);
+    // Accept either "Bearer <secret>" or the bare secret as the header value.
+    // RevenueCat's dashboard lets you put any string in the Authorization
+    // header, so users commonly paste the secret directly without a "Bearer "
+    // prefix. Both formats are accepted to avoid rejecting legitimate hooks.
+    const provided = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : authHeader;
     if (!timingSafeEqual(provided, secret)) {
+      console.warn(`[WEBHOOK AUTH] Invalid secret for ${secretEnvVar}`);
       return res.status(401).json({ error: "Unauthorized webhook request" });
     }
 
