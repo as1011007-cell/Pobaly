@@ -25,7 +25,6 @@ import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/contexts/AuthContext";
 import { BorderRadius, Spacing } from "@/constants/theme";
 import { useSubscription, REVENUECAT_ENTITLEMENT_IDENTIFIER } from "@/lib/revenuecat";
-import Purchases from "react-native-purchases";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 
@@ -180,15 +179,11 @@ export default function SubscriptionScreen() {
 
       if (user?.id) {
         try {
-          const customerInfo = await Purchases.getCustomerInfo();
-          const entitlement = customerInfo.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER];
-          if (entitlement) {
-            await apiRequest("POST", "/api/revenuecat/sync", {
-              userId: String(user.id),
-              isSubscribed: true,
-              productIdentifier: entitlement.productIdentifier ?? selectedPackage.product.identifier,
-            });
-          }
+          await apiRequest("POST", "/api/revenuecat/sync", {
+            userId: String(user.id),
+            isSubscribed: true,
+            productIdentifier: selectedPackage.product.identifier,
+          });
         } catch (syncError) {
           console.warn("RevenueCat sync failed:", syncError);
         }

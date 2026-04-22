@@ -30,7 +30,6 @@ import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { getLanguageName } from "@/lib/translations";
 import { useSubscription, REVENUECAT_ENTITLEMENT_IDENTIFIER } from "@/lib/revenuecat";
 import { requestNotificationPermissions, sendWelcomeNotification } from "@/lib/notifications";
-import Purchases from "react-native-purchases";
 
 type PlanType = "monthly" | "annual";
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -119,21 +118,13 @@ export default function ProfileScreen() {
       await purchase(selectedPackage);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-      // Sync premium status to server immediately after purchase.
-      // Only sync when entitlement is confirmed active — never send isSubscribed:false
-      // on a fresh purchase, as that would incorrectly strip premium from the account.
       if (user?.id) {
         try {
-          const customerInfo = await Purchases.getCustomerInfo();
-          const entitlement = customerInfo.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER];
-          if (entitlement) {
-            await apiRequest("POST", "/api/revenuecat/sync", {
-              userId: String(user.id),
-              isSubscribed: true,
-              productIdentifier: entitlement.productIdentifier ?? selectedPackage.product.identifier,
-            });
-          }
-          // If entitlement not yet active, RevenueCat webhook will sync shortly
+          await apiRequest("POST", "/api/revenuecat/sync", {
+            userId: String(user.id),
+            isSubscribed: true,
+            productIdentifier: selectedPackage.product.identifier,
+          });
         } catch (syncError) {
           console.warn("RevenueCat sync failed:", syncError);
         }
