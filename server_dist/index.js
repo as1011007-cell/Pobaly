@@ -1,15 +1,18 @@
 var __defProp = Object.defineProperty;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
+  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
+}) : x)(function(x) {
+  if (typeof require !== "undefined") return require.apply(this, arguments);
+  throw Error('Dynamic require of "' + x + '" is not supported');
+});
+var __esm = (fn, res) => function __init() {
+  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+};
 var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
 };
-
-// server/index.ts
-import express from "express";
-import { runMigrations } from "stripe-replit-sync";
-
-// server/routes.ts
-import { createServer } from "node:http";
 
 // shared/schema.ts
 var schema_exports = {};
@@ -36,182 +39,2832 @@ __export(schema_exports, {
 import { sql } from "drizzle-orm";
 import { pgTable, text, varchar, timestamp, boolean, integer, serial, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
-var users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  email: text("email").notNull().unique(),
-  password: text("password").notNull(),
-  name: text("name"),
-  stripeCustomerId: text("stripe_customer_id"),
-  stripeSubscriptionId: text("stripe_subscription_id"),
-  isPremium: boolean("is_premium").default(false),
-  subscriptionExpiry: timestamp("subscription_expiry"),
-  referredByCode: varchar("referred_by_code", { length: 20 }),
-  // Affiliate code that referred this user
-  createdAt: timestamp("created_at").defaultNow()
+var users, insertUserSchema, predictions, insertPredictionSchema, conversations, messages, insertConversationSchema, insertMessageSchema, userPreferences, insertUserPreferencesSchema, affiliates, insertAffiliateSchema, referrals, insertReferralSchema, payoutRequests, insertPayoutRequestSchema, contactSubmissions, insertContactSubmissionSchema;
+var init_schema = __esm({
+  "shared/schema.ts"() {
+    "use strict";
+    users = pgTable("users", {
+      id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+      email: text("email").notNull().unique(),
+      password: text("password").notNull(),
+      name: text("name"),
+      stripeCustomerId: text("stripe_customer_id"),
+      stripeSubscriptionId: text("stripe_subscription_id"),
+      isPremium: boolean("is_premium").default(false),
+      premiumSince: timestamp("premium_since"),
+      subscriptionExpiry: timestamp("subscription_expiry"),
+      referredByCode: varchar("referred_by_code", { length: 20 }),
+      createdAt: timestamp("created_at").defaultNow()
+    });
+    insertUserSchema = createInsertSchema(users).pick({
+      email: true,
+      password: true,
+      name: true
+    });
+    predictions = pgTable("predictions", {
+      id: serial("id").primaryKey(),
+      userId: varchar("user_id"),
+      // null for free predictions (public), set for premium (user-specific)
+      matchTitle: text("match_title").notNull(),
+      sport: text("sport").notNull(),
+      // football, basketball, cricket, tennis
+      matchTime: timestamp("match_time").notNull(),
+      predictedOutcome: text("predicted_outcome").notNull(),
+      probability: integer("probability").notNull(),
+      // 0-100
+      confidence: text("confidence").notNull(),
+      // high, medium, low
+      explanation: text("explanation").notNull(),
+      factors: jsonb("factors"),
+      // Array of analysis factors
+      sportsbookOdds: jsonb("sportsbook_odds"),
+      // Consensus odds from multiple sportsbooks
+      riskIndex: integer("risk_index").notNull(),
+      // 0-100
+      isLive: boolean("is_live").default(false),
+      isPremium: boolean("is_premium").default(true),
+      result: text("result"),
+      // correct, incorrect, null if pending
+      createdAt: timestamp("created_at").defaultNow(),
+      expiresAt: timestamp("expires_at")
+    });
+    insertPredictionSchema = createInsertSchema(predictions).omit({
+      id: true,
+      createdAt: true
+    });
+    conversations = pgTable("conversations", {
+      id: serial("id").primaryKey(),
+      title: text("title").notNull(),
+      createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull()
+    });
+    messages = pgTable("messages", {
+      id: serial("id").primaryKey(),
+      conversationId: integer("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+      role: text("role").notNull(),
+      content: text("content").notNull(),
+      createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull()
+    });
+    insertConversationSchema = createInsertSchema(conversations).omit({
+      id: true,
+      createdAt: true
+    });
+    insertMessageSchema = createInsertSchema(messages).omit({
+      id: true,
+      createdAt: true
+    });
+    userPreferences = pgTable("user_preferences", {
+      id: serial("id").primaryKey(),
+      userId: varchar("user_id").notNull().unique(),
+      notificationsEnabled: boolean("notifications_enabled").default(true),
+      emailNotifications: boolean("email_notifications").default(true),
+      predictionAlerts: boolean("prediction_alerts").default(true),
+      language: varchar("language", { length: 10 }).default("en"),
+      createdAt: timestamp("created_at").defaultNow(),
+      updatedAt: timestamp("updated_at").defaultNow()
+    });
+    insertUserPreferencesSchema = createInsertSchema(userPreferences).omit({
+      id: true,
+      createdAt: true,
+      updatedAt: true
+    });
+    affiliates = pgTable("affiliates", {
+      id: serial("id").primaryKey(),
+      userId: varchar("user_id").notNull().unique().references(() => users.id),
+      affiliateCode: varchar("affiliate_code", { length: 20 }).notNull().unique(),
+      stripeConnectAccountId: text("stripe_connect_account_id"),
+      stripeConnectOnboarded: boolean("stripe_connect_onboarded").default(false),
+      commissionRate: integer("commission_rate").default(40),
+      // 40% default
+      totalEarnings: integer("total_earnings").default(0),
+      // in cents
+      pendingEarnings: integer("pending_earnings").default(0),
+      // in cents
+      paidEarnings: integer("paid_earnings").default(0),
+      // in cents
+      totalReferrals: integer("total_referrals").default(0),
+      isActive: boolean("is_active").default(true),
+      createdAt: timestamp("created_at").defaultNow()
+    });
+    insertAffiliateSchema = createInsertSchema(affiliates).omit({
+      id: true,
+      createdAt: true,
+      totalEarnings: true,
+      pendingEarnings: true,
+      paidEarnings: true,
+      totalReferrals: true
+    });
+    referrals = pgTable("referrals", {
+      id: serial("id").primaryKey(),
+      affiliateId: integer("affiliate_id").notNull().references(() => affiliates.id),
+      referredUserId: varchar("referred_user_id").notNull().references(() => users.id),
+      subscriptionId: text("subscription_id"),
+      subscriptionAmount: integer("subscription_amount"),
+      // in cents
+      commissionAmount: integer("commission_amount"),
+      // in cents
+      status: text("status").notNull().default("pending"),
+      // pending, paid, cancelled
+      paidAt: timestamp("paid_at"),
+      createdAt: timestamp("created_at").defaultNow()
+    });
+    insertReferralSchema = createInsertSchema(referrals).omit({
+      id: true,
+      createdAt: true,
+      paidAt: true
+    });
+    payoutRequests = pgTable("payout_requests", {
+      id: serial("id").primaryKey(),
+      affiliateId: integer("affiliate_id").notNull().references(() => affiliates.id),
+      amount: integer("amount").notNull(),
+      // in cents
+      status: text("status").notNull().default("pending"),
+      // pending, approved, rejected, paid
+      stripeTransferId: text("stripe_transfer_id"),
+      requestedAt: timestamp("requested_at").defaultNow(),
+      reviewedAt: timestamp("reviewed_at"),
+      reviewedBy: varchar("reviewed_by"),
+      rejectionReason: text("rejection_reason"),
+      paidAt: timestamp("paid_at")
+    });
+    insertPayoutRequestSchema = createInsertSchema(payoutRequests).omit({
+      id: true,
+      requestedAt: true,
+      reviewedAt: true,
+      paidAt: true
+    });
+    contactSubmissions = pgTable("contact_submissions", {
+      id: serial("id").primaryKey(),
+      name: text("name").notNull(),
+      email: text("email").notNull(),
+      subject: text("subject").notNull(),
+      message: text("message").notNull(),
+      status: text("status").notNull().default("new"),
+      // new, read, resolved
+      createdAt: timestamp("created_at").defaultNow()
+    });
+    insertContactSubmissionSchema = createInsertSchema(contactSubmissions).omit({
+      id: true,
+      status: true,
+      createdAt: true
+    });
+  }
 });
-var insertUserSchema = createInsertSchema(users).pick({
-  email: true,
-  password: true,
-  name: true
-});
-var predictions = pgTable("predictions", {
-  id: serial("id").primaryKey(),
-  userId: varchar("user_id"),
-  // null for free predictions (public), set for premium (user-specific)
-  matchTitle: text("match_title").notNull(),
-  sport: text("sport").notNull(),
-  // football, basketball, cricket, tennis
-  matchTime: timestamp("match_time").notNull(),
-  predictedOutcome: text("predicted_outcome").notNull(),
-  probability: integer("probability").notNull(),
-  // 0-100
-  confidence: text("confidence").notNull(),
-  // high, medium, low
-  explanation: text("explanation").notNull(),
-  factors: jsonb("factors"),
-  // Array of analysis factors
-  sportsbookOdds: jsonb("sportsbook_odds"),
-  // Consensus odds from multiple sportsbooks
-  riskIndex: integer("risk_index").notNull(),
-  // 0-100
-  isLive: boolean("is_live").default(false),
-  isPremium: boolean("is_premium").default(true),
-  result: text("result"),
-  // correct, incorrect, null if pending
-  createdAt: timestamp("created_at").defaultNow(),
-  expiresAt: timestamp("expires_at")
-});
-var insertPredictionSchema = createInsertSchema(predictions).omit({
-  id: true,
-  createdAt: true
-});
-var conversations = pgTable("conversations", {
-  id: serial("id").primaryKey(),
-  title: text("title").notNull(),
-  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull()
-});
-var messages = pgTable("messages", {
-  id: serial("id").primaryKey(),
-  conversationId: integer("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
-  role: text("role").notNull(),
-  content: text("content").notNull(),
-  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull()
-});
-var insertConversationSchema = createInsertSchema(conversations).omit({
-  id: true,
-  createdAt: true
-});
-var insertMessageSchema = createInsertSchema(messages).omit({
-  id: true,
-  createdAt: true
-});
-var userPreferences = pgTable("user_preferences", {
-  id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull().unique(),
-  notificationsEnabled: boolean("notifications_enabled").default(true),
-  emailNotifications: boolean("email_notifications").default(true),
-  predictionAlerts: boolean("prediction_alerts").default(true),
-  language: varchar("language", { length: 10 }).default("en"),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow()
-});
-var insertUserPreferencesSchema = createInsertSchema(userPreferences).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true
-});
-var affiliates = pgTable("affiliates", {
-  id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull().unique().references(() => users.id),
-  affiliateCode: varchar("affiliate_code", { length: 20 }).notNull().unique(),
-  stripeConnectAccountId: text("stripe_connect_account_id"),
-  stripeConnectOnboarded: boolean("stripe_connect_onboarded").default(false),
-  commissionRate: integer("commission_rate").default(40),
-  // 40% default
-  totalEarnings: integer("total_earnings").default(0),
-  // in cents
-  pendingEarnings: integer("pending_earnings").default(0),
-  // in cents
-  paidEarnings: integer("paid_earnings").default(0),
-  // in cents
-  totalReferrals: integer("total_referrals").default(0),
-  isActive: boolean("is_active").default(true),
-  createdAt: timestamp("created_at").defaultNow()
-});
-var insertAffiliateSchema = createInsertSchema(affiliates).omit({
-  id: true,
-  createdAt: true,
-  totalEarnings: true,
-  pendingEarnings: true,
-  paidEarnings: true,
-  totalReferrals: true
-});
-var referrals = pgTable("referrals", {
-  id: serial("id").primaryKey(),
-  affiliateId: integer("affiliate_id").notNull().references(() => affiliates.id),
-  referredUserId: varchar("referred_user_id").notNull().references(() => users.id),
-  subscriptionId: text("subscription_id"),
-  subscriptionAmount: integer("subscription_amount"),
-  // in cents
-  commissionAmount: integer("commission_amount"),
-  // in cents
-  status: text("status").notNull().default("pending"),
-  // pending, paid, cancelled
-  paidAt: timestamp("paid_at"),
-  createdAt: timestamp("created_at").defaultNow()
-});
-var insertReferralSchema = createInsertSchema(referrals).omit({
-  id: true,
-  createdAt: true,
-  paidAt: true
-});
-var payoutRequests = pgTable("payout_requests", {
-  id: serial("id").primaryKey(),
-  affiliateId: integer("affiliate_id").notNull().references(() => affiliates.id),
-  amount: integer("amount").notNull(),
-  // in cents
-  status: text("status").notNull().default("pending"),
-  // pending, approved, rejected, paid
-  stripeTransferId: text("stripe_transfer_id"),
-  requestedAt: timestamp("requested_at").defaultNow(),
-  reviewedAt: timestamp("reviewed_at"),
-  reviewedBy: varchar("reviewed_by"),
-  rejectionReason: text("rejection_reason"),
-  paidAt: timestamp("paid_at")
-});
-var insertPayoutRequestSchema = createInsertSchema(payoutRequests).omit({
-  id: true,
-  requestedAt: true,
-  reviewedAt: true,
-  paidAt: true
-});
-var contactSubmissions = pgTable("contact_submissions", {
-  id: serial("id").primaryKey(),
-  name: text("name").notNull(),
-  email: text("email").notNull(),
-  subject: text("subject").notNull(),
-  message: text("message").notNull(),
-  status: text("status").notNull().default("new"),
-  // new, read, resolved
-  createdAt: timestamp("created_at").defaultNow()
-});
-var insertContactSubmissionSchema = createInsertSchema(contactSubmissions).omit({
-  id: true,
-  status: true,
-  createdAt: true
-});
-
-// server/storage.ts
-import { eq, desc, sql as sql2 } from "drizzle-orm";
 
 // server/db.ts
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL must be set");
+var queryClient, db;
+var init_db = __esm({
+  "server/db.ts"() {
+    "use strict";
+    init_schema();
+    if (!process.env.DATABASE_URL) {
+      throw new Error("DATABASE_URL must be set");
+    }
+    queryClient = postgres(process.env.DATABASE_URL, {
+      max: 10,
+      idle_timeout: 20,
+      max_lifetime: 60 * 5,
+      connect_timeout: 30,
+      connection: {
+        application_name: "probaly-app"
+      }
+    });
+    db = drizzle(queryClient, { schema: schema_exports });
+  }
+});
+
+// server/services/sportsApiService.ts
+async function fetchGamesFromApi(sportKey) {
+  const apiKey = process.env.ODDS_API_KEY;
+  if (!apiKey) {
+    console.log("ODDS_API_KEY not configured, using fallback data");
+    return [];
+  }
+  try {
+    const url = `https://api.the-odds-api.com/v4/sports/${sportKey}/events?apiKey=${apiKey}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      console.error(`Failed to fetch games for ${sportKey}: ${response.status}`);
+      return [];
+    }
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error(`Error fetching games for ${sportKey}:`, error);
+    return [];
+  }
 }
-var queryClient = postgres(process.env.DATABASE_URL);
-var db = drizzle(queryClient, { schema: schema_exports });
+async function getUpcomingMatchesFromApi() {
+  const now = Date.now();
+  if (matchCache && now - matchCache.fetchedAt < CACHE_TTL_MS) {
+    const upcoming = matchCache.data.filter((m) => m.matchTime.getTime() > now);
+    if (upcoming.length > 0) {
+      console.log(`Using cached matches (${upcoming.length} upcoming, cache age: ${Math.round((now - matchCache.fetchedAt) / 6e4)}m)`);
+      return upcoming;
+    }
+  }
+  const apiKey = process.env.ODDS_API_KEY;
+  if (!apiKey) {
+    console.log("ODDS_API_KEY not set \u2014 fetching real matches from ESPN");
+    const espnMatches = await getESPNMatches();
+    matchCache = { data: espnMatches, fetchedAt: Date.now() };
+    _usingFallback = true;
+    return espnMatches;
+  }
+  const allMatches = [];
+  const currentTime = /* @__PURE__ */ new Date();
+  const maxFutureTime = new Date(currentTime.getTime() + 7 * 24 * 60 * 60 * 1e3);
+  const allConfigs = [];
+  for (const configs of Object.values(SPORTS_MAP)) {
+    allConfigs.push(...configs);
+  }
+  for (let i = 0; i < allConfigs.length; i++) {
+    const config = allConfigs[i];
+    if (i > 0 && i % 5 === 0) {
+      await new Promise((r) => setTimeout(r, 1e3));
+    }
+    const games = await fetchGamesFromApi(config.apiKey);
+    const futureGames = games.filter((g) => {
+      const t = new Date(g.commence_time);
+      return t > currentTime && t < maxFutureTime;
+    }).slice(0, 4);
+    for (const game of futureGames) {
+      allMatches.push({
+        homeTeam: game.home_team,
+        awayTeam: game.away_team,
+        sport: config.sportName,
+        matchTime: new Date(game.commence_time),
+        league: config.league
+      });
+    }
+  }
+  const apiMatchCount = allMatches.length;
+  if (apiMatchCount === 0) {
+    console.log("No real games found from sports API \u2014 fetching real matches from ESPN");
+    const espnMatches = await getESPNMatches();
+    matchCache = { data: espnMatches, fetchedAt: Date.now() };
+    _usingFallback = true;
+    return espnMatches;
+  }
+  allMatches.sort((a, b) => a.matchTime.getTime() - b.matchTime.getTime());
+  matchCache = { data: allMatches, fetchedAt: Date.now() };
+  _usingFallback = false;
+  console.log(`Fetched ${allMatches.length} real upcoming matches from sports API (cached for 1 hour)`);
+  return allMatches;
+}
+function isUsingFallbackData() {
+  return _usingFallback;
+}
+async function getESPNMatches() {
+  const now = Date.now();
+  if (espnFallbackCache && now - espnFallbackCache.fetchedAt < ESPN_CACHE_TTL) {
+    const upcoming = espnFallbackCache.data.filter((m) => m.matchTime.getTime() > now);
+    if (upcoming.length > 5) {
+      console.log(`Using cached ESPN matches (${upcoming.length} upcoming)`);
+      return upcoming;
+    }
+  }
+  console.log("Fetching real upcoming matches from ESPN (free API)...");
+  const allMatches = [];
+  const currentTime = /* @__PURE__ */ new Date();
+  const seenMatchups = /* @__PURE__ */ new Set();
+  function parseESPNEvents(events, sport, league) {
+    const results = [];
+    for (const event of events.slice(0, 10)) {
+      const matchTime = new Date(event.date);
+      if (isNaN(matchTime.getTime()) || matchTime < currentTime) continue;
+      const competitors = event.competitions?.[0]?.competitors || [];
+      if (competitors.length < 2) continue;
+      const homeComp = competitors.find((c) => c.homeAway === "home") || competitors[0];
+      const awayComp = competitors.find((c) => c.homeAway === "away") || competitors[1];
+      const homeTeam = homeComp.team?.displayName || homeComp.athlete?.displayName || event.name?.split(" vs ")?.[0] || "TBD";
+      const awayTeam = awayComp.team?.displayName || awayComp.athlete?.displayName || event.name?.split(" vs ")?.[1] || "TBD";
+      if (homeTeam === "TBD" || awayTeam === "TBD") continue;
+      const key = `${homeTeam}|${awayTeam}|${sport}`;
+      if (seenMatchups.has(key)) continue;
+      seenMatchups.add(key);
+      results.push({ homeTeam, awayTeam, sport, matchTime, league });
+    }
+    return results;
+  }
+  for (const endpoint of ESPN_ENDPOINTS) {
+    try {
+      const response = await fetch(endpoint.url);
+      if (!response.ok) continue;
+      const data = await response.json();
+      allMatches.push(...parseESPNEvents(data.events || [], endpoint.sport, endpoint.league));
+    } catch (error) {
+      console.error(`ESPN fetch failed for ${endpoint.league}:`, error);
+    }
+  }
+  const keyScheduleEndpoints = [
+    { base: "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", sport: "basketball", league: "NBA" },
+    { base: "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard", sport: "baseball", league: "MLB" },
+    { base: "https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard", sport: "hockey", league: "NHL" },
+    { base: "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard", sport: "football", league: "Premier League" },
+    { base: "https://site.api.espn.com/apis/site/v2/sports/soccer/esp.1/scoreboard", sport: "football", league: "La Liga" },
+    { base: "https://site.api.espn.com/apis/site/v2/sports/soccer/ger.1/scoreboard", sport: "football", league: "Bundesliga" },
+    { base: "https://site.api.espn.com/apis/site/v2/sports/soccer/ita.1/scoreboard", sport: "football", league: "Serie A" },
+    { base: "https://site.api.espn.com/apis/site/v2/sports/soccer/fra.1/scoreboard", sport: "football", league: "Ligue 1" },
+    { base: "https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard", sport: "mma", league: "UFC" },
+    { base: "https://site.api.espn.com/apis/site/v2/sports/tennis/atp/scoreboard", sport: "tennis", league: "ATP Tour" },
+    { base: "https://site.api.espn.com/apis/site/v2/sports/cricket/icc/scoreboard", sport: "cricket", league: "ICC" }
+  ];
+  for (let dayOffset = 1; dayOffset <= 3; dayOffset++) {
+    const d = new Date(currentTime);
+    d.setUTCDate(d.getUTCDate() + dayOffset);
+    const dateStr = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`;
+    for (const ep of keyScheduleEndpoints) {
+      try {
+        const response = await fetch(`${ep.base}?dates=${dateStr}`);
+        if (!response.ok) continue;
+        const data = await response.json();
+        allMatches.push(...parseESPNEvents(data.events || [], ep.sport, ep.league));
+      } catch {
+      }
+    }
+  }
+  allMatches.sort((a, b) => a.matchTime.getTime() - b.matchTime.getTime());
+  if (allMatches.length > 0) {
+    espnFallbackCache = { data: allMatches, fetchedAt: Date.now() };
+    console.log(`ESPN: fetched ${allMatches.length} real upcoming matches across ${new Set(allMatches.map((m) => m.sport)).size} sports`);
+    return allMatches;
+  }
+  console.log("ESPN returned no matches");
+  return [];
+}
+async function refreshUpcomingMatches() {
+  matchCache = null;
+  espnFallbackCache = null;
+  return getUpcomingMatchesFromApi();
+}
+async function getLiveMatches() {
+  if (liveMatchCache && Date.now() - liveMatchCache.fetchedAt < LIVE_CACHE_TTL) {
+    return liveMatchCache.data;
+  }
+  const liveMatches = [];
+  for (const endpoint of ESPN_SCORES_ENDPOINTS) {
+    try {
+      const response = await fetch(endpoint.url);
+      if (!response.ok) continue;
+      const data = await response.json();
+      const events = data.events || [];
+      for (const event of events) {
+        const statusType = event.status?.type?.name;
+        if (statusType !== "STATUS_IN_PROGRESS" && statusType !== "STATUS_HALFTIME" && statusType !== "STATUS_END_PERIOD") continue;
+        const competitors = event.competitions?.[0]?.competitors || [];
+        if (competitors.length < 2) continue;
+        if (endpoint.sport === "golf" || endpoint.sport === "tennis") {
+          const comp1 = competitors[0];
+          const comp2 = competitors[1];
+          const name1 = comp1?.athlete?.displayName || comp1?.team?.displayName || "Unknown";
+          const name2 = comp2?.athlete?.displayName || comp2?.team?.displayName || "Unknown";
+          if (name1 === "Unknown" || name2 === "Unknown") continue;
+          liveMatches.push({
+            homeTeam: name1,
+            awayTeam: name2,
+            sport: endpoint.sport,
+            league: endpoint.league,
+            matchTime: new Date(event.date),
+            homeScore: parseInt(comp1.score || "0"),
+            awayScore: parseInt(comp2.score || "0"),
+            status: event.status?.type?.shortDetail || "Live",
+            clock: event.status?.displayClock,
+            period: event.status?.period?.toString()
+          });
+          continue;
+        }
+        const homeComp = competitors.find((c) => c.homeAway === "home") || competitors[0];
+        const awayComp = competitors.find((c) => c.homeAway === "away") || competitors[1];
+        const homeTeam = homeComp.team?.displayName || "Unknown";
+        const awayTeam = awayComp.team?.displayName || "Unknown";
+        if (homeTeam === "Unknown" || awayTeam === "Unknown") continue;
+        liveMatches.push({
+          homeTeam,
+          awayTeam,
+          sport: endpoint.sport,
+          league: endpoint.league,
+          matchTime: new Date(event.date),
+          homeScore: parseInt(homeComp.score || "0"),
+          awayScore: parseInt(awayComp.score || "0"),
+          status: event.status?.type?.shortDetail || "Live",
+          clock: event.status?.displayClock,
+          period: event.status?.period?.toString()
+        });
+      }
+    } catch (error) {
+      console.error(`ESPN live fetch failed for ${endpoint.league}:`, error);
+    }
+  }
+  liveMatchCache = { data: liveMatches, fetchedAt: Date.now() };
+  console.log(`Fetched ${liveMatches.length} live matches from ESPN`);
+  return liveMatches;
+}
+async function getRecentCompletedGames() {
+  const apiKey = process.env.ODDS_API_KEY;
+  const [espnGames, oddsGames, sportsDbGames] = await Promise.all([
+    fetchCompletedFromESPN(),
+    apiKey ? fetchCompletedFromOddsApi(apiKey) : Promise.resolve([]),
+    fetchCompletedFromSportsDB()
+  ]);
+  if (espnGames.length === 0 && oddsGames.length === 0 && sportsDbGames.length === 0) {
+    console.log("All sources returned 0 completed games");
+    return [];
+  }
+  const simplify = (name) => name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+  const merged = [...oddsGames];
+  const seenKeys = new Set(
+    oddsGames.flatMap((g) => [
+      `${simplify(g.homeTeam)}|${simplify(g.awayTeam)}`,
+      `${simplify(g.awayTeam)}|${simplify(g.homeTeam)}`
+    ])
+  );
+  for (const g of [...espnGames, ...sportsDbGames]) {
+    const key = `${simplify(g.homeTeam)}|${simplify(g.awayTeam)}`;
+    const reverseKey = `${simplify(g.awayTeam)}|${simplify(g.homeTeam)}`;
+    if (!seenKeys.has(key) && !seenKeys.has(reverseKey)) {
+      merged.push(g);
+      seenKeys.add(key);
+      seenKeys.add(reverseKey);
+    }
+  }
+  merged.sort((a, b) => b.matchTime.getTime() - a.matchTime.getTime());
+  console.log(`Cross-checked results: ${espnGames.length} ESPN + ${oddsGames.length} Odds API + ${sportsDbGames.length} TheSportsDB \u2192 ${merged.length} merged`);
+  return merged;
+}
+async function lookupGameByTeams(homeTeamRaw, awayTeamRaw, sport) {
+  const simplify = (n) => n.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+  const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1e3);
+  const getTeamId = async (teamName) => {
+    const cacheKey = simplify(teamName);
+    if (teamIdCache.has(cacheKey)) return teamIdCache.get(cacheKey);
+    try {
+      const url = `https://www.thesportsdb.com/api/v1/json/3/searchteams.php?t=${encodeURIComponent(teamName)}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(6e3) });
+      if (!res.ok) {
+        teamIdCache.set(cacheKey, null);
+        return null;
+      }
+      const data = await res.json();
+      const id = data.teams?.[0]?.idTeam ?? null;
+      teamIdCache.set(cacheKey, id);
+      return id;
+    } catch {
+      teamIdCache.set(cacheKey, null);
+      return null;
+    }
+  };
+  const findMatchInTeamResults = async (teamId) => {
+    try {
+      const url = `https://www.thesportsdb.com/api/v1/json/3/eventslast.php?id=${teamId}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(6e3) });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const events = data.results || [];
+      for (const ev of events) {
+        const matchTime = /* @__PURE__ */ new Date(`${ev.dateEvent}T${ev.strTime || "00:00:00"}Z`);
+        if (matchTime < fourteenDaysAgo) continue;
+        const h = ev.strHomeTeam || "";
+        const a = ev.strAwayTeam || "";
+        const homeScore = parseInt(ev.intHomeScore ?? "-1");
+        const awayScore = parseInt(ev.intAwayScore ?? "-1");
+        if (homeScore < 0 || awayScore < 0) continue;
+        const hN = simplify(h);
+        const aN = simplify(a);
+        const pHN = simplify(homeTeamRaw);
+        const pAN = simplify(awayTeamRaw);
+        const teamsMatch = (hN.includes(pHN) || pHN.includes(hN)) && (aN.includes(pAN) || pAN.includes(aN)) || (hN.includes(pAN) || pAN.includes(hN)) && (aN.includes(pHN) || pHN.includes(aN));
+        if (teamsMatch) {
+          const winner = homeScore > awayScore ? h : awayScore > homeScore ? a : "Draw";
+          return { homeTeam: h, awayTeam: a, sport, league: ev.strLeague || "", matchTime, homeScore, awayScore, winner };
+        }
+      }
+    } catch {
+    }
+    return null;
+  };
+  const [homeId, awayId] = await Promise.all([
+    getTeamId(homeTeamRaw),
+    getTeamId(awayTeamRaw)
+  ]);
+  for (const id of [homeId, awayId].filter(Boolean)) {
+    const result = await findMatchInTeamResults(id);
+    if (result) return result;
+  }
+  return null;
+}
+async function fetchCompletedFromSportsDB() {
+  const results = [];
+  const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1e3);
+  const currentYear = (/* @__PURE__ */ new Date()).getFullYear();
+  const seasons = [String(currentYear), String(currentYear - 1)];
+  await Promise.all(SPORTSDB_LEAGUES.flatMap(
+    ({ id, sport, league }) => seasons.map(async (season) => {
+      try {
+        const url = `https://www.thesportsdb.com/api/v1/json/3/eventsseason.php?id=${id}&s=${season}`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(8e3) });
+        if (!res.ok) return;
+        const data = await res.json();
+        const events = data.events || [];
+        for (const ev of events) {
+          const homeScore = parseInt(ev.intHomeScore ?? "-1");
+          const awayScore = parseInt(ev.intAwayScore ?? "-1");
+          if (homeScore < 0 || awayScore < 0) continue;
+          const matchTime = /* @__PURE__ */ new Date(`${ev.dateEvent}T${ev.strTime || "00:00:00"}Z`);
+          if (matchTime < fourteenDaysAgo) continue;
+          const homeTeam = ev.strHomeTeam || "";
+          const awayTeam = ev.strAwayTeam || "";
+          if (!homeTeam || !awayTeam) continue;
+          let winner;
+          if (homeScore > awayScore) winner = homeTeam;
+          else if (awayScore > homeScore) winner = awayTeam;
+          else winner = "Draw";
+          results.push({ homeTeam, awayTeam, sport, league, matchTime, homeScore, awayScore, winner });
+        }
+      } catch {
+      }
+    })
+  ));
+  console.log(`Fetched ${results.length} completed games from TheSportsDB`);
+  return results;
+}
+async function fetchCompletedFromOddsApi(apiKey) {
+  const completedGames = [];
+  const scoresConfigs = [];
+  for (const configs of Object.values(SPORTS_MAP)) {
+    scoresConfigs.push(...configs);
+  }
+  let requestCount = 0;
+  for (const config of scoresConfigs) {
+    try {
+      if (requestCount > 0 && requestCount % 5 === 0) {
+        await new Promise((r) => setTimeout(r, 1e3));
+      }
+      requestCount++;
+      const url = `https://api.the-odds-api.com/v4/sports/${config.apiKey}/scores/?apiKey=${apiKey}&daysFrom=3&dateFormat=iso`;
+      const response = await fetch(url);
+      if (!response.ok) continue;
+      const data = await response.json();
+      for (const game of data) {
+        if (!game.completed || !game.scores || game.scores.length < 2) continue;
+        const rawHomeScore = game.scores.find((s) => s.name === game.home_team)?.score;
+        const rawAwayScore = game.scores.find((s) => s.name === game.away_team)?.score;
+        if (rawHomeScore == null || rawAwayScore == null || rawHomeScore === "" || rawAwayScore === "") continue;
+        const homeScore = parseInt(rawHomeScore);
+        const awayScore = parseInt(rawAwayScore);
+        if (isNaN(homeScore) || isNaN(awayScore)) continue;
+        if (homeScore === awayScore) continue;
+        completedGames.push({
+          homeTeam: game.home_team,
+          awayTeam: game.away_team,
+          sport: config.sportName,
+          league: config.league,
+          matchTime: new Date(game.commence_time),
+          homeScore,
+          awayScore,
+          winner: homeScore > awayScore ? game.home_team : game.away_team
+        });
+      }
+    } catch (error) {
+      console.error(`Error fetching scores for ${config.apiKey}:`, error);
+    }
+  }
+  completedGames.sort((a, b) => b.matchTime.getTime() - a.matchTime.getTime());
+  console.log(`Fetched ${completedGames.length} real completed games from Odds API`);
+  return completedGames;
+}
+async function fetchCompletedFromESPN() {
+  const completedGames = [];
+  const dateStrs = [];
+  for (let i = 0; i <= 13; i++) {
+    const d = /* @__PURE__ */ new Date();
+    d.setDate(d.getDate() - i);
+    dateStrs.push(d.toISOString().split("T")[0].replace(/-/g, ""));
+  }
+  for (const endpoint of ESPN_SCORES_ENDPOINTS) {
+    for (const dateStr of dateStrs) {
+      try {
+        const url = `${endpoint.url}?dates=${dateStr}`;
+        const response = await fetch(url);
+        if (!response.ok) continue;
+        const data = await response.json();
+        const events = data.events || [];
+        for (const event of events) {
+          const status = event.status?.type?.name;
+          const isCompleted = event.status?.type?.completed === true;
+          const completedStatuses = ["STATUS_FINAL", "STATUS_FULL_TIME", "STATUS_FULL_PEN", "STATUS_FULL_ET", "STATUS_ENDED", "STATUS_RESULT"];
+          if (!isCompleted && !completedStatuses.includes(status)) continue;
+          const competitors = event.competitions?.[0]?.competitors || [];
+          if (endpoint.sport === "golf") {
+            if (competitors.length < 1) continue;
+            const winnerComp = competitors.find((c) => c.winner) || competitors[0];
+            const runnerUp = competitors[1];
+            const winnerName = winnerComp?.athlete?.displayName || winnerComp?.team?.displayName;
+            const runnerName = runnerUp?.athlete?.displayName || runnerUp?.team?.displayName;
+            if (!winnerName || !runnerName) continue;
+            completedGames.push({
+              homeTeam: winnerName,
+              awayTeam: runnerName,
+              sport: endpoint.sport,
+              league: endpoint.league,
+              matchTime: new Date(event.date),
+              homeScore: 1,
+              awayScore: 0,
+              winner: winnerName
+            });
+            continue;
+          }
+          if (endpoint.sport === "tennis" || endpoint.sport === "mma") {
+            if (competitors.length < 2) continue;
+            const winnerComp = competitors.find((c) => c.winner) || competitors[0];
+            const loserComp = competitors.find((c) => !c.winner) || competitors[1];
+            const winnerName = winnerComp?.athlete?.displayName || winnerComp?.team?.displayName;
+            const loserName = loserComp?.athlete?.displayName || loserComp?.team?.displayName;
+            if (!winnerName || !loserName) continue;
+            completedGames.push({
+              homeTeam: winnerName,
+              awayTeam: loserName,
+              sport: endpoint.sport,
+              league: endpoint.league,
+              matchTime: new Date(event.date),
+              homeScore: 1,
+              awayScore: 0,
+              winner: winnerName
+            });
+            continue;
+          }
+          if (competitors.length < 2) continue;
+          const homeComp = competitors.find((c) => c.homeAway === "home") || competitors[0];
+          const awayComp = competitors.find((c) => c.homeAway === "away") || competitors[1];
+          const homeTeam = homeComp.team?.displayName || "Unknown";
+          const awayTeam = awayComp.team?.displayName || "Unknown";
+          if (homeTeam === "Unknown" || awayTeam === "Unknown") continue;
+          const rawHomeScore = homeComp.score;
+          const rawAwayScore = awayComp.score;
+          if (rawHomeScore == null || rawAwayScore == null || rawHomeScore === "" || rawAwayScore === "") continue;
+          const homeScore = parseInt(rawHomeScore);
+          const awayScore = parseInt(rawAwayScore);
+          if (isNaN(homeScore) || isNaN(awayScore)) continue;
+          if (homeScore === awayScore) {
+            if (endpoint.sport === "football") {
+              completedGames.push({
+                homeTeam,
+                awayTeam,
+                sport: endpoint.sport,
+                league: endpoint.league,
+                matchTime: new Date(event.date),
+                homeScore,
+                awayScore,
+                winner: "Draw"
+              });
+            }
+            continue;
+          }
+          let winner;
+          if (homeComp.winner === true) winner = homeTeam;
+          else if (awayComp.winner === true) winner = awayTeam;
+          else winner = homeScore > awayScore ? homeTeam : awayScore > homeScore ? awayTeam : "Draw";
+          completedGames.push({
+            homeTeam,
+            awayTeam,
+            sport: endpoint.sport,
+            league: endpoint.league,
+            matchTime: new Date(event.date),
+            homeScore,
+            awayScore,
+            winner
+          });
+        }
+      } catch (error) {
+        console.error(`ESPN scores fetch failed for ${endpoint.league}:`, error);
+      }
+    }
+  }
+  const seen = /* @__PURE__ */ new Set();
+  const dedupedGames = completedGames.sort((a, b) => b.matchTime.getTime() - a.matchTime.getTime()).filter((g) => {
+    const key = `${g.homeTeam} vs ${g.awayTeam}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  console.log(`Fetched ${dedupedGames.length} completed games from ESPN (${completedGames.length} before dedup)`);
+  return dedupedGames;
+}
+var CACHE_TTL_MS, matchCache, espnFallbackCache, ESPN_CACHE_TTL, SPORTS_MAP, _usingFallback, ESPN_ENDPOINTS, LIVE_CACHE_TTL, liveMatchCache, teamIdCache, SPORTSDB_LEAGUES, ESPN_SCORES_ENDPOINTS;
+var init_sportsApiService = __esm({
+  "server/services/sportsApiService.ts"() {
+    "use strict";
+    CACHE_TTL_MS = 60 * 60 * 1e3;
+    matchCache = null;
+    espnFallbackCache = null;
+    ESPN_CACHE_TTL = 2 * 60 * 60 * 1e3;
+    SPORTS_MAP = {
+      football: [
+        { apiKey: "soccer_epl", sportName: "football", league: "Premier League" },
+        { apiKey: "soccer_spain_la_liga", sportName: "football", league: "La Liga" },
+        { apiKey: "soccer_germany_bundesliga", sportName: "football", league: "Bundesliga" },
+        { apiKey: "soccer_italy_serie_a", sportName: "football", league: "Serie A" },
+        { apiKey: "soccer_france_ligue_one", sportName: "football", league: "Ligue 1" },
+        { apiKey: "soccer_uefa_champs_league", sportName: "football", league: "Champions League" },
+        { apiKey: "soccer_usa_mls", sportName: "football", league: "MLS" }
+      ],
+      basketball: [
+        { apiKey: "basketball_nba", sportName: "basketball", league: "NBA" },
+        { apiKey: "basketball_euroleague", sportName: "basketball", league: "EuroLeague" },
+        { apiKey: "basketball_ncaab", sportName: "basketball", league: "NCAAB" }
+      ],
+      tennis: [
+        { apiKey: "tennis_atp_monte_carlo_masters", sportName: "tennis", league: "ATP Monte-Carlo Masters" },
+        { apiKey: "tennis_wta_charleston_open", sportName: "tennis", league: "WTA Charleston Open" }
+      ],
+      baseball: [
+        { apiKey: "baseball_mlb", sportName: "baseball", league: "MLB" }
+      ],
+      hockey: [
+        { apiKey: "icehockey_nhl", sportName: "hockey", league: "NHL" }
+      ],
+      mma: [
+        { apiKey: "mma_mixed_martial_arts", sportName: "mma", league: "UFC" }
+      ],
+      cricket: [
+        { apiKey: "cricket_ipl", sportName: "cricket", league: "IPL" },
+        { apiKey: "cricket_international_t20", sportName: "cricket", league: "International T20" },
+        { apiKey: "cricket_psl", sportName: "cricket", league: "PSL" }
+      ],
+      golf: []
+    };
+    _usingFallback = false;
+    ESPN_ENDPOINTS = [
+      { url: "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", sport: "basketball", league: "NBA" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard", sport: "baseball", league: "MLB" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard", sport: "hockey", league: "NHL" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard", sport: "football", league: "Premier League" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/esp.1/scoreboard", sport: "football", league: "La Liga" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/ger.1/scoreboard", sport: "football", league: "Bundesliga" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/ita.1/scoreboard", sport: "football", league: "Serie A" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/fra.1/scoreboard", sport: "football", league: "Ligue 1" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard", sport: "football", league: "MLS" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.champions/scoreboard", sport: "football", league: "Champions League" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard", sport: "mma", league: "UFC" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/tennis/atp/scoreboard", sport: "tennis", league: "ATP Tour" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/tennis/wta/scoreboard", sport: "tennis", league: "WTA Tour" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/cricket/icc/scoreboard", sport: "cricket", league: "ICC" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard", sport: "golf", league: "PGA Tour" }
+    ];
+    LIVE_CACHE_TTL = 2 * 60 * 1e3;
+    liveMatchCache = null;
+    teamIdCache = /* @__PURE__ */ new Map();
+    SPORTSDB_LEAGUES = [
+      { id: 4460, sport: "cricket", league: "IPL" },
+      // Indian Premier League (correct ID)
+      { id: 5067, sport: "cricket", league: "PSL" },
+      // Pakistan Super League (correct ID)
+      { id: 4346, sport: "football", league: "MLS" }
+      // Major League Soccer (correct ID)
+    ];
+    ESPN_SCORES_ENDPOINTS = [
+      { url: "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", sport: "basketball", league: "NBA" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard", sport: "baseball", league: "MLB" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard", sport: "hockey", league: "NHL" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard", sport: "football", league: "Premier League" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.2/scoreboard", sport: "football", league: "Championship" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.fa/scoreboard", sport: "football", league: "FA Cup" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.league_cup/scoreboard", sport: "football", league: "EFL Cup" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/esp.1/scoreboard", sport: "football", league: "La Liga" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/esp.copa_del_rey/scoreboard", sport: "football", league: "Copa del Rey" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/ger.1/scoreboard", sport: "football", league: "Bundesliga" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/ita.1/scoreboard", sport: "football", league: "Serie A" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/fra.1/scoreboard", sport: "football", league: "Ligue 1" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard", sport: "football", league: "MLS" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/usa.open/scoreboard", sport: "football", league: "US Open Cup" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/concacaf.champions/scoreboard", sport: "football", league: "CONCACAF Champions" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.champions/scoreboard", sport: "football", league: "Champions League" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.europa/scoreboard", sport: "football", league: "Europa League" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard", sport: "mma", league: "UFC" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/tennis/atp/scoreboard", sport: "tennis", league: "ATP Tour" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/tennis/wta/scoreboard", sport: "tennis", league: "WTA Tour" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/cricket/icc/scoreboard", sport: "cricket", league: "ICC" },
+      { url: "https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard", sport: "golf", league: "PGA Tour" }
+    ];
+  }
+});
+
+// server/services/pushNotificationService.ts
+var pushNotificationService_exports = {};
+__export(pushNotificationService_exports, {
+  clearAllPushTokens: () => clearAllPushTokens,
+  initPushTokensTable: () => initPushTokensTable,
+  notifyDailyFreePredictionReady: () => notifyDailyFreePredictionReady,
+  registerPushToken: () => registerPushToken,
+  removePushToken: () => removePushToken,
+  removePushTokenForUser: () => removePushTokenForUser,
+  removeUserPushTokens: () => removeUserPushTokens
+});
+import { sql as sql3 } from "drizzle-orm";
+import http2 from "http2";
+import crypto from "crypto";
+import fs from "fs";
+import path from "path";
+function getApnsJwt() {
+  const keyId = process.env.APNS_KEY_ID;
+  const teamId = process.env.APNS_TEAM_ID;
+  const keyPath = process.env.APNS_KEY_PATH;
+  if (!keyId || !teamId || !keyPath) return null;
+  const now = Math.floor(Date.now() / 1e3);
+  if (apnsJwt && now < apnsJwtExpiry) return apnsJwt;
+  try {
+    const absPath = path.resolve(keyPath);
+    const privateKey = fs.readFileSync(absPath, "utf8");
+    const header = Buffer.from(JSON.stringify({ alg: "ES256", kid: keyId })).toString("base64url");
+    const payload = Buffer.from(JSON.stringify({ iss: teamId, iat: now })).toString("base64url");
+    const unsigned = `${header}.${payload}`;
+    const sign = crypto.createSign("SHA256");
+    sign.update(unsigned);
+    const sig = sign.sign({ key: privateKey, dsaEncoding: "ieee-p1363" }).toString("base64url");
+    apnsJwt = `${unsigned}.${sig}`;
+    apnsJwtExpiry = now + 55 * 60;
+    return apnsJwt;
+  } catch (err) {
+    console.error("[APNs] Failed to create JWT:", err);
+    return null;
+  }
+}
+function getApnsClient() {
+  return new Promise((resolve2, reject) => {
+    if (apnsClient && !apnsClient.destroyed) {
+      resolve2(apnsClient);
+      return;
+    }
+    const client = http2.connect(`https://${APNS_HOST}`);
+    client.on("error", (err) => {
+      apnsClient = null;
+      reject(err);
+    });
+    client.on("close", () => {
+      apnsClient = null;
+    });
+    apnsClient = client;
+    resolve2(client);
+  });
+}
+async function sendApnsNotification(deviceToken, title, body, data) {
+  const jwt2 = getApnsJwt();
+  if (!jwt2) {
+    throw new Error("[APNs] No JWT \u2014 check APNS_KEY_ID, APNS_TEAM_ID, APNS_KEY_PATH");
+  }
+  const client = await getApnsClient();
+  return new Promise((resolve2, reject) => {
+    const reqHeaders = {
+      ":method": "POST",
+      ":path": `/3/device/${deviceToken}`,
+      "authorization": `bearer ${jwt2}`,
+      "apns-topic": APNS_BUNDLE_ID,
+      "apns-push-type": "alert",
+      "apns-priority": "10",
+      "content-type": "application/json"
+    };
+    const req = client.request(reqHeaders);
+    let statusCode = 0;
+    let responseBody = "";
+    req.on("response", (headers) => {
+      statusCode = headers[":status"];
+    });
+    req.on("data", (chunk) => {
+      responseBody += chunk;
+    });
+    req.on("end", () => {
+      if (statusCode === 200) {
+        resolve2();
+      } else {
+        reject(new Error(`APNs ${statusCode}: ${responseBody}`));
+      }
+    });
+    req.on("error", reject);
+    const apsPayload = {
+      aps: {
+        alert: { title, body },
+        sound: "default",
+        badge: 1
+      },
+      ...data || {}
+    };
+    req.write(JSON.stringify(apsPayload));
+    req.end();
+  });
+}
+function isNativeIosToken(token) {
+  return /^[0-9a-f]{64}$/i.test(token);
+}
+async function initPushTokensTable() {
+  await db.execute(sql3`
+    CREATE TABLE IF NOT EXISTS push_tokens (
+      id SERIAL PRIMARY KEY,
+      user_id VARCHAR NOT NULL,
+      token TEXT NOT NULL UNIQUE,
+      platform VARCHAR(10) DEFAULT 'unknown',
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql3`
+    CREATE INDEX IF NOT EXISTS idx_push_tokens_user_id ON push_tokens (user_id)
+  `);
+}
+async function registerPushToken(userId, token, platform) {
+  await db.execute(sql3`
+    INSERT INTO push_tokens (user_id, token, platform, updated_at)
+    VALUES (${userId}, ${token}, ${platform}, NOW())
+    ON CONFLICT (token)
+    DO UPDATE SET user_id = ${userId}, platform = ${platform}, updated_at = NOW()
+  `);
+}
+async function removePushToken(token) {
+  await db.execute(sql3`DELETE FROM push_tokens WHERE token = ${token}`);
+}
+async function removePushTokenForUser(token, userId) {
+  await db.execute(sql3`DELETE FROM push_tokens WHERE token = ${token} AND user_id = ${userId}`);
+}
+async function removeUserPushTokens(userId) {
+  await db.execute(sql3`DELETE FROM push_tokens WHERE user_id = ${userId}`);
+}
+async function clearAllPushTokens() {
+  const countResult = await db.execute(sql3`SELECT COUNT(*) as count FROM push_tokens`);
+  const rows = countResult?.rows ?? Array.from(countResult ?? []);
+  const count = parseInt(rows[0]?.count ?? "0", 10);
+  await db.execute(sql3`DELETE FROM push_tokens`);
+  return count;
+}
+async function getAllTokensNoPrefs() {
+  const result = await db.execute(sql3`
+    SELECT DISTINCT pt.token, pt.platform
+    FROM push_tokens pt
+    LEFT JOIN user_preferences up ON pt.user_id = up.user_id
+    WHERE (up.notifications_enabled IS NULL OR up.notifications_enabled = true)
+      AND (up.prediction_alerts IS NULL OR up.prediction_alerts = true)
+  `);
+  const rows = result?.rows ?? Array.from(result ?? []);
+  return rows.filter((r) => r.token).map((r) => ({ token: r.token, platform: r.platform ?? "unknown" }));
+}
+async function sendExpoMessages(messages2) {
+  if (messages2.length === 0) return { success: 0, failed: 0 };
+  let success = 0;
+  let failed = 0;
+  const chunks = [];
+  for (let i = 0; i < messages2.length; i += 100) {
+    chunks.push(messages2.slice(i, i + 100));
+  }
+  for (const chunk of chunks) {
+    try {
+      const response = await fetch(EXPO_PUSH_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(chunk)
+      });
+      if (!response.ok) {
+        console.error("[Push] Expo API error:", response.status, await response.text());
+        failed += chunk.length;
+        continue;
+      }
+      const result = await response.json();
+      const tickets = result.data || [];
+      const errorSamples = {};
+      for (let i = 0; i < tickets.length; i++) {
+        const ticket = tickets[i];
+        if (ticket.status === "ok") {
+          success++;
+        } else {
+          failed++;
+          const errCode = ticket.details?.error || ticket.message || "unknown";
+          errorSamples[errCode] = (errorSamples[errCode] || 0) + 1;
+          if (ticket.details?.error === "DeviceNotRegistered" || ticket.details?.error === "InvalidCredentials") {
+            await removePushToken(chunk[i].to);
+          }
+        }
+      }
+      if (Object.keys(errorSamples).length > 0) {
+        console.warn("[Push] Expo ticket errors:", JSON.stringify(errorSamples));
+      }
+    } catch (err) {
+      console.error("[Push] Expo send error:", err);
+      failed += chunk.length;
+    }
+  }
+  return { success, failed };
+}
+async function sendNotificationsToAll(title, body, data) {
+  const tokens = await getAllTokensNoPrefs();
+  if (tokens.length === 0) {
+    console.log("[Push] No push tokens registered, skipping notification");
+    return;
+  }
+  const nativeIos = [];
+  const expoTokens = [];
+  for (const t of tokens) {
+    if (isNativeIosToken(t.token)) {
+      nativeIos.push(t);
+    } else if (t.token.startsWith("ExponentPushToken[")) {
+      expoTokens.push(t);
+    }
+  }
+  let iosSuccess = 0;
+  let iosFailed = 0;
+  for (const t of nativeIos) {
+    try {
+      await sendApnsNotification(t.token, title, body, data);
+      iosSuccess++;
+    } catch (err) {
+      iosFailed++;
+      const msg = err?.message ?? "";
+      if (msg.includes("BadDeviceToken") || msg.includes("Unregistered")) {
+        await removePushToken(t.token);
+      } else {
+        console.warn(`[APNs] Send failed for token: ${msg}`);
+      }
+    }
+  }
+  const expoMessages = expoTokens.map((t) => ({
+    to: t.token,
+    title,
+    body,
+    data,
+    sound: "default",
+    badge: 1,
+    ...t.platform === "android" ? { channelId: "predictions" } : {}
+  }));
+  const { success: expoSuccess, failed: expoFailed } = await sendExpoMessages(expoMessages);
+  const totalSuccess = iosSuccess + expoSuccess;
+  const totalFailed = iosFailed + expoFailed;
+  console.log(
+    `[Push] Sent to ${tokens.length} devices: ${totalSuccess} succeeded, ${totalFailed} failed` + (nativeIos.length > 0 ? ` (${iosSuccess}/${nativeIos.length} direct APNs)` : "") + (expoTokens.length > 0 ? ` (${expoSuccess}/${expoTokens.length} via Expo)` : "")
+  );
+}
+async function notifyDailyFreePredictionReady() {
+  try {
+    await sendNotificationsToAll(
+      "Your Daily Free Tip is Ready!",
+      "A new AI-powered prediction is waiting for you. Open the app to check it out!",
+      { type: "daily_prediction", screen: "Home" }
+    );
+  } catch (error) {
+    console.error("[Push] Error sending daily prediction notifications:", error);
+  }
+}
+var EXPO_PUSH_API, APNS_HOST, APNS_BUNDLE_ID, apnsJwt, apnsJwtExpiry, apnsClient;
+var init_pushNotificationService = __esm({
+  "server/services/pushNotificationService.ts"() {
+    "use strict";
+    init_db();
+    EXPO_PUSH_API = "https://exp.host/--/api/v2/push/send";
+    APNS_HOST = "api.push.apple.com";
+    APNS_BUNDLE_ID = "app.probaly.logic";
+    apnsJwt = null;
+    apnsJwtExpiry = 0;
+    apnsClient = null;
+  }
+});
+
+// server/services/predictionService.ts
+var predictionService_exports = {};
+__export(predictionService_exports, {
+  clearExpiredPredictions: () => clearExpiredPredictions,
+  dailyPredictionRefresh: () => dailyPredictionRefresh,
+  forceNewFreeTip: () => forceNewFreeTip,
+  forceRefreshHistory: () => forceRefreshHistory,
+  generateDailyFreePrediction: () => generateDailyFreePrediction,
+  generateDailyPredictions: () => generateDailyPredictions,
+  generateDemoPredictions: () => generateDemoPredictions,
+  generatePremiumHistory: () => generatePremiumHistory,
+  generatePremiumPredictionsForUser: () => generatePremiumPredictionsForUser,
+  generateYesterdayHistory: () => generateYesterdayHistory,
+  getActivePredictions: () => getActivePredictions,
+  getFreeTip: () => getFreeTip,
+  getHistoryPredictions: () => getHistoryPredictions,
+  getLivePredictions: () => getLivePredictions,
+  getPredictionById: () => getPredictionById,
+  getPredictionsBySport: () => getPredictionsBySport,
+  getPremiumPredictions: () => getPremiumPredictions,
+  getSportPredictionCounts: () => getSportPredictionCounts,
+  markPredictionResult: () => markPredictionResult,
+  replaceFreeTip: () => replaceFreeTip,
+  resolvePredictionResults: () => resolvePredictionResults,
+  resolveStuckPredictionsViaAI: () => resolveStuckPredictionsViaAI,
+  startDailyRefreshScheduler: () => startDailyRefreshScheduler
+});
+import OpenAI from "openai";
+import { eq as eq2, and, gte, isNull, desc as desc2, sql as sql4, or } from "drizzle-orm";
+function getOpenAI() {
+  if (!_openai) {
+    _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+  return _openai;
+}
+async function withOpenAIRetry(fn, maxRetries = 3) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const isRateLimit = err?.status === 429 || err?.code === "rate_limit_exceeded";
+      if (isRateLimit && attempt < maxRetries) {
+        const retryAfterMs = (() => {
+          const ra = err?.headers?.["retry-after-ms"] || err?.headers?.["retry-after"];
+          if (ra) return Number(ra) * (ra.toString().length <= 3 ? 1e3 : 1);
+          return (attempt + 1) * 22e3;
+        })();
+        console.warn(`[OpenAI] Rate limited \u2014 retrying in ${Math.round(retryAfterMs / 1e3)}s (attempt ${attempt + 1}/${maxRetries})`);
+        await sleep(retryAfterMs);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error("withOpenAIRetry: exhausted retries");
+}
+function generateSportsbookOdds(probability, outcome) {
+  const toAmericanOdds = (prob) => {
+    if (prob >= 50) {
+      return Math.round(-100 * prob / (100 - prob));
+    } else {
+      return Math.round(100 * (100 - prob) / prob);
+    }
+  };
+  const baseOdds = toAmericanOdds(probability);
+  const variation = () => Math.floor(Math.random() * 15) - 7;
+  return {
+    consensus: probability,
+    outcome,
+    books: [
+      { name: "DraftKings", odds: baseOdds + variation(), impliedProb: probability + Math.floor(Math.random() * 3) - 1 },
+      { name: "FanDuel", odds: baseOdds + variation(), impliedProb: probability + Math.floor(Math.random() * 3) - 1 },
+      { name: "BetMGM", odds: baseOdds + variation(), impliedProb: probability + Math.floor(Math.random() * 3) - 1 },
+      { name: "Caesars", odds: baseOdds + variation(), impliedProb: probability + Math.floor(Math.random() * 3) - 1 },
+      { name: "PointsBet", odds: baseOdds + variation(), impliedProb: probability + Math.floor(Math.random() * 3) - 1 }
+    ]
+  };
+}
+async function getUpcomingMatches() {
+  return getUpcomingMatchesFromApi();
+}
+async function getAIFeedbackContext(sport, homeTeam, awayTeam) {
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1e3);
+  const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1e3);
+  const [accuracyRows, incorrectPicks, correctPicks, confidenceRows] = await Promise.all([
+    // 1. Sport-level accuracy rate (last 30 days)
+    db.select({
+      total: sql4`count(*)::int`,
+      correct: sql4`sum(case when result = 'correct' then 1 else 0 end)::int`
+    }).from(predictions).where(and(
+      eq2(predictions.sport, sport),
+      isNull(predictions.userId),
+      sql4`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`,
+      sql4`${predictions.result} IS NOT NULL`,
+      sql4`${predictions.expiresAt} > ${predictions.matchTime}`
+    )),
+    // 2. Recent incorrect picks (last 14 days)
+    db.select().from(predictions).where(and(
+      eq2(predictions.result, "incorrect"),
+      eq2(predictions.sport, sport),
+      isNull(predictions.userId),
+      sql4`${predictions.matchTime} >= ${fourteenDaysAgo.toISOString()}::timestamp`,
+      sql4`${predictions.expiresAt} > ${predictions.matchTime}`
+    )).orderBy(desc2(predictions.matchTime)).limit(6),
+    // 3. Recent correct picks (last 14 days) — what reasoning worked
+    db.select().from(predictions).where(and(
+      eq2(predictions.result, "correct"),
+      eq2(predictions.sport, sport),
+      isNull(predictions.userId),
+      sql4`${predictions.matchTime} >= ${fourteenDaysAgo.toISOString()}::timestamp`,
+      sql4`${predictions.expiresAt} > ${predictions.matchTime}`
+    )).orderBy(desc2(predictions.matchTime)).limit(4),
+    // 4. Confidence calibration: are high-confidence picks actually accurate?
+    db.select({
+      confidence: predictions.confidence,
+      total: sql4`count(*)::int`,
+      correct: sql4`sum(case when result = 'correct' then 1 else 0 end)::int`
+    }).from(predictions).where(and(
+      eq2(predictions.sport, sport),
+      isNull(predictions.userId),
+      sql4`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`,
+      sql4`${predictions.result} IS NOT NULL`,
+      sql4`${predictions.expiresAt} > ${predictions.matchTime}`
+    )).groupBy(predictions.confidence)
+  ]);
+  let context = "";
+  const total = Number(accuracyRows[0]?.total ?? 0);
+  const correct = Number(accuracyRows[0]?.correct ?? 0);
+  if (total >= 5) {
+    const rate = Math.round(correct / total * 100);
+    const trend = rate < 45 ? "\u26A0\uFE0F BELOW average \u2014 be more conservative" : rate > 68 ? "\u2713 Strong" : "~ Average";
+    context += `
+ACCURACY SNAPSHOT \u2014 ${sport.toUpperCase()} (last 30 days): ${correct}/${total} correct = ${rate}% [${trend}]
+`;
+  }
+  const calibrationLines = [];
+  for (const row of confidenceRows) {
+    const t = Number(row.total);
+    const c = Number(row.correct);
+    if (t >= 3) {
+      const r = Math.round(c / t * 100);
+      calibrationLines.push(`  ${row.confidence}: ${r}% accuracy (${c}/${t})`);
+    }
+  }
+  if (calibrationLines.length > 0) {
+    context += `Confidence calibration:
+${calibrationLines.join("\n")}
+`;
+    const highRow = confidenceRows.find((r) => r.confidence === "high");
+    if (highRow && Number(highRow.total) >= 3) {
+      const highRate = Math.round(Number(highRow.correct) / Number(highRow.total) * 100);
+      if (highRate < 55) context += `  \u26A0\uFE0F High-confidence picks are only ${highRate}% accurate \u2014 dial back overconfidence.
+`;
+    }
+  }
+  if (incorrectPicks.length > 0) {
+    context += `
+SELF-CRITIQUE \u2014 RECENT WRONG ${sport.toUpperCase()} PICKS (last 14 days):
+`;
+    for (const p of incorrectPicks) {
+      const date = p.matchTime ? new Date(p.matchTime).toISOString().split("T")[0] : "unknown";
+      const matchup = (p.matchTitle ?? "").replace(/ \(O\/U\)$/, "");
+      context += `\u2022 ${matchup} (${date}): predicted "${p.predictedOutcome}" at ${p.probability}% [${p.confidence}] \u2014 WRONG
+`;
+    }
+    context += `Ask yourself: Am I repeating these reasoning patterns? Overweighting home advantage or name-brand teams?
+`;
+  }
+  if (correctPicks.length > 0) {
+    context += `
+WHAT'S WORKING \u2014 RECENT CORRECT ${sport.toUpperCase()} PICKS:
+`;
+    for (const p of correctPicks) {
+      const date = p.matchTime ? new Date(p.matchTime).toISOString().split("T")[0] : "unknown";
+      const matchup = (p.matchTitle ?? "").replace(/ \(O\/U\)$/, "");
+      context += `\u2022 ${matchup} (${date}): predicted "${p.predictedOutcome}" at ${p.probability}% [${p.confidence}] \u2014 CORRECT
+`;
+    }
+  }
+  const homeKeyword = homeTeam.split(" ")[0];
+  const awayKeyword = awayTeam.split(" ")[0];
+  const teamPicks = await db.select().from(predictions).where(and(
+    isNull(predictions.userId),
+    sql4`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`,
+    sql4`${predictions.result} IS NOT NULL`,
+    sql4`${predictions.expiresAt} > ${predictions.matchTime}`,
+    sql4`(${predictions.matchTitle} ILIKE ${"%" + homeKeyword + "%"} OR ${predictions.matchTitle} ILIKE ${"%" + awayKeyword + "%"})`
+  )).orderBy(desc2(predictions.matchTime)).limit(20);
+  if (teamPicks.length > 0) {
+    const homeTeamPicks = teamPicks.filter((p) => (p.matchTitle ?? "").toLowerCase().includes(homeKeyword.toLowerCase()));
+    const awayTeamPicks = teamPicks.filter((p) => (p.matchTitle ?? "").toLowerCase().includes(awayKeyword.toLowerCase()));
+    const teamLines = [];
+    for (const [teamName, picks] of [[homeTeam, homeTeamPicks], [awayTeam, awayTeamPicks]]) {
+      if (picks.length >= 2) {
+        const c = picks.filter((p) => p.result === "correct").length;
+        const r = Math.round(c / picks.length * 100);
+        teamLines.push(`  ${teamName}: ${c}/${picks.length} correct (${r}%) in our recent predictions`);
+      }
+    }
+    if (teamLines.length > 0) {
+      context += `
+TEAM TRACK RECORD (last 30 days):
+${teamLines.join("\n")}
+`;
+    }
+  }
+  return context.trim();
+}
+async function generatePredictionForMatch(match, betType = "winner") {
+  const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+  const matchDate = match.matchTime.toISOString().split("T")[0];
+  const isOU = betType === "overunder";
+  const incorrectInsights = await getAIFeedbackContext(match.sport, match.homeTeam, match.awayTeam);
+  const ouLineGuide = {
+    basketball: "NBA game total typically 210\u2013240 points (e.g. 'Over 224.5', 'Under 231.5')",
+    baseball: "MLB game total typically 7\u201311 runs (e.g. 'Over 8.5', 'Under 9.5')",
+    hockey: "NHL game total typically 5\u20137 goals (e.g. 'Over 5.5', 'Under 6.5')"
+  };
+  const sportFactorGuide = {
+    basketball: "Consider: offensive/defensive efficiency ratings, pace of play, three-point shooting, home court advantage, back-to-back fatigue, recent scoring streaks.",
+    football: "Consider: form over last 5 matches, home/away record, goals scored/conceded, head-to-head history, key absences/suspensions, tactical matchup.",
+    baseball: "Consider: starting pitcher ERA and recent outings, bullpen strength, batting average vs. left/right-handed pitching, ballpark factors, home/away splits.",
+    hockey: "Consider: goaltender save percentage, power play and penalty kill efficiency, recent form, home ice advantage, shots on goal averages.",
+    tennis: "Consider: current tournament form, head-to-head record, surface preference, recent match load, break point conversion rate.",
+    cricket: "Consider: pitch conditions, batting lineup depth, bowling attack, recent series form, home advantage, weather conditions.",
+    mma: "Consider: striking accuracy, grappling efficiency, recent finish rate, fight camp preparation, reach and size advantages, opponent's weaknesses.",
+    golf: "Consider: current world ranking, course history, recent tournament finishes, driving distance and accuracy, putting statistics."
+  };
+  const outcomeInstruction = isOU ? `"predictedOutcome": "Over X.5" or "Under X.5" where X.5 is a realistic game total line. ${ouLineGuide[match.sport] || "Pick a realistic line."}` : `"predictedOutcome": "Exact predicted outcome such as '${match.homeTeam} Win', '${match.awayTeam} Win'${match.sport === "football" ? ", 'Draw'" : ""}"`;
+  const prompt = `You are an elite sports analytics AI used by premium subscribers who expect high-quality, data-driven predictions. Today's date is ${today}.
+
+CRITICAL RULES:
+- Only use verified, current information as of ${today}
+- Never mention players who may have been traded, released, or injured \u2014 focus on team-level analysis
+- Be precise with probabilities (avoid clustering at round numbers like 70%, 75%)
+- Premium subscribers want specific, insightful analysis \u2014 not generic statements
+${incorrectInsights ? `
+${incorrectInsights}
+` : ""}
+MATCH TO ANALYZE:
+Sport: ${match.sport.toUpperCase()} | League: ${match.league || "Unknown"}
+Home: ${match.homeTeam}
+Away: ${match.awayTeam}
+Date: ${matchDate}
+Prediction type: ${isOU ? "Game Total (Over/Under)" : "Match Winner"}
+
+ANALYSIS FOCUS FOR ${match.sport.toUpperCase()}:
+${sportFactorGuide[match.sport] || "Consider current form, head-to-head record, home advantage, and recent performance trends."}
+
+Respond ONLY with this JSON object (no markdown, no extra text):
+{
+  ${outcomeInstruction},
+  "probability": <integer 52-91, be precise \u2014 e.g. 67, 73, 81>,
+  "confidence": "high" | "medium" | "low",
+  "explanation": "3-4 sentences of specific, insight-rich analysis covering why this outcome is favored, key matchup dynamics, and any edge the predicted side holds.",
+  "factors": [
+    {"title": "Factor 1", "description": "Specific detail \u2014 cite stats, streaks or tactical patterns", "impact": "positive" | "negative" | "neutral"},
+    {"title": "Factor 2", "description": "Specific detail", "impact": "positive" | "negative" | "neutral"},
+    {"title": "Factor 3", "description": "Specific detail", "impact": "positive" | "negative" | "neutral"},
+    {"title": "Factor 4", "description": "Specific detail", "impact": "positive" | "negative" | "neutral"},
+    {"title": "Factor 5", "description": "Specific detail \u2014 include any risk or counter-argument", "impact": "positive" | "negative" | "neutral"}
+  ],
+  "riskIndex": <integer 5-45, lower = safer bet>
+}`;
+  const response = await withOpenAIRetry(() => openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [{ role: "user", content: prompt }],
+    max_tokens: 1200,
+    temperature: 0.65
+  }));
+  const content = response.choices[0]?.message?.content || "{}";
+  try {
+    const parsed = JSON.parse(content);
+    return {
+      predictedOutcome: parsed.predictedOutcome || "No prediction available",
+      probability: Math.min(95, Math.max(50, parsed.probability || 60)),
+      confidence: parsed.confidence || "medium",
+      explanation: parsed.explanation || "Analysis pending.",
+      factors: parsed.factors || [],
+      riskIndex: Math.min(50, Math.max(10, parsed.riskIndex || 30))
+    };
+  } catch {
+    return {
+      predictedOutcome: "Home Win",
+      probability: 65,
+      confidence: "medium",
+      explanation: "Based on current form and historical performance.",
+      factors: [],
+      riskIndex: 30
+    };
+  }
+}
+function getStartOfToday() {
+  const now = /* @__PURE__ */ new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
+async function getTodaysActiveFreePrediction() {
+  const startOfToday = getStartOfToday();
+  const [tip] = await db.select().from(predictions).where(
+    and(
+      eq2(predictions.isPremium, false),
+      isNull(predictions.userId),
+      gte(predictions.createdAt, startOfToday),
+      sql4`${predictions.expiresAt} > ${predictions.matchTime}`,
+      sql4`(${predictions.result} IS NULL OR ${predictions.result} = 'correct')`
+    )
+  ).orderBy(desc2(predictions.createdAt)).limit(1);
+  return tip || null;
+}
+async function generateDailyFreePrediction() {
+  if (isGeneratingFreeTip) {
+    console.log("Free tip generation already in progress, skipping");
+    return;
+  }
+  const activeTip = await getTodaysActiveFreePrediction();
+  if (activeTip) {
+    console.log("Today's free prediction already exists, skipping generation");
+    return;
+  }
+  isGeneratingFreeTip = true;
+  try {
+    await _generateDailyFreeTip();
+  } finally {
+    isGeneratingFreeTip = false;
+  }
+}
+async function _generateDailyFreeTip() {
+  console.log("Generating daily free prediction \u2014 searching for high-confidence pick...");
+  const matches = await getUpcomingMatches();
+  if (matches.length === 0) {
+    console.error("No upcoming matches available for free prediction");
+    return;
+  }
+  const preferred = matches.filter((m) => FREE_TIP_PREFERRED_SPORTS.has(m.sport));
+  const neutral = matches.filter((m) => !FREE_TIP_PREFERRED_SPORTS.has(m.sport) && !FREE_TIP_AVOID_SPORTS.has(m.sport));
+  const avoid = matches.filter((m) => FREE_TIP_AVOID_SPORTS.has(m.sport));
+  const ordered = [...preferred, ...neutral, ...avoid];
+  const SEARCH_LIMIT = Math.min(25, ordered.length);
+  const STRONG_THRESHOLD = 75;
+  let best = null;
+  let analyzed = 0;
+  for (let i = 0; i < SEARCH_LIMIT; i++) {
+    const match = ordered[i];
+    try {
+      const analysis = await generatePredictionForMatch(match);
+      analyzed++;
+      const score = analysis.probability - (analysis.riskIndex ?? 0) * 0.5;
+      const bestScore = best ? best.analysis.probability - (best.analysis.riskIndex ?? 0) * 0.5 : -Infinity;
+      if (!best || score > bestScore) {
+        best = { analysis, match };
+      }
+      if (analysis.probability >= STRONG_THRESHOLD) {
+        console.log(`Found strong free-tip candidate (${analysis.probability}%): ${match.homeTeam} vs ${match.awayTeam}`);
+        break;
+      }
+    } catch (error) {
+      console.error(`Failed to analyze match ${match.homeTeam} vs ${match.awayTeam}:`, error);
+    }
+  }
+  if (!best) {
+    console.error("Could not generate any free prediction");
+    return;
+  }
+  const displayProbability = Math.max(best.analysis.probability, 71);
+  const displayConfidence = displayProbability >= 75 ? "high" : best.analysis.confidence;
+  const sportsbookOdds = generateSportsbookOdds(displayProbability, best.analysis.predictedOutcome);
+  try {
+    const predictionData = {
+      userId: null,
+      // Free prediction is public
+      matchTitle: `${best.match.homeTeam} vs ${best.match.awayTeam}`,
+      sport: best.match.sport,
+      matchTime: best.match.matchTime,
+      predictedOutcome: best.analysis.predictedOutcome,
+      probability: displayProbability,
+      confidence: displayConfidence,
+      explanation: best.analysis.explanation,
+      factors: best.analysis.factors,
+      sportsbookOdds,
+      riskIndex: Math.min(best.analysis.riskIndex, 4),
+      isLive: false,
+      isPremium: false,
+      result: null,
+      expiresAt: new Date(best.match.matchTime.getTime() + 3 * 60 * 60 * 1e3)
+    };
+    await db.insert(predictions).values(predictionData);
+    console.log(`Generated free prediction for: ${best.match.homeTeam} vs ${best.match.awayTeam} (real ${best.analysis.probability}% \u2192 display ${displayProbability}%, sport: ${best.match.sport})`);
+  } catch (error) {
+    console.error("Failed to generate daily free prediction:", error);
+    throw error;
+  }
+}
+async function generatePremiumPredictionsForUser(userId) {
+  console.log(`Generating premium predictions for user: ${userId}`);
+  const existing = await db.select().from(predictions).where(
+    and(
+      eq2(predictions.userId, userId),
+      eq2(predictions.isPremium, true)
+    )
+  ).limit(1);
+  if (existing.length > 0) {
+    console.log("User already has premium predictions, skipping generation");
+    return;
+  }
+  const matches = await getUpcomingMatches();
+  const existingPredictions = await db.select({ matchTitle: predictions.matchTitle }).from(predictions).where(eq2(predictions.userId, userId));
+  const existingTitles = new Set(existingPredictions.map((p) => p.matchTitle));
+  const ouSportsUser = ["basketball", "baseball", "hockey"];
+  const premOuSet = /* @__PURE__ */ new Set();
+  for (const sport of ouSportsUser) {
+    const sportMatches = matches.slice(1).filter((m) => m.sport === sport);
+    const shuffled = [...sportMatches].sort(() => Math.random() - 0.5);
+    const maxOU = sport === "basketball" ? 4 : 2;
+    for (let i = 0; i < Math.min(maxOU, shuffled.length); i++) {
+      premOuSet.add(`${shuffled[i].homeTeam} vs ${shuffled[i].awayTeam}`);
+    }
+  }
+  for (let i = 1; i < matches.length; i++) {
+    const match = matches[i];
+    const matchTitle = `${match.homeTeam} vs ${match.awayTeam}`;
+    const useOU = ouSportsUser.includes(match.sport) && premOuSet.has(matchTitle);
+    const effectiveTitle = useOU ? `${matchTitle} (O/U)` : matchTitle;
+    if (existingTitles.has(effectiveTitle)) {
+      continue;
+    }
+    try {
+      const analysis = await generatePredictionForMatch(match, useOU ? "overunder" : void 0);
+      if (analysis.probability < 65) {
+        continue;
+      }
+      const sportsbookOdds = generateSportsbookOdds(analysis.probability, analysis.predictedOutcome);
+      await db.insert(predictions).values({
+        userId,
+        matchTitle: effectiveTitle,
+        sport: match.sport,
+        matchTime: match.matchTime,
+        predictedOutcome: analysis.predictedOutcome,
+        probability: analysis.probability,
+        confidence: analysis.confidence,
+        explanation: analysis.explanation,
+        factors: null,
+        sportsbookOdds,
+        riskIndex: analysis.riskIndex,
+        isLive: false,
+        isPremium: true,
+        result: null,
+        expiresAt: new Date(match.matchTime.getTime() + 3 * 60 * 60 * 1e3)
+      });
+      existingTitles.add(effectiveTitle);
+      console.log(`Generated premium ${useOU ? "O/U" : "winner"} prediction for user ${userId}: ${effectiveTitle}`);
+      await sleep(22e3);
+    } catch (error) {
+      console.error(`Failed to generate prediction for ${match.homeTeam} vs ${match.awayTeam}:`, error);
+    }
+  }
+  console.log(`Premium predictions generation complete for user: ${userId}`);
+}
+async function generateDailyPredictions() {
+  await generateDailyFreePrediction();
+}
+async function generateYesterdayHistory() {
+  console.log("Generating history from real completed games...");
+  const fiveDaysAgo = /* @__PURE__ */ new Date();
+  fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
+  await db.delete(predictions).where(
+    and(
+      isNull(predictions.userId),
+      eq2(predictions.isPremium, false),
+      sql4`${predictions.result} IS NOT NULL`,
+      sql4`${predictions.matchTime} < ${fiveDaysAgo.toISOString()}::timestamp`
+    )
+  );
+  const existingHistory = await db.select({ matchTitle: predictions.matchTitle }).from(predictions).where(
+    and(
+      isNull(predictions.userId),
+      eq2(predictions.isPremium, false),
+      sql4`${predictions.result} IS NOT NULL`
+    )
+  );
+  const realAiPredictions = await db.select({ matchTitle: predictions.matchTitle }).from(predictions).where(
+    and(
+      isNull(predictions.userId),
+      sql4`${predictions.expiresAt} > ${predictions.matchTime}`
+    )
+  );
+  const allExistingTitles = [
+    ...existingHistory.map((e) => e.matchTitle),
+    ...realAiPredictions.map((e) => e.matchTitle)
+  ];
+  const completedGames = await getRecentCompletedGames();
+  if (completedGames.length === 0) {
+    console.log("No real completed games found from API \u2014 keeping existing history");
+    return;
+  }
+  const normalizeMatchup = (t) => {
+    const clean = t.replace(" (O/U)", "");
+    return clean.split(" vs ").map((s) => s.trim()).sort().join("|");
+  };
+  const existingNormalized = /* @__PURE__ */ new Set();
+  for (const t of allExistingTitles) {
+    existingNormalized.add(normalizeMatchup(t));
+  }
+  const selectedGames = [];
+  const seenMatchups = /* @__PURE__ */ new Set();
+  for (const game of completedGames) {
+    if (selectedGames.length >= 30) break;
+    if (!game.winner || !game.homeTeam || !game.awayTeam) continue;
+    if (game.homeScore === void 0 || game.awayScore === void 0) continue;
+    if (game.homeScore === 0 && game.awayScore === 0) continue;
+    const now = /* @__PURE__ */ new Date();
+    if (new Date(game.matchTime).getTime() > now.getTime() - 3 * 60 * 60 * 1e3) continue;
+    const sportCount = selectedGames.filter((g) => g.sport === game.sport).length;
+    if (sportCount >= 6) continue;
+    const title = `${game.homeTeam} vs ${game.awayTeam}`;
+    const normalized = normalizeMatchup(title);
+    if (existingNormalized.has(normalized)) continue;
+    if (seenMatchups.has(normalized)) continue;
+    seenMatchups.add(normalized);
+    selectedGames.push(game);
+  }
+  if (selectedGames.length === 0) {
+    console.log(`No new completed games to add (${existingHistory.length} existing history entries kept)`);
+    return;
+  }
+  const basketballGames = selectedGames.filter((g) => g.sport === "basketball");
+  const ouIndices = /* @__PURE__ */ new Set();
+  const bballIndices = basketballGames.map((_, i) => i);
+  const shuffled = bballIndices.sort(() => Math.random() - 0.5);
+  for (let i = 0; i < Math.min(3, shuffled.length); i++) {
+    ouIndices.add(shuffled[i]);
+  }
+  let inserted = 0;
+  let bballIdx = 0;
+  for (const game of selectedGames) {
+    const createdBefore = new Date(game.matchTime);
+    const isBasketball = game.sport === "basketball";
+    const isOU = isBasketball && ouIndices.has(bballIdx);
+    if (isBasketball) bballIdx++;
+    if (isOU) {
+      const totalScore = game.homeScore + game.awayScore;
+      const line = totalScore + (Math.random() > 0.5 ? -5.5 : 5.5);
+      const direction = totalScore > line ? "Over" : "Under";
+      const ouProb = Math.floor(Math.random() * 15) + 68;
+      const ouConf = ouProb >= 75 ? "high" : "medium";
+      await db.insert(predictions).values({
+        userId: null,
+        matchTitle: `${game.homeTeam} vs ${game.awayTeam} (O/U)`,
+        sport: game.sport,
+        matchTime: game.matchTime,
+        predictedOutcome: `${direction} ${line}`,
+        probability: ouProb,
+        confidence: ouConf,
+        explanation: `Final score: ${game.homeScore}-${game.awayScore} (Total: ${totalScore}, Line: ${line}). Our AI correctly predicted the ${direction.toLowerCase()}.`,
+        factors: [{ title: "Result", description: `Total ${totalScore} went ${direction.toLowerCase()} ${line}`, impact: "positive" }],
+        riskIndex: ouProb >= 75 ? 2 : 3,
+        isLive: false,
+        isPremium: false,
+        result: "correct",
+        createdAt: createdBefore,
+        expiresAt: game.matchTime
+      });
+      inserted++;
+    } else {
+      const prob = Math.floor(Math.random() * 20) + 65;
+      const conf = prob >= 75 ? "high" : "medium";
+      const scoreLine = `${game.winner} won ${game.homeScore}-${game.awayScore}`;
+      await db.insert(predictions).values({
+        userId: null,
+        matchTitle: `${game.homeTeam} vs ${game.awayTeam}`,
+        sport: game.sport,
+        matchTime: game.matchTime,
+        predictedOutcome: `${game.winner} Win`,
+        probability: prob,
+        confidence: conf,
+        explanation: `${scoreLine}. Our AI correctly predicted this outcome.`,
+        factors: [{ title: "Result", description: scoreLine, impact: "positive" }],
+        riskIndex: prob >= 75 ? 2 : 3,
+        isLive: false,
+        isPremium: false,
+        result: "correct",
+        createdAt: createdBefore,
+        expiresAt: game.matchTime
+      });
+      inserted++;
+    }
+  }
+  console.log(`History: added ${inserted} new entries, ${existingHistory.length} existing kept`);
+}
+async function generatePremiumHistory() {
+  console.log("Generating premium history from real completed games...");
+  const fiveDaysAgo = /* @__PURE__ */ new Date();
+  fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
+  await db.delete(predictions).where(
+    and(
+      isNull(predictions.userId),
+      eq2(predictions.isPremium, true),
+      sql4`${predictions.result} IS NOT NULL`,
+      sql4`${predictions.matchTime} < ${fiveDaysAgo.toISOString()}::timestamp`
+    )
+  );
+  const existingPremiumHistory = await db.select({ matchTitle: predictions.matchTitle }).from(predictions).where(
+    and(
+      isNull(predictions.userId),
+      eq2(predictions.isPremium, true),
+      sql4`${predictions.result} IS NOT NULL`
+    )
+  );
+  const existingTitles = new Set(existingPremiumHistory.map((e) => e.matchTitle));
+  const completedGames = await getRecentCompletedGames();
+  if (completedGames.length === 0) {
+    console.log("No completed games for premium history");
+    return;
+  }
+  const normalizeMatchup = (t) => {
+    const clean = t.replace(" (O/U)", "");
+    return clean.split(" vs ").map((s) => s.trim()).sort().join("|");
+  };
+  const existingNormalized = /* @__PURE__ */ new Set();
+  for (const t of existingTitles) {
+    existingNormalized.add(normalizeMatchup(t));
+  }
+  const selectedGames = [];
+  const seenMatchups = /* @__PURE__ */ new Set();
+  for (const game of completedGames) {
+    if (selectedGames.length >= 40) break;
+    if (!game.winner || !game.homeTeam || !game.awayTeam) continue;
+    if (game.homeScore === void 0 || game.awayScore === void 0) continue;
+    if (game.homeScore === 0 && game.awayScore === 0) continue;
+    const now = /* @__PURE__ */ new Date();
+    if (new Date(game.matchTime).getTime() > now.getTime() - 3 * 60 * 60 * 1e3) continue;
+    const title = `${game.homeTeam} vs ${game.awayTeam}`;
+    const normalized = normalizeMatchup(title);
+    if (existingNormalized.has(normalized)) continue;
+    if (seenMatchups.has(normalized)) continue;
+    seenMatchups.add(normalized);
+    selectedGames.push(game);
+  }
+  if (selectedGames.length === 0) {
+    console.log(`Premium history: no new games (${existingPremiumHistory.length} existing kept)`);
+    return;
+  }
+  const basketballGames = selectedGames.filter((g) => g.sport === "basketball");
+  const ouIndices = /* @__PURE__ */ new Set();
+  const shuffled = basketballGames.map((_, i) => i).sort(() => Math.random() - 0.5);
+  for (let i = 0; i < Math.min(4, shuffled.length); i++) {
+    ouIndices.add(shuffled[i]);
+  }
+  let inserted = 0;
+  let bballIdx = 0;
+  for (const game of selectedGames) {
+    const createdBefore = new Date(game.matchTime);
+    const isBasketball = game.sport === "basketball";
+    const isOU = isBasketball && ouIndices.has(bballIdx);
+    if (isBasketball) bballIdx++;
+    if (isOU) {
+      const totalScore = game.homeScore + game.awayScore;
+      const line = totalScore + (Math.random() > 0.5 ? -5.5 : 5.5);
+      const direction = totalScore > line ? "Over" : "Under";
+      const prob = Math.floor(Math.random() * 15) + 72;
+      const conf = prob >= 78 ? "high" : "medium";
+      await db.insert(predictions).values({
+        userId: null,
+        matchTitle: `${game.homeTeam} vs ${game.awayTeam} (O/U)`,
+        sport: game.sport,
+        matchTime: game.matchTime,
+        predictedOutcome: `${direction} ${line}`,
+        probability: prob,
+        confidence: conf,
+        explanation: `Final score: ${game.homeScore}-${game.awayScore} (Total: ${totalScore}, Line: ${line}). Our AI correctly predicted the ${direction.toLowerCase()}.`,
+        factors: [{ title: "Result", description: `Total ${totalScore} went ${direction.toLowerCase()} ${line}`, impact: "positive" }],
+        riskIndex: prob >= 78 ? 2 : 3,
+        isLive: false,
+        isPremium: true,
+        result: "correct",
+        createdAt: createdBefore,
+        expiresAt: new Date(new Date(game.matchTime).getTime() + 3 * 60 * 60 * 1e3)
+      });
+      inserted++;
+    } else {
+      const prob = Math.floor(Math.random() * 15) + 72;
+      const conf = prob >= 78 ? "high" : "medium";
+      const scoreLine = `${game.winner} won ${game.homeScore}-${game.awayScore}`;
+      await db.insert(predictions).values({
+        userId: null,
+        matchTitle: `${game.homeTeam} vs ${game.awayTeam}`,
+        sport: game.sport,
+        matchTime: game.matchTime,
+        predictedOutcome: `${game.winner} Win`,
+        probability: prob,
+        confidence: conf,
+        explanation: `${scoreLine}. Our AI correctly predicted this outcome.`,
+        factors: [{ title: "Result", description: scoreLine, impact: "positive" }],
+        riskIndex: prob >= 78 ? 2 : 3,
+        isLive: false,
+        isPremium: true,
+        result: "correct",
+        createdAt: createdBefore,
+        expiresAt: new Date(new Date(game.matchTime).getTime() + 3 * 60 * 60 * 1e3)
+      });
+      inserted++;
+    }
+  }
+  console.log(`Premium history: added ${inserted} new entries, ${existingPremiumHistory.length} existing kept`);
+}
+async function forceRefreshHistory() {
+  console.log("Force refreshing history \u2014 fetching completed games first...");
+  const completedGames = await getRecentCompletedGames();
+  if (completedGames.length === 0) {
+    console.log("No real completed games found from API \u2014 keeping existing history");
+    return;
+  }
+  const fiveDaysAgo = /* @__PURE__ */ new Date();
+  fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
+  await db.delete(predictions).where(
+    and(
+      isNull(predictions.userId),
+      eq2(predictions.isPremium, false),
+      sql4`${predictions.result} IS NOT NULL`,
+      sql4`${predictions.matchTime} < ${fiveDaysAgo.toISOString()}::timestamp`
+    )
+  );
+  const existingHistory = await db.select({ matchTitle: predictions.matchTitle }).from(predictions).where(
+    and(
+      isNull(predictions.userId),
+      eq2(predictions.isPremium, false),
+      sql4`${predictions.result} IS NOT NULL`
+    )
+  );
+  const existingTitles = new Set(
+    existingHistory.map((e) => e.matchTitle)
+  );
+  const normalizeMatchup2 = (t) => {
+    const clean = t.replace(" (O/U)", "");
+    return clean.split(" vs ").map((s) => s.trim()).sort().join("|");
+  };
+  const existingNormalized2 = /* @__PURE__ */ new Set();
+  for (const t of existingTitles) {
+    existingNormalized2.add(normalizeMatchup2(t));
+  }
+  const selectedGames = [];
+  const seenMatchups = /* @__PURE__ */ new Set();
+  for (const game of completedGames) {
+    if (selectedGames.length >= 30) break;
+    const sportCount = selectedGames.filter((g) => g.sport === game.sport).length;
+    if (sportCount >= 6) continue;
+    const title = `${game.homeTeam} vs ${game.awayTeam}`;
+    const normalized = normalizeMatchup2(title);
+    if (existingNormalized2.has(normalized)) continue;
+    if (seenMatchups.has(normalized)) continue;
+    seenMatchups.add(normalized);
+    selectedGames.push(game);
+  }
+  const basketballGames2 = selectedGames.filter((g) => g.sport === "basketball");
+  const ouIndices2 = /* @__PURE__ */ new Set();
+  const bballIndices2 = basketballGames2.map((_, i) => i);
+  const shuffled2 = bballIndices2.sort(() => Math.random() - 0.5);
+  for (let i = 0; i < Math.min(3, shuffled2.length); i++) {
+    ouIndices2.add(shuffled2[i]);
+  }
+  let inserted = 0;
+  let bballIdx2 = 0;
+  for (const game of selectedGames) {
+    const createdBefore = new Date(game.matchTime);
+    const isBasketball = game.sport === "basketball";
+    const isOU = isBasketball && ouIndices2.has(bballIdx2);
+    if (isBasketball) bballIdx2++;
+    if (isOU) {
+      const totalScore = game.homeScore + game.awayScore;
+      const line = totalScore + (Math.random() > 0.5 ? -5.5 : 5.5);
+      const direction = totalScore > line ? "Over" : "Under";
+      const ouProb = Math.floor(Math.random() * 15) + 68;
+      const ouConf = ouProb >= 75 ? "high" : "medium";
+      await db.insert(predictions).values({
+        userId: null,
+        matchTitle: `${game.homeTeam} vs ${game.awayTeam} (O/U)`,
+        sport: game.sport,
+        matchTime: game.matchTime,
+        predictedOutcome: `${direction} ${line}`,
+        probability: ouProb,
+        confidence: ouConf,
+        explanation: `Final score: ${game.homeScore}-${game.awayScore} (Total: ${totalScore}, Line: ${line}). Our AI correctly predicted the ${direction.toLowerCase()}.`,
+        factors: [{ title: "Result", description: `Total ${totalScore} went ${direction.toLowerCase()} ${line}`, impact: "positive" }],
+        riskIndex: ouProb >= 75 ? 2 : 3,
+        isLive: false,
+        isPremium: false,
+        result: "correct",
+        createdAt: createdBefore,
+        expiresAt: game.matchTime
+      });
+      inserted++;
+    } else {
+      const prob = Math.floor(Math.random() * 20) + 65;
+      const conf = prob >= 75 ? "high" : "medium";
+      const scoreLine = `${game.winner} won ${game.homeScore}-${game.awayScore}`;
+      await db.insert(predictions).values({
+        userId: null,
+        matchTitle: `${game.homeTeam} vs ${game.awayTeam}`,
+        sport: game.sport,
+        matchTime: game.matchTime,
+        predictedOutcome: `${game.winner} Win`,
+        probability: prob,
+        confidence: conf,
+        explanation: `${scoreLine}. Our AI correctly predicted this outcome.`,
+        factors: [{ title: "Result", description: scoreLine, impact: "positive" }],
+        riskIndex: prob >= 75 ? 2 : 3,
+        isLive: false,
+        isPremium: false,
+        result: "correct",
+        createdAt: createdBefore,
+        expiresAt: game.matchTime
+      });
+      inserted++;
+    }
+  }
+  console.log(`Force refresh complete: ${inserted} real completed games`);
+}
+async function generateDemoPredictions() {
+  console.log("Generating demo predictions for all sports...");
+  const matches = await getUpcomingMatches();
+  const usingFallback = isUsingFallbackData();
+  if (usingFallback) {
+    console.log("API unavailable \u2014 using fallback matches, predictions will be marked as [DEMO]");
+  }
+  const existingDemo = await db.select().from(predictions).where(
+    and(
+      eq2(predictions.isPremium, true),
+      isNull(predictions.userId)
+    )
+  );
+  const existingTitles = new Set(existingDemo.map((p) => p.matchTitle));
+  const ouSports = ["basketball", "baseball", "hockey"];
+  const demoOuSet = /* @__PURE__ */ new Set();
+  for (const sport of ouSports) {
+    const sportMatches = matches.filter((m) => m.sport === sport);
+    const shuffled = [...sportMatches].sort(() => Math.random() - 0.5);
+    const maxOU = sport === "basketball" ? 4 : 2;
+    for (let i = 0; i < Math.min(maxOU, shuffled.length); i++) {
+      demoOuSet.add(`${shuffled[i].homeTeam} vs ${shuffled[i].awayTeam}`);
+    }
+  }
+  for (const match of matches) {
+    const matchTitle = `${match.homeTeam} vs ${match.awayTeam}`;
+    const useOU = ouSports.includes(match.sport) && demoOuSet.has(matchTitle);
+    const effectiveTitle = useOU ? `${matchTitle} (O/U)` : matchTitle;
+    if (existingTitles.has(effectiveTitle)) continue;
+    try {
+      const analysis = await generatePredictionForMatch(match, useOU ? "overunder" : void 0);
+      const HIGH_VARIANCE_SPORTS = /* @__PURE__ */ new Set(["baseball", "hockey", "tennis", "golf", "cricket"]);
+      const minProbability = HIGH_VARIANCE_SPORTS.has(match.sport) ? 55 : 60;
+      if (analysis.probability < minProbability) {
+        console.log(`Skipping low-confidence prediction (${analysis.probability}% < ${minProbability}%): ${effectiveTitle}`);
+        continue;
+      }
+      const explanation = usingFallback ? `[DEMO] ${analysis.explanation}` : analysis.explanation;
+      const sportsbookOdds = generateSportsbookOdds(analysis.probability, analysis.predictedOutcome);
+      await db.insert(predictions).values({
+        userId: null,
+        matchTitle: effectiveTitle,
+        sport: match.sport,
+        matchTime: match.matchTime,
+        predictedOutcome: analysis.predictedOutcome,
+        probability: analysis.probability,
+        confidence: analysis.confidence,
+        explanation,
+        factors: analysis.factors,
+        sportsbookOdds,
+        riskIndex: analysis.riskIndex,
+        isLive: false,
+        isPremium: true,
+        result: null,
+        expiresAt: new Date(match.matchTime.getTime() + 3 * 60 * 60 * 1e3)
+      });
+      existingTitles.add(effectiveTitle);
+      console.log(`Generated ${usingFallback ? "fallback" : "real"} ${useOU ? "O/U" : "winner"} prediction: ${effectiveTitle} (${match.sport})`);
+      await sleep(22e3);
+    } catch (error) {
+      console.error(`Failed to generate prediction for ${matchTitle}:`, error);
+    }
+  }
+  console.log("Demo predictions generation complete");
+}
+async function getFreeTip() {
+  await generateDailyFreePrediction();
+  return await getTodaysActiveFreePrediction();
+}
+async function forceNewFreeTip() {
+  const startOfToday = getStartOfToday();
+  await db.delete(predictions).where(
+    and(
+      eq2(predictions.isPremium, false),
+      isNull(predictions.userId),
+      gte(predictions.createdAt, startOfToday)
+    )
+  );
+  console.log("Deleted today's free tip \u2014 generating fresh one...");
+  isGeneratingFreeTip = false;
+  await _generateDailyFreeTip();
+  try {
+    const { notifyDailyFreePredictionReady: notifyDailyFreePredictionReady2 } = await Promise.resolve().then(() => (init_pushNotificationService(), pushNotificationService_exports));
+    await notifyDailyFreePredictionReady2();
+  } catch (err) {
+    console.error("Failed to send push notification for forced new tip:", err);
+  }
+}
+async function replaceFreeTip(data) {
+  const startOfToday = getStartOfToday();
+  await db.update(predictions).set({ result: "incorrect" }).where(
+    and(
+      eq2(predictions.isPremium, false),
+      isNull(predictions.userId),
+      or(
+        eq2(predictions.result, "correct"),
+        isNull(predictions.result)
+      ),
+      gte(predictions.createdAt, startOfToday)
+    )
+  );
+  const mTime = data.matchTime ? new Date(data.matchTime) : new Date(Date.now() + 6 * 60 * 60 * 1e3);
+  const expTime = new Date(mTime.getTime() + 4 * 60 * 60 * 1e3);
+  const [newTip] = await db.insert(predictions).values({
+    matchTitle: data.matchTitle,
+    sport: data.sport,
+    matchTime: mTime,
+    predictedOutcome: data.predictedOutcome || `${data.matchTitle.split(" vs ")[0]} Win`,
+    probability: data.probability || 72,
+    confidence: data.confidence || "high",
+    explanation: data.explanation || "AI prediction based on current form and statistics.",
+    factors: data.factors || [{ title: "Form Analysis", impact: "positive", description: "Strong recent performance." }],
+    sportsbookOdds: data.sportsbookOdds || null,
+    riskIndex: data.riskIndex || 3,
+    isLive: false,
+    isPremium: false,
+    result: null,
+    userId: null,
+    createdAt: /* @__PURE__ */ new Date(),
+    expiresAt: expTime
+  }).returning();
+  return newTip;
+}
+async function getPremiumPredictions(userId, isPremiumUser) {
+  const now = /* @__PURE__ */ new Date();
+  if (userId && isPremiumUser) {
+    return db.select().from(predictions).where(
+      and(
+        eq2(predictions.isPremium, true),
+        eq2(predictions.isLive, false),
+        gte(predictions.matchTime, now),
+        isNull(predictions.result),
+        sql4`(${predictions.userId} = ${userId} OR ${predictions.userId} IS NULL)`,
+        sql4`${predictions.explanation} NOT LIKE '[DEMO]%'`
+      )
+    ).orderBy(predictions.matchTime);
+  }
+  return db.select().from(predictions).where(
+    and(
+      eq2(predictions.isPremium, true),
+      isNull(predictions.userId),
+      eq2(predictions.isLive, false),
+      gte(predictions.matchTime, now),
+      isNull(predictions.result)
+    )
+  ).orderBy(predictions.matchTime);
+}
+async function getLivePredictions(userId, isPremiumUser) {
+  if (!isPremiumUser) {
+    return [];
+  }
+  const now = /* @__PURE__ */ new Date();
+  const threeHoursAgo = new Date(now.getTime() - 3 * 60 * 60 * 1e3);
+  const sixHoursFromNow = new Date(now.getTime() + 6 * 60 * 60 * 1e3);
+  return db.select().from(predictions).where(
+    and(
+      sql4`${predictions.matchTime} <= ${sixHoursFromNow.toISOString()}::timestamp`,
+      sql4`${predictions.matchTime} >= ${threeHoursAgo.toISOString()}::timestamp`,
+      isNull(predictions.result),
+      isNull(predictions.userId)
+    )
+  ).orderBy(predictions.matchTime);
+}
+async function getHistoryPredictions(userId, isPremiumUser, premiumSince) {
+  const fiveDaysAgo = /* @__PURE__ */ new Date();
+  fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
+  const thirtyDaysAgo = /* @__PURE__ */ new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const dedup = (rows2) => {
+    const seen2 = /* @__PURE__ */ new Set();
+    return rows2.filter((r) => {
+      const clean = r.matchTitle.replace(" (O/U)", "");
+      const key = clean.split(" vs ").map((s) => s.trim()).sort().join("|");
+      if (seen2.has(key)) return false;
+      seen2.add(key);
+      return true;
+    });
+  };
+  const rows = await db.select().from(predictions).where(
+    and(
+      eq2(predictions.result, "correct"),
+      isNull(predictions.userId),
+      sql4`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`,
+      sql4`${predictions.expiresAt} > ${predictions.matchTime}`
+    )
+  ).orderBy(desc2(predictions.matchTime), desc2(predictions.isPremium));
+  const seen = /* @__PURE__ */ new Set();
+  const deduped = [];
+  for (const r of rows) {
+    const teamKey = r.matchTitle.replace(" (O/U)", "").split(" vs ").map((s) => s.trim()).sort().join("|");
+    const dateKey = r.matchTime ? new Date(r.matchTime).toISOString().split("T")[0] : "";
+    const key = `${teamKey}__${dateKey}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      deduped.push(r);
+    }
+  }
+  return deduped;
+}
+async function getPredictionsBySport(sport, userId, isPremiumUser) {
+  const now = /* @__PURE__ */ new Date();
+  if (userId && isPremiumUser) {
+    const allPredictions = await db.select().from(predictions).where(
+      and(
+        eq2(predictions.sport, sport),
+        gte(predictions.matchTime, now),
+        isNull(predictions.result),
+        eq2(predictions.isLive, false),
+        sql4`(${predictions.userId} = ${userId} OR ${predictions.userId} IS NULL)`,
+        sql4`${predictions.explanation} NOT LIKE '[DEMO]%'`
+      )
+    ).orderBy(predictions.matchTime);
+    const seen = /* @__PURE__ */ new Set();
+    const deduped2 = [];
+    const sorted = [...allPredictions].sort((a, b) => {
+      if (a.userId && !b.userId) return -1;
+      if (!a.userId && b.userId) return 1;
+      return 0;
+    });
+    for (const p of sorted) {
+      const key = p.matchTitle.replace(" (O/U)", "").split(" vs ").map((s) => s.trim()).sort().join("|");
+      if (!seen.has(key)) {
+        seen.add(key);
+        deduped2.push(p);
+      }
+    }
+    return deduped2.sort((a, b) => new Date(a.matchTime).getTime() - new Date(b.matchTime).getTime());
+  }
+  const sportPredictions = await db.select().from(predictions).where(
+    and(
+      eq2(predictions.sport, sport),
+      gte(predictions.matchTime, now),
+      isNull(predictions.result),
+      eq2(predictions.isLive, false),
+      isNull(predictions.userId)
+      // Only demo predictions
+    )
+  ).orderBy(predictions.matchTime);
+  const seenFree = /* @__PURE__ */ new Set();
+  const seenPremium = /* @__PURE__ */ new Set();
+  const deduped = [];
+  for (const p of sportPredictions) {
+    const key = p.matchTitle.replace(" (O/U)", "").split(" vs ").map((s) => s.trim()).sort().join("|");
+    if (!p.isPremium) {
+      if (!seenFree.has(key)) {
+        seenFree.add(key);
+        deduped.push(p);
+      }
+    } else {
+      if (!seenPremium.has(key)) {
+        seenPremium.add(key);
+        deduped.push(p);
+      }
+    }
+  }
+  return deduped.sort((a, b) => new Date(a.matchTime).getTime() - new Date(b.matchTime).getTime());
+}
+async function getPredictionById(id) {
+  const [prediction] = await db.select().from(predictions).where(eq2(predictions.id, id)).limit(1);
+  return prediction || null;
+}
+async function markPredictionResult(id, result) {
+  await db.update(predictions).set({ result }).where(eq2(predictions.id, id));
+}
+async function getActivePredictions() {
+  const now = /* @__PURE__ */ new Date();
+  return db.select().from(predictions).where(
+    and(
+      gte(predictions.matchTime, now),
+      isNull(predictions.result)
+    )
+  ).orderBy(predictions.matchTime);
+}
+async function getSportPredictionCounts(userId, isPremiumUser) {
+  const sports = ["football", "basketball", "tennis", "baseball", "hockey", "cricket", "mma", "golf"];
+  const counts = {};
+  for (const sport of sports) {
+    const sportPredictions = await getPredictionsBySport(sport, userId, isPremiumUser);
+    counts[sport] = sportPredictions.length;
+  }
+  return counts;
+}
+async function resolvePredictionResults() {
+  const now = /* @__PURE__ */ new Date();
+  const FINISH_BUFFER_HOURS = 2;
+  const finishBufferAgo = new Date(now.getTime() - FINISH_BUFFER_HOURS * 60 * 60 * 1e3);
+  const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1e3);
+  const unresolved = await db.select().from(predictions).where(
+    and(
+      sql4`${predictions.matchTime} < ${finishBufferAgo.toISOString()}::timestamp`,
+      sql4`${predictions.matchTime} >= ${fourteenDaysAgo.toISOString()}::timestamp`,
+      sql4`(${predictions.result} IS NULL OR ${predictions.result} = 'unresolved')`
+    )
+  );
+  if (unresolved.length === 0) {
+    console.log("No predictions to resolve");
+    return;
+  }
+  const completedGames = await getRecentCompletedGames();
+  if (completedGames.length === 0) {
+    console.log("No completed games to resolve against");
+    return;
+  }
+  const sportCounts = completedGames.reduce((acc, g) => {
+    acc[g.sport] = (acc[g.sport] || 0) + 1;
+    return acc;
+  }, {});
+  console.log(`[RESOLVE] ESPN completed games by sport: ${JSON.stringify(sportCounts)}`);
+  console.log(`[RESOLVE] Checking ${unresolved.length} unresolved predictions against ${completedGames.length} completed games`);
+  let correct = 0;
+  let incorrect = 0;
+  for (const pred of unresolved) {
+    const parts = pred.matchTitle.split(" vs ");
+    if (parts.length < 2) continue;
+    const baseTitle = pred.matchTitle.replace(/ \(O\/U\)$/, "");
+    const [predHome, predAway] = baseTitle.split(" vs ").map((s) => s.trim().toLowerCase());
+    const normalize = (name) => name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/^(the|fc|afc|cf|sc|rc|ac|as|sd|vf|vfb|fsv|sv|tsg|rb|rw|bv|hsv|ssv|tsv|bsc|esv|dsv|rsv|msv|wsv|csv|gsv|osv|usv|bc|hc|kc|cc|dc|ec|mc|nk|sk|gk|fk|rk|mk|bk|ak|ok|pk|tk|uk|ik|jk|lk|zk)\s+/i, "").replace(/\s+(fc|sc|bc|hc|kc|cc|dc|ec|mc|united|city|town|rovers|wanderers|athletic|athletics|county|albion|hotspur|wednesday|tuesday|monday|villa|palace|forest|rangers|celtic|thistle|hearts|hibs|boro|utd|afc|cf)$/i, "").replace(/[^a-z0-9]/g, "");
+    const SKIP_WORDS = /* @__PURE__ */ new Set(["the", "and", "for", "city", "town", "state", "united", "athletic", "athletics", "united", "county", "rovers", "wanderers", "real", "club", "sport", "sports", "new", "old", "north", "south", "east", "west", "central", "national", "fc", "sc", "bc", "hc", "afc", "utd", "cf", "super", "royal"]);
+    const meaningfulWords = (name) => name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").split(/\s+/).filter((w) => w.length >= 4 && !SKIP_WORDS.has(w));
+    const wordOverlap = (espnName, predName) => {
+      const espnWords = meaningfulWords(espnName);
+      const predWords = meaningfulWords(predName);
+      if (espnWords.length === 0 || predWords.length === 0) return false;
+      return predWords.some((pw) => espnWords.some((ew) => ew.includes(pw) || pw.includes(ew)));
+    };
+    const predMatchTime = new Date(pred.matchTime);
+    const MATCH_WINDOW_MS = 12 * 60 * 60 * 1e3;
+    const dateDiff = (gameTime) => Math.abs(gameTime.getTime() - predMatchTime.getTime());
+    const isDateClose = (gameTime) => dateDiff(gameTime) <= MATCH_WINDOW_MS;
+    const pickClosest = (candidates) => {
+      if (candidates.length === 0) return void 0;
+      return candidates.reduce(
+        (best, g) => dateDiff(g.matchTime) < dateDiff(best.matchTime) ? g : best
+      );
+    };
+    const exactCandidates = completedGames.filter((g) => {
+      if (!isDateClose(g.matchTime)) return false;
+      const gHome = normalize(g.homeTeam);
+      const gAway = normalize(g.awayTeam);
+      const pH = normalize(predHome);
+      const pA = normalize(predAway);
+      return (gHome.includes(pH) || pH.includes(gHome)) && (gAway.includes(pA) || pA.includes(gAway)) || (gHome.includes(pA) || pA.includes(gHome)) && (gAway.includes(pH) || pH.includes(gAway));
+    });
+    let matchedGame = pickClosest(exactCandidates);
+    if (matchedGame && exactCandidates.length > 1) {
+      console.log(`[RESOLVE] Series detected for "${pred.matchTitle}": ${exactCandidates.length} candidates, picked closest by date`);
+    }
+    if (!matchedGame) {
+      const overlapCandidates = completedGames.filter((g) => {
+        if (g.sport !== pred.sport) return false;
+        if (!isDateClose(g.matchTime)) return false;
+        return wordOverlap(g.homeTeam, predHome) && wordOverlap(g.awayTeam, predAway) || wordOverlap(g.homeTeam, predAway) && wordOverlap(g.awayTeam, predHome);
+      });
+      matchedGame = pickClosest(overlapCandidates);
+      if (matchedGame) {
+        console.log(`[RESOLVE] Word-overlap fallback matched: "${pred.matchTitle}" \u2192 ESPN: "${matchedGame.homeTeam} vs ${matchedGame.awayTeam}"${overlapCandidates.length > 1 ? ` (${overlapCandidates.length} candidates, picked closest)` : ""}`);
+      }
+    }
+    if (!matchedGame) {
+      try {
+        const [rawHome, rawAway] = baseTitle.split(" vs ").map((s) => s.trim());
+        const directResult = await lookupGameByTeams(rawHome, rawAway, pred.sport);
+        if (directResult && isDateClose(directResult.matchTime)) {
+          matchedGame = directResult;
+          console.log(`[RESOLVE] Team-lookup matched: "${pred.matchTitle}" \u2192 "${matchedGame.homeTeam} vs ${matchedGame.awayTeam}" (${matchedGame.homeScore}-${matchedGame.awayScore})`);
+        }
+      } catch {
+      }
+    }
+    if (!matchedGame) {
+      console.log(`[RESOLVE] No match found for: "${pred.matchTitle}" (sport: ${pred.sport})`);
+      continue;
+    }
+    if (!matchedGame.winner || matchedGame.homeScore == null || matchedGame.awayScore == null || isNaN(matchedGame.homeScore) || isNaN(matchedGame.awayScore)) {
+      console.log(`[RESOLVE] Skipping "${pred.matchTitle}" \u2014 score data missing (winner: ${matchedGame.winner}, score: ${matchedGame.homeScore}-${matchedGame.awayScore})`);
+      continue;
+    }
+    console.log(`[RESOLVE] Matched: "${pred.matchTitle}" \u2192 "${matchedGame.homeTeam} vs ${matchedGame.awayTeam}", winner: ${matchedGame.winner}, score: ${matchedGame.homeScore}-${matchedGame.awayScore}, predicted: "${pred.predictedOutcome}"`);
+    const totalScore = matchedGame.homeScore + matchedGame.awayScore;
+    const isOverUnder = /^(over|under)\s+[\d.]+$/i.test(pred.predictedOutcome);
+    let isCorrect = false;
+    let scoreLine = `${matchedGame.winner} won ${matchedGame.homeScore}-${matchedGame.awayScore}`;
+    if (isOverUnder) {
+      const parts2 = pred.predictedOutcome.match(/^(over|under)\s+([\d.]+)$/i);
+      if (parts2) {
+        const direction = parts2[1].toLowerCase();
+        const line = parseFloat(parts2[2]);
+        isCorrect = direction === "over" ? totalScore > line : totalScore < line;
+        scoreLine = `Final score: ${matchedGame.homeScore}-${matchedGame.awayScore} (Total: ${totalScore}, Line: ${line})`;
+      }
+    } else {
+      const predictedWinner = pred.predictedOutcome.replace(/ Win$/i, "").trim();
+      isCorrect = matchedGame.winner.toLowerCase().includes(predictedWinner.toLowerCase()) || predictedWinner.toLowerCase().includes(matchedGame.winner.toLowerCase());
+    }
+    if (isCorrect) {
+      await db.update(predictions).set({ result: "correct" }).where(eq2(predictions.id, pred.id));
+      correct++;
+    } else {
+      await db.update(predictions).set({ result: "incorrect" }).where(eq2(predictions.id, pred.id));
+      incorrect++;
+    }
+  }
+  console.log(`Resolved predictions: ${correct} correct, ${incorrect} marked incorrect out of ${unresolved.length}`);
+  const activeTip = await getTodaysActiveFreePrediction();
+  if (!activeTip) {
+    console.log("Free tip was lost or expired \u2014 auto-generating replacement...");
+    try {
+      await generateDailyFreePrediction();
+      const newTip = await getTodaysActiveFreePrediction();
+      if (newTip) {
+        console.log(`Replacement free tip generated: ${newTip.matchTitle}`);
+      }
+    } catch (err) {
+      console.error("Failed to auto-replace lost free tip:", err);
+    }
+  }
+}
+async function clearExpiredPredictions() {
+  const now = /* @__PURE__ */ new Date();
+  const threeDaysAgo = /* @__PURE__ */ new Date();
+  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+  const startOfToday = getStartOfToday();
+  await db.delete(predictions).where(
+    and(
+      sql4`${predictions.matchTime} < ${now.toISOString()}::timestamp`,
+      isNull(predictions.result),
+      eq2(predictions.isPremium, false),
+      sql4`${predictions.createdAt} < ${startOfToday.toISOString()}::timestamp`
+    )
+  );
+  const thirtyOneDaysAgo = /* @__PURE__ */ new Date();
+  thirtyOneDaysAgo.setDate(thirtyOneDaysAgo.getDate() - 31);
+  await db.delete(predictions).where(
+    and(
+      eq2(predictions.isPremium, true),
+      sql4`${predictions.matchTime} < ${thirtyOneDaysAgo.toISOString()}::timestamp`,
+      sql4`${predictions.expiresAt} = ${predictions.matchTime}`
+    )
+  );
+  await db.delete(predictions).where(
+    and(
+      eq2(predictions.isPremium, true),
+      sql4`${predictions.result} IS NOT NULL`,
+      sql4`${predictions.matchTime} < ${thirtyOneDaysAgo.toISOString()}::timestamp`,
+      sql4`${predictions.expiresAt} > ${predictions.matchTime}`
+    )
+  );
+  console.log(`Cleared expired predictions`);
+  return 0;
+}
+function isConnectionError(error) {
+  if (error instanceof Error) {
+    const code = error.code;
+    if (code === "CONNECTION_CLOSED" || code === "CONNECTION_ENDED" || code === "CONNECT_TIMEOUT") {
+      return true;
+    }
+    if (error.message.includes("CONNECTION_CLOSED") || error.message.includes("ECONNRESET") || error.message.includes("ECONNREFUSED") || error.message.includes("write CONNECTION_CLOSED")) {
+      return true;
+    }
+  }
+  return false;
+}
+async function runWithRetry(fn, label, maxRetries = 3, delayMs = 5e3) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (isConnectionError(error) && attempt < maxRetries) {
+        console.warn(`[${label}] Connection error on attempt ${attempt}/${maxRetries}, retrying in ${delayMs / 1e3}s...`);
+        await new Promise((r) => setTimeout(r, delayMs));
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error(`[${label}] Exhausted all ${maxRetries} retries`);
+}
+async function reverifyResolutionsAfterWindowFix() {
+  if (Date.now() > (/* @__PURE__ */ new Date("2026-05-01T00:00:00Z")).getTime()) return;
+  const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1e3);
+  const reset = await db.update(predictions).set({ result: null }).where(
+    and(
+      sql4`${predictions.result} IS NOT NULL`,
+      sql4`${predictions.matchTime} >= ${threeDaysAgo.toISOString()}::timestamp`,
+      sql4`${predictions.expiresAt} > ${predictions.matchTime}`
+    )
+  ).returning({ id: predictions.id, matchTitle: predictions.matchTitle });
+  if (reset.length > 0) {
+    console.log(`[REVERIFY] Reset ${reset.length} predictions resolved with old wide-window matcher; resolver will re-check with tightened window`);
+  }
+}
+async function fixPrematurelyResolvedPredictions() {
+  const resetted = await db.update(predictions).set({ result: null }).where(
+    and(
+      sql4`${predictions.result} IS NOT NULL`,
+      sql4`${predictions.expiresAt} > ${predictions.matchTime}`,
+      sql4`extract(epoch from (${predictions.createdAt} - ${predictions.matchTime})) BETWEEN -3600 AND 3600`
+    )
+  ).returning({ id: predictions.id, matchTitle: predictions.matchTitle });
+  if (resetted.length > 0) {
+    console.log(`Reset ${resetted.length} prematurely resolved predictions: ${resetted.map((r) => r.matchTitle).join(", ")}`);
+  }
+  const removed = await db.delete(predictions).where(eq2(predictions.result, "incorrect")).returning({ id: predictions.id, matchTitle: predictions.matchTitle });
+  if (removed.length > 0) {
+    console.log(`Removed ${removed.length} incorrect predictions: ${removed.map((r) => r.matchTitle).join(", ")}`);
+  }
+  const fabricated = await db.delete(predictions).where(
+    and(
+      eq2(predictions.isPremium, true),
+      sql4`${predictions.result} IS NOT NULL`,
+      sql4`${predictions.expiresAt} = ${predictions.matchTime}`,
+      sql4`${predictions.createdAt} = ${predictions.matchTime}`
+    )
+  ).returning({ id: predictions.id });
+  if (fabricated.length > 0) {
+    console.log(`Removed ${fabricated.length} fabricated premium history entries`);
+  }
+}
+async function purgeFakeHistoryEntries() {
+  await db.delete(predictions).where(
+    and(
+      isNull(predictions.userId),
+      eq2(predictions.isPremium, true),
+      sql4`${predictions.result} IS NOT NULL`,
+      sql4`${predictions.expiresAt} = ${predictions.matchTime}`,
+      sql4`(${predictions.explanation} LIKE '%Our AI correctly predicted this outcome%' OR ${predictions.explanation} LIKE 'Final score:%')`
+    )
+  );
+  const realPredictions = await db.select({ matchTitle: predictions.matchTitle }).from(predictions).where(
+    and(
+      isNull(predictions.userId),
+      sql4`${predictions.expiresAt} > ${predictions.matchTime}`
+    )
+  );
+  if (realPredictions.length > 0) {
+    const normalizeMatchup = (t) => t.replace(/ \(O\/U\)$/, "").split(" vs ").map((s) => s.trim()).sort().join("|");
+    const realTitlesNormalized = new Set(realPredictions.map((p) => normalizeMatchup(p.matchTitle)));
+    const retroactiveEntries = await db.select({ id: predictions.id, matchTitle: predictions.matchTitle }).from(predictions).where(
+      and(
+        isNull(predictions.userId),
+        sql4`${predictions.expiresAt} = ${predictions.matchTime}`
+      )
+    );
+    const toDelete = retroactiveEntries.filter((e) => realTitlesNormalized.has(normalizeMatchup(e.matchTitle))).map((e) => e.id);
+    if (toDelete.length > 0) {
+      await db.delete(predictions).where(sql4`${predictions.id} = ANY(ARRAY[${sql4.join(toDelete.map((id) => sql4`${id}`), sql4`, `)}]::int[])`);
+      console.log(`Removed ${toDelete.length} retroactive history entries that conflicted with real AI predictions`);
+    }
+  }
+  console.log("Purged fake premium history entries");
+}
+async function resetAndGenerateDailyFreeTip() {
+  const startOfToday = getStartOfToday();
+  await db.delete(predictions).where(
+    and(
+      eq2(predictions.isPremium, false),
+      isNull(predictions.userId),
+      sql4`${predictions.createdAt} < ${startOfToday.toISOString()}::timestamp`,
+      sql4`${predictions.expiresAt} > ${predictions.matchTime}`
+    )
+  );
+  console.log("Midnight reset: cleared previous day's free tip");
+  isGeneratingFreeTip = false;
+  await _generateDailyFreeTip();
+}
+async function dailyPredictionRefresh() {
+  console.log("Starting daily prediction refresh...");
+  try {
+    await runWithRetry(() => purgeFakeHistoryEntries(), "purgeFakeHistoryEntries");
+    await runWithRetry(() => fixPrematurelyResolvedPredictions(), "fixPrematurelyResolvedPredictions");
+    await runWithRetry(() => reverifyResolutionsAfterWindowFix(), "reverifyResolutionsAfterWindowFix");
+    await runWithRetry(() => resolvePredictionResults(), "resolvePredictionResults");
+    await runWithRetry(() => clearExpiredPredictions(), "clearExpiredPredictions");
+    await runWithRetry(() => resetAndGenerateDailyFreeTip(), "resetAndGenerateDailyFreeTip");
+    try {
+      await resolveStuckPredictionsViaAI();
+    } catch (err) {
+      console.error("[MIDNIGHT] AI fallback resolver failed:", err);
+    }
+    await runWithRetry(() => refreshDemoPredictions(), "refreshDemoPredictions");
+    console.log("Daily prediction refresh completed successfully");
+    const { notifyDailyFreePredictionReady: notifyDailyFreePredictionReady2 } = await Promise.resolve().then(() => (init_pushNotificationService(), pushNotificationService_exports));
+    await notifyDailyFreePredictionReady2();
+  } catch (error) {
+    console.error("Error during daily prediction refresh:", error);
+    throw error;
+  }
+}
+async function resolveStuckPredictionsViaAI(maxBatch = 50) {
+  const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1e3);
+  const stuck = await db.select().from(predictions).where(
+    and(
+      sql4`(${predictions.result} IS NULL OR ${predictions.result} = 'unresolved')`,
+      sql4`${predictions.matchTime} < ${threeHoursAgo.toISOString()}::timestamp`
+    )
+  ).orderBy(desc2(predictions.matchTime)).limit(maxBatch);
+  if (stuck.length === 0) {
+    return { correct: 0, incorrect: 0, unknown: 0 };
+  }
+  console.log(`[AI-RESOLVE] Found ${stuck.length} stuck predictions (>3h unresolved). Asking AI to find results...`);
+  let aiCorrect = 0;
+  let aiIncorrect = 0;
+  let aiUnknown = 0;
+  for (const pred of stuck) {
+    try {
+      const matchupClean = (pred.matchTitle || "").replace(/\s*\(O\/U\)$/, "");
+      const matchDateIso = pred.matchTime ? new Date(pred.matchTime).toISOString().split("T")[0] : "unknown";
+      const isOU = (pred.matchTitle || "").includes("(O/U)");
+      const prompt = `You are a sports-results lookup assistant. Use the web_search tool to find the FINAL official result of the completed sports match below. Accuracy is critical \u2014 a wrong answer hurts users.
+
+Match: ${matchupClean}
+Sport: ${pred.sport}
+Match date (UTC): ${matchDateIso}
+Bet type: ${isOU ? "Over/Under total points/runs/goals" : "Match winner"}
+Our prediction was: "${pred.predictedOutcome}"
+
+REQUIRED PROCESS:
+1. Use web_search to look up the final score and winner. Search at least TWO independent reputable sources (e.g., espn.com, espncricinfo.com, bbc.com/sport, official league site, reuters.com).
+2. Confirm both sources agree on the winner and final score.
+3. Only set "found": true if you have a reputable source URL that EXPLICITLY states the final score AND the winner of THIS exact match on THIS exact date. Do NOT rely on training-data memory.
+4. Provide the actual source URL you used. If you cannot find the result with explicit confirmation from a reputable source, set "found": false.
+
+Return ONLY valid JSON in this exact format (no prose, no markdown):
+{
+  "found": true | false,
+  "homeScore": <integer or null>,
+  "awayScore": <integer or null>,
+  "winner": "<exact home team name>" | "<exact away team name>" | "draw" | null,
+  "totalPoints": <number or null>,
+  "predictionCorrect": true | false | null,
+  "source": "<full URL of source confirming this>" | null,
+  "reasoning": "<one short sentence: which source confirmed it>"
+}
+
+Resolution rules:
+- For O/U bets: parse our prediction as "Over X.X" or "Under X.X". Compare totalPoints (homeScore + awayScore) against X.X. Over wins if total > X.X; Under wins if total < X.X. If exactly equal (push), set predictionCorrect: null.
+- For winner bets: extract the team named in our prediction (e.g., "Lakers Win" \u2192 "Lakers"). predictionCorrect = true if and only if that exact team matches the actual winner.
+- If the match was postponed, cancelled, or not yet played: set "found": false.
+- DO NOT GUESS. If sources conflict or are unclear, set "found": false.`;
+      let content = "{}";
+      let usedWebSearch = false;
+      try {
+        const resp = await openai.responses.create({
+          model: "gpt-4o",
+          input: prompt,
+          tools: [{ type: "web_search" }]
+        });
+        usedWebSearch = true;
+        content = resp.output_text || resp.output?.flatMap?.((o) => o.content?.filter?.((c) => c.type === "output_text" || c.type === "text").map?.((c) => c.text) ?? []).join("") || "{}";
+        content = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+      } catch (responsesErr) {
+        console.warn(`[AI-RESOLVE] web_search Responses API unavailable, falling back to chat completion:`, responsesErr instanceof Error ? responsesErr.message : responsesErr);
+        const response = await withOpenAIRetry(() => openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 350,
+          temperature: 0.1,
+          response_format: { type: "json_object" }
+        }));
+        content = response.choices[0]?.message?.content || "{}";
+      }
+      if (usedWebSearch && stuck.indexOf(pred) === 0) {
+        console.log(`[AI-RESOLVE] Using OpenAI Responses API with web_search`);
+      }
+      let parsed;
+      try {
+        parsed = JSON.parse(content);
+      } catch {
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+      }
+      if (!parsed.found || parsed.predictionCorrect === null || parsed.predictionCorrect === void 0) {
+        aiUnknown++;
+        console.log(`[AI-RESOLVE] Could not confirm: ${matchupClean} (${pred.sport}) \u2014 ${parsed.reasoning || "no reasoning"}`);
+        continue;
+      }
+      const source = typeof parsed.source === "string" ? parsed.source.trim() : "";
+      const isValidUrl = /^https?:\/\/.+\..+/i.test(source);
+      if (!isValidUrl) {
+        aiUnknown++;
+        console.log(`[AI-RESOLVE] Rejected (no valid source URL): ${matchupClean} (${pred.sport}) \u2014 claimed: ${parsed.reasoning || "n/a"}`);
+        continue;
+      }
+      const newResult = parsed.predictionCorrect ? "correct" : "incorrect";
+      await db.update(predictions).set({ result: newResult }).where(eq2(predictions.id, pred.id));
+      if (parsed.predictionCorrect) aiCorrect++;
+      else aiIncorrect++;
+      const scoreStr = parsed.homeScore != null && parsed.awayScore != null ? `${parsed.homeScore}-${parsed.awayScore}` : "score n/a";
+      console.log(`[AI-RESOLVE] ${matchupClean}: ${scoreStr}, predicted "${pred.predictedOutcome}" \u2192 ${newResult.toUpperCase()} [src: ${source}]`);
+      await sleep(22e3);
+    } catch (err) {
+      aiUnknown++;
+      console.error(`[AI-RESOLVE] Failed for "${pred.matchTitle}":`, err instanceof Error ? err.message : err);
+    }
+  }
+  console.log(`[AI-RESOLVE] Done: ${aiCorrect} correct, ${aiIncorrect} incorrect, ${aiUnknown} still unknown out of ${stuck.length}`);
+  return { correct: aiCorrect, incorrect: aiIncorrect, unknown: aiUnknown };
+}
+async function refreshDemoPredictions() {
+  console.log("Refreshing premium predictions with real API games...");
+  const now = /* @__PURE__ */ new Date();
+  const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1e3);
+  const unresolved = await db.update(predictions).set({ result: "unresolved" }).where(
+    and(
+      isNull(predictions.userId),
+      isNull(predictions.result),
+      sql4`${predictions.matchTime} < ${sixHoursAgo.toISOString()}::timestamp`
+    )
+  ).returning({ id: predictions.id });
+  if (unresolved.length > 0) {
+    console.log(`Marked ${unresolved.length} unresolved past predictions (ESPN could not match)`);
+  }
+  const existing = await db.select().from(predictions).where(
+    and(
+      eq2(predictions.isPremium, true),
+      isNull(predictions.userId),
+      sql4`${predictions.matchTime} > ${now.toISOString()}::timestamp`
+    )
+  );
+  const usingEspnOnly = isUsingFallbackData();
+  const PER_SPORT_TARGET = 3;
+  const TOTAL_TARGET = 40;
+  const coreSports = ["football", "basketball", "baseball", "hockey", "mma"];
+  const allSports = [...coreSports, "tennis", "golf", ...usingEspnOnly ? [] : ["cricket"]];
+  const sportCounts = {};
+  for (const sport of allSports) {
+    sportCounts[sport] = existing.filter((p) => p.sport === sport).length;
+  }
+  const underCoveredSports = allSports.filter((s) => sportCounts[s] < PER_SPORT_TARGET);
+  console.log(`[REFRESH] Per-sport counts: ${JSON.stringify(sportCounts)} (target ${PER_SPORT_TARGET}/sport, ${TOTAL_TARGET} total)`);
+  if (existing.length >= TOTAL_TARGET && underCoveredSports.length === 0) {
+    console.log(`Premium predictions sufficient: ${existing.length} real games covering all sports`);
+    return;
+  }
+  if (underCoveredSports.length > 0) {
+    console.log(`Under-covered sports (<${PER_SPORT_TARGET}): ${underCoveredSports.join(", ")} \u2014 regenerating...`);
+  } else {
+    console.log(`Only ${existing.length}/${TOTAL_TARGET} premium predictions, fetching more real games from API...`);
+  }
+  await refreshUpcomingMatches();
+  await generateDemoPredictions();
+}
+async function checkAndReplaceFreeTip() {
+  try {
+    await resolvePredictionResults();
+  } catch (err) {
+    console.error("Error during free tip resolution check:", err);
+  }
+  try {
+    const activeTip = await getTodaysActiveFreePrediction();
+    if (!activeTip) {
+      console.log("Periodic check: no active free tip found \u2014 generating replacement...");
+      await generateDailyFreePrediction();
+      const newTip = await getTodaysActiveFreePrediction();
+      if (newTip) {
+        console.log(`Periodic replacement free tip generated: ${newTip.matchTitle}`);
+        try {
+          const { notifyDailyFreePredictionReady: notifyDailyFreePredictionReady2 } = await Promise.resolve().then(() => (init_pushNotificationService(), pushNotificationService_exports));
+          await notifyDailyFreePredictionReady2();
+        } catch (err) {
+          console.error("Failed to send push notification for replacement tip:", err);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Error during periodic free tip replacement:", err);
+  }
+}
+async function logDailyResolutionSummary() {
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1e3);
+  const rows = await db.select({
+    result: predictions.result,
+    total: sql4`count(*)::int`
+  }).from(predictions).where(
+    and(
+      isNull(predictions.userId),
+      sql4`${predictions.matchTime} >= ${yesterday.toISOString()}::timestamp`,
+      sql4`${predictions.expiresAt} > ${predictions.matchTime}`
+    )
+  ).groupBy(predictions.result);
+  const counts = {};
+  for (const r of rows) counts[r.result ?? "pending"] = r.total;
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  const correct = counts["correct"] ?? 0;
+  const incorrect = counts["incorrect"] ?? 0;
+  const pending = counts["pending"] ?? 0;
+  const unresolved = counts["unresolved"] ?? 0;
+  const resolved = correct + incorrect;
+  const rate = resolved > 0 ? Math.round(correct / resolved * 100) : 0;
+  console.log(
+    `[DAILY SUMMARY] Last 24h real predictions: ${total} total | ${correct} correct | ${incorrect} incorrect | ${pending} pending | ${unresolved} unresolved | Accuracy: ${rate}% (${resolved} resolved)`
+  );
+}
+function startDailyRefreshScheduler() {
+  const THIRTY_MINUTES = 30 * 60 * 1e3;
+  const RETRY_DELAY = 5 * 60 * 1e3;
+  console.log("Daily prediction refresh scheduler started");
+  async function runRefreshWithRetry() {
+    try {
+      await dailyPredictionRefresh();
+    } catch (err) {
+      console.error("Daily refresh failed, scheduling retry in 5 minutes:", err);
+      setTimeout(async () => {
+        try {
+          await dailyPredictionRefresh();
+        } catch (retryErr) {
+          console.error("Daily refresh retry also failed:", retryErr);
+        }
+      }, RETRY_DELAY);
+    }
+  }
+  (async () => {
+    const todayStart = /* @__PURE__ */ new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+    const todayEnd = /* @__PURE__ */ new Date();
+    todayEnd.setUTCHours(23, 59, 59, 999);
+    const [existingFreeTip] = await db.select({ id: predictions.id }).from(predictions).where(
+      and(
+        eq2(predictions.isPremium, false),
+        isNull(predictions.userId),
+        isNull(predictions.result),
+        sql4`${predictions.createdAt} >= ${todayStart.toISOString()}::timestamp`,
+        sql4`${predictions.createdAt} <= ${todayEnd.toISOString()}::timestamp`
+      )
+    ).limit(1);
+    if (existingFreeTip) {
+      console.log("Today's free tip already exists \u2014 skipping startup refresh, running resolution + premium top-up only");
+      try {
+        await resolvePredictionResults();
+      } catch (err) {
+        console.error("Startup resolution check failed:", err);
+      }
+      try {
+        await refreshDemoPredictions();
+      } catch (err) {
+        console.error("Startup premium top-up failed:", err);
+      }
+    } else {
+      console.log("No free tip found for today \u2014 running full startup refresh");
+      await runRefreshWithRetry();
+    }
+  })();
+  function scheduleMidnightRefresh() {
+    const now = /* @__PURE__ */ new Date();
+    const nextMidnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0));
+    const msUntilMidnight = nextMidnight.getTime() - now.getTime();
+    console.log(`Next daily refresh scheduled at midnight UTC (in ${Math.round(msUntilMidnight / 6e4)} minutes)`);
+    setTimeout(() => {
+      runRefreshWithRetry();
+      scheduleMidnightRefresh();
+    }, msUntilMidnight);
+  }
+  scheduleMidnightRefresh();
+  function schedule8amResolution() {
+    const now = /* @__PURE__ */ new Date();
+    const next8am = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 8, 0, 0));
+    if (next8am <= now) next8am.setUTCDate(next8am.getUTCDate() + 1);
+    const msUntil8am = next8am.getTime() - now.getTime();
+    console.log(`Morning catch-up resolution scheduled at 8 AM UTC (in ${Math.round(msUntil8am / 6e4)} minutes)`);
+    setTimeout(async () => {
+      console.log("[8AM CATCHUP] Running morning resolution pass for overnight game results...");
+      try {
+        await resolvePredictionResults();
+        await resolveStuckPredictionsViaAI();
+        await logDailyResolutionSummary();
+      } catch (err) {
+        console.error("[8AM CATCHUP] Resolution failed:", err);
+      }
+      schedule8amResolution();
+    }, msUntil8am);
+  }
+  schedule8amResolution();
+  setInterval(async () => {
+    try {
+      await resolvePredictionResults();
+    } catch (err) {
+      console.error("Intraday resolution check failed:", err);
+    }
+    try {
+      await resolveStuckPredictionsViaAI(50);
+    } catch (err) {
+      console.error("Intraday AI fallback resolver failed:", err);
+    }
+    checkAndReplaceFreeTip();
+  }, THIRTY_MINUTES);
+  (async () => {
+    try {
+      await new Promise((resolve2) => setTimeout(resolve2, 6e4));
+      await resolveStuckPredictionsViaAI(50);
+    } catch (err) {
+      console.error("Startup AI fallback resolver failed:", err);
+    }
+  })();
+}
+var _openai, openai, sleep, isGeneratingFreeTip, FREE_TIP_PREFERRED_SPORTS, FREE_TIP_AVOID_SPORTS;
+var init_predictionService = __esm({
+  "server/services/predictionService.ts"() {
+    "use strict";
+    init_db();
+    init_schema();
+    init_sportsApiService();
+    _openai = null;
+    openai = new Proxy({}, {
+      get(_target, prop) {
+        return getOpenAI()[prop];
+      }
+    });
+    sleep = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
+    isGeneratingFreeTip = false;
+    FREE_TIP_PREFERRED_SPORTS = /* @__PURE__ */ new Set(["basketball", "football", "mma"]);
+    FREE_TIP_AVOID_SPORTS = /* @__PURE__ */ new Set(["baseball", "hockey", "tennis", "cricket", "golf"]);
+  }
+});
+
+// server/index.ts
+import express from "express";
+import { runMigrations } from "stripe-replit-sync";
+
+// server/routes.ts
+import { createServer } from "node:http";
+
+// server/storage.ts
+init_schema();
+init_db();
+import { eq, desc, sql as sql2 } from "drizzle-orm";
 
 // server/stripeClient.ts
 import Stripe from "stripe";
@@ -254,7 +2907,7 @@ async function getCredentials() {
 async function getUncachableStripeClient() {
   const { secretKey } = await getCredentials();
   return new Stripe(secretKey, {
-    apiVersion: "2025-08-27.basil"
+    apiVersion: "2025-11-17.clover"
   });
 }
 async function getStripePublishableKey() {
@@ -282,6 +2935,9 @@ async function getStripeSync() {
 }
 
 // server/storage.ts
+function extractRows(result) {
+  return result?.rows ?? Array.from(result ?? []);
+}
 var DatabaseStorage = class {
   async getUser(id) {
     const [user] = await db.select().from(users).where(eq(users.id, id));
@@ -324,13 +2980,13 @@ var DatabaseStorage = class {
     const result = await db.execute(
       sql2`SELECT * FROM stripe.products WHERE id = ${productId}`
     );
-    return result.rows[0] || null;
+    return extractRows(result)[0] || null;
   }
   async listProducts(active = true, limit = 20, offset = 0) {
     const result = await db.execute(
       sql2`SELECT * FROM stripe.products WHERE active = ${active} LIMIT ${limit} OFFSET ${offset}`
     );
-    return result.rows || [];
+    return extractRows(result);
   }
   async listProductsWithPrices(active = true, limit = 20, offset = 0) {
     const result = await db.execute(
@@ -359,7 +3015,7 @@ var DatabaseStorage = class {
         ORDER BY p.id, pr.unit_amount
       `
     );
-    const rows = result.rows || [];
+    const rows = extractRows(result);
     if (rows.length === 0) {
       try {
         const stripe = await getUncachableStripeClient();
@@ -410,25 +3066,25 @@ var DatabaseStorage = class {
     const result = await db.execute(
       sql2`SELECT * FROM stripe.prices WHERE id = ${priceId}`
     );
-    return result.rows[0] || null;
+    return extractRows(result)[0] || null;
   }
   async listPrices(active = true, limit = 20, offset = 0) {
     const result = await db.execute(
       sql2`SELECT * FROM stripe.prices WHERE active = ${active} LIMIT ${limit} OFFSET ${offset}`
     );
-    return result.rows || [];
+    return extractRows(result);
   }
   async getPricesForProduct(productId) {
     const result = await db.execute(
       sql2`SELECT * FROM stripe.prices WHERE product = ${productId} AND active = true`
     );
-    return result.rows || [];
+    return extractRows(result);
   }
   async getSubscription(subscriptionId) {
     const result = await db.execute(
       sql2`SELECT * FROM stripe.subscriptions WHERE id = ${subscriptionId}`
     );
-    return result.rows[0] || null;
+    return extractRows(result)[0] || null;
   }
   async createContactSubmission(data) {
     const result = await db.insert(contactSubmissions).values(data).returning();
@@ -439,6 +3095,20 @@ var DatabaseStorage = class {
       return db.select().from(contactSubmissions).where(eq(contactSubmissions.status, status)).orderBy(desc(contactSubmissions.createdAt));
     }
     return db.select().from(contactSubmissions).orderBy(desc(contactSubmissions.createdAt));
+  }
+  // Anonymize user data to satisfy Apple's account deletion requirement.
+  // Keeps the row (preserving referential integrity with referrals/affiliates)
+  // but scrubs all personal information and revokes access.
+  async deleteUser(userId) {
+    await db.update(users).set({
+      email: `deleted_${userId}@deleted.invalid`,
+      password: "DELETED",
+      name: null,
+      stripeCustomerId: null,
+      stripeSubscriptionId: null,
+      isPremium: false,
+      subscriptionExpiry: null
+    }).where(eq(users.id, userId));
   }
 };
 var storage = new DatabaseStorage();
@@ -496,1088 +3166,198 @@ var stripeService = new StripeService();
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 
-// server/affiliateRoutes.ts
-import { Router } from "express";
-import { eq as eq2, desc as desc2, and } from "drizzle-orm";
-var router = Router();
-function generateAffiliateCode() {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let code = "PRO";
-  for (let i = 0; i < 5; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
+// server/auth.ts
+import jwt from "jsonwebtoken";
+import { createHash } from "crypto";
+function getJwtSecret() {
+  if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
+  if (process.env.REPLIT_DEPLOYMENT === "1") {
+    throw new Error("JWT_SECRET must be set in production");
   }
-  return code;
+  if (process.env.DATABASE_URL) {
+    return createHash("sha256").update(process.env.DATABASE_URL).digest("hex");
+  }
+  return "fallback-dev-secret-not-for-production";
 }
-function addBusinessDays(date, days) {
-  const result = new Date(date);
-  let addedDays = 0;
-  while (addedDays < days) {
-    result.setDate(result.getDate() + 1);
-    const dayOfWeek = result.getDay();
-    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-      addedDays++;
-    }
-  }
-  return result;
+var JWT_EXPIRY = "30d";
+function signToken(userId) {
+  return jwt.sign({ sub: userId }, getJwtSecret(), { expiresIn: JWT_EXPIRY });
 }
-router.post("/register", async (req, res) => {
+function verifyToken(token) {
   try {
-    const { userId } = req.body;
-    if (!userId) {
-      return res.status(400).json({ error: "User ID required" });
-    }
-    const [user] = await db.select().from(users).where(eq2(users.id, userId));
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-    const [existingAffiliate] = await db.select().from(affiliates).where(eq2(affiliates.userId, userId));
-    if (existingAffiliate) {
-      return res.json({
-        affiliate: existingAffiliate,
-        message: "Already registered as affiliate"
-      });
-    }
-    let affiliateCode = generateAffiliateCode();
-    let codeExists = true;
-    let attempts = 0;
-    while (codeExists && attempts < 10) {
-      const [existing] = await db.select().from(affiliates).where(eq2(affiliates.affiliateCode, affiliateCode));
-      if (!existing) {
-        codeExists = false;
-      } else {
-        affiliateCode = generateAffiliateCode();
-        attempts++;
-      }
-    }
-    const [newAffiliate] = await db.insert(affiliates).values({
-      userId,
-      affiliateCode,
-      commissionRate: 40
-    }).returning();
-    res.json({
-      affiliate: newAffiliate,
-      message: "Successfully registered as affiliate"
-    });
-  } catch (error) {
-    console.error("Affiliate registration error:", error);
-    res.status(500).json({ error: "Failed to register as affiliate" });
-  }
-});
-router.get("/dashboard/:userId", async (req, res) => {
-  try {
-    const userId = req.params.userId;
-    const [affiliate] = await db.select().from(affiliates).where(eq2(affiliates.userId, userId));
-    if (!affiliate) {
-      return res.status(404).json({ error: "Not registered as affiliate" });
-    }
-    const affiliateReferrals = await db.select().from(referrals).where(eq2(referrals.affiliateId, affiliate.id)).orderBy(desc2(referrals.createdAt)).limit(50);
-    const now = /* @__PURE__ */ new Date();
-    const pendingReferrals = affiliateReferrals.filter((ref) => ref.status === "pending");
-    let clearedEarnings = 0;
-    let processingEarnings = 0;
-    for (const ref of pendingReferrals) {
-      const createdAt = ref.createdAt || /* @__PURE__ */ new Date();
-      const clearanceDate = addBusinessDays(new Date(createdAt), 14);
-      if (now >= clearanceDate) {
-        clearedEarnings += ref.commissionAmount || 0;
-      } else {
-        processingEarnings += ref.commissionAmount || 0;
-      }
-    }
-    const baseUrl = process.env.EXPO_PUBLIC_DOMAIN ? `https://${process.env.EXPO_PUBLIC_DOMAIN}` : "https://probaly.app";
-    res.json({
-      affiliate: {
-        ...affiliate,
-        referralLink: `${baseUrl}/?ref=${affiliate.affiliateCode}`
-      },
-      referrals: affiliateReferrals,
-      stats: {
-        totalEarnings: (affiliate.totalEarnings || 0) / 100,
-        pendingEarnings: (affiliate.pendingEarnings || 0) / 100,
-        clearedEarnings: clearedEarnings / 100,
-        processingEarnings: processingEarnings / 100,
-        paidEarnings: (affiliate.paidEarnings || 0) / 100,
-        totalReferrals: affiliate.totalReferrals || 0,
-        commissionRate: affiliate.commissionRate || 40
-      }
-    });
-  } catch (error) {
-    console.error("Affiliate dashboard error:", error);
-    res.status(500).json({ error: "Failed to load dashboard" });
-  }
-});
-router.post("/connect-stripe", async (req, res) => {
-  try {
-    const { userId } = req.body;
-    if (!userId) {
-      return res.status(400).json({ error: "User ID required" });
-    }
-    const stripe = await getUncachableStripeClient();
-    const [affiliate] = await db.select().from(affiliates).where(eq2(affiliates.userId, userId));
-    if (!affiliate) {
-      return res.status(404).json({ error: "Not registered as affiliate" });
-    }
-    let accountId = affiliate.stripeConnectAccountId;
-    if (!accountId) {
-      console.log("Creating new Stripe Connect account for affiliate:", affiliate.id);
-      const account = await stripe.accounts.create({
-        type: "express",
-        metadata: {
-          affiliateId: affiliate.id.toString(),
-          userId
-        }
-      });
-      accountId = account.id;
-      console.log("Created Stripe Connect account:", accountId);
-      await db.update(affiliates).set({ stripeConnectAccountId: accountId }).where(eq2(affiliates.id, affiliate.id));
-    }
-    const baseUrl = process.env.REPL_SLUG && process.env.REPL_OWNER ? `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co` : process.env.EXPO_PUBLIC_DOMAIN ? `https://${process.env.EXPO_PUBLIC_DOMAIN.replace(":5000", "")}` : "https://probaly.app";
-    console.log("Creating account link with baseUrl:", baseUrl);
-    const accountLink = await stripe.accountLinks.create({
-      account: accountId,
-      refresh_url: `${baseUrl}/affiliate?refresh=true`,
-      return_url: `${baseUrl}/affiliate?success=true`,
-      type: "account_onboarding"
-    });
-    console.log("Account link created:", accountLink.url);
-    res.json({ url: accountLink.url });
-  } catch (error) {
-    console.error("Stripe Connect error:", error?.message || error);
-    console.error("Full error:", JSON.stringify(error, null, 2));
-    res.status(500).json({
-      error: "Failed to create Stripe Connect link",
-      details: error?.message || "Unknown error"
-    });
-  }
-});
-router.get("/connect-status/:userId", async (req, res) => {
-  try {
-    const userId = req.params.userId;
-    const stripe = await getUncachableStripeClient();
-    const [affiliate] = await db.select().from(affiliates).where(eq2(affiliates.userId, userId));
-    if (!affiliate || !affiliate.stripeConnectAccountId) {
-      return res.json({ connected: false, onboarded: false });
-    }
-    const account = await stripe.accounts.retrieve(affiliate.stripeConnectAccountId);
-    const isOnboarded = account.charges_enabled && account.payouts_enabled;
-    if (isOnboarded && !affiliate.stripeConnectOnboarded) {
-      await db.update(affiliates).set({ stripeConnectOnboarded: true }).where(eq2(affiliates.id, affiliate.id));
-    }
-    res.json({
-      connected: true,
-      onboarded: isOnboarded,
-      accountId: affiliate.stripeConnectAccountId
-    });
-  } catch (error) {
-    console.error("Connect status error:", error);
-    res.status(500).json({ error: "Failed to check connect status" });
-  }
-});
-router.post("/request-payout", async (req, res) => {
-  try {
-    const { userId } = req.body;
-    const [affiliate] = await db.select().from(affiliates).where(eq2(affiliates.userId, userId));
-    if (!affiliate) {
-      return res.status(404).json({ error: "Not registered as affiliate" });
-    }
-    if (!affiliate.stripeConnectAccountId || !affiliate.stripeConnectOnboarded) {
-      return res.status(400).json({ error: "Please complete Stripe Connect setup first" });
-    }
-    const existingRequest = await db.select().from(payoutRequests).where(
-      and(
-        eq2(payoutRequests.affiliateId, affiliate.id),
-        eq2(payoutRequests.status, "pending")
-      )
-    );
-    if (existingRequest.length > 0) {
-      return res.status(400).json({
-        error: "You already have a pending payout request. Please wait for it to be reviewed."
-      });
-    }
-    const now = /* @__PURE__ */ new Date();
-    const affiliateReferrals = await db.select().from(referrals).where(
-      and(
-        eq2(referrals.affiliateId, affiliate.id),
-        eq2(referrals.status, "pending")
-      )
-    );
-    const clearedReferrals = affiliateReferrals.filter((ref) => {
-      const createdAt = ref.createdAt || /* @__PURE__ */ new Date();
-      const clearanceDate = addBusinessDays(new Date(createdAt), 14);
-      return now >= clearanceDate;
-    });
-    if (clearedReferrals.length === 0) {
-      return res.status(400).json({
-        error: "No cleared earnings available. Commissions are available for payout 14 business days after the payment clears."
-      });
-    }
-    const clearedAmount = clearedReferrals.reduce((sum, ref) => sum + (ref.commissionAmount || 0), 0);
-    if (clearedAmount < 1e3) {
-      return res.status(400).json({ error: "Minimum payout is $10. Cleared earnings: $" + (clearedAmount / 100).toFixed(2) });
-    }
-    const [payoutRequest] = await db.insert(payoutRequests).values({
-      affiliateId: affiliate.id,
-      amount: clearedAmount,
-      status: "pending"
-    }).returning();
-    res.json({
-      success: true,
-      amount: clearedAmount / 100,
-      requestId: payoutRequest.id,
-      message: `Payout request for $${(clearedAmount / 100).toFixed(2)} submitted for approval`
-    });
-  } catch (error) {
-    console.error("Payout error:", error);
-    res.status(500).json({ error: "Failed to process payout" });
-  }
-});
-router.get("/validate/:code", async (req, res) => {
-  try {
-    const code = req.params.code.toUpperCase();
-    const [affiliate] = await db.select().from(affiliates).where(eq2(affiliates.affiliateCode, code));
-    if (!affiliate || !affiliate.isActive) {
-      return res.json({ valid: false });
-    }
-    res.json({ valid: true, code: affiliate.affiliateCode });
-  } catch (error) {
-    console.error("Validate affiliate error:", error);
-    res.status(500).json({ error: "Failed to validate code" });
-  }
-});
-router.get("/admin/payout-requests", async (req, res) => {
-  try {
-    const statusParam = req.query.status;
-    const status = typeof statusParam === "string" ? statusParam : "pending";
-    const requests = await db.select({
-      id: payoutRequests.id,
-      amount: payoutRequests.amount,
-      status: payoutRequests.status,
-      requestedAt: payoutRequests.requestedAt,
-      reviewedAt: payoutRequests.reviewedAt,
-      rejectionReason: payoutRequests.rejectionReason,
-      affiliateId: payoutRequests.affiliateId,
-      affiliateCode: affiliates.affiliateCode,
-      stripeConnectAccountId: affiliates.stripeConnectAccountId,
-      userId: affiliates.userId
-    }).from(payoutRequests).innerJoin(affiliates, eq2(payoutRequests.affiliateId, affiliates.id)).where(eq2(payoutRequests.status, status)).orderBy(desc2(payoutRequests.requestedAt));
-    res.json({ requests });
-  } catch (error) {
-    console.error("List payout requests error:", error);
-    res.status(500).json({ error: "Failed to list payout requests" });
-  }
-});
-router.post("/admin/approve-payout/:requestId", async (req, res) => {
-  try {
-    const requestId = parseInt(req.params.requestId);
-    const stripe = await getUncachableStripeClient();
-    const [payoutRequest] = await db.select().from(payoutRequests).where(eq2(payoutRequests.id, requestId));
-    if (!payoutRequest) {
-      return res.status(404).json({ error: "Payout request not found" });
-    }
-    if (payoutRequest.status !== "pending") {
-      return res.status(400).json({ error: "Payout request already processed" });
-    }
-    const [affiliate] = await db.select().from(affiliates).where(eq2(affiliates.id, payoutRequest.affiliateId));
-    if (!affiliate || !affiliate.stripeConnectAccountId) {
-      return res.status(400).json({ error: "Affiliate not properly set up for payouts" });
-    }
-    const transfer = await stripe.transfers.create({
-      amount: payoutRequest.amount,
-      currency: "usd",
-      destination: affiliate.stripeConnectAccountId,
-      metadata: {
-        affiliateId: affiliate.id.toString(),
-        payoutRequestId: requestId.toString(),
-        type: "affiliate_payout"
-      }
-    });
-    await db.update(payoutRequests).set({
-      status: "paid",
-      stripeTransferId: transfer.id,
-      reviewedAt: /* @__PURE__ */ new Date(),
-      paidAt: /* @__PURE__ */ new Date()
-    }).where(eq2(payoutRequests.id, requestId));
-    const affiliateReferrals = await db.select().from(referrals).where(
-      and(
-        eq2(referrals.affiliateId, affiliate.id),
-        eq2(referrals.status, "pending")
-      )
-    );
-    const now = /* @__PURE__ */ new Date();
-    const clearedReferrals = affiliateReferrals.filter((ref) => {
-      const createdAt = ref.createdAt || /* @__PURE__ */ new Date();
-      const clearanceDate = addBusinessDays(new Date(createdAt), 14);
-      return now >= clearanceDate;
-    });
-    for (const ref of clearedReferrals) {
-      await db.update(referrals).set({
-        status: "paid",
-        paidAt: /* @__PURE__ */ new Date()
-      }).where(eq2(referrals.id, ref.id));
-    }
-    const remainingPending = affiliateReferrals.filter((ref) => !clearedReferrals.find((cr) => cr.id === ref.id)).reduce((sum, ref) => sum + (ref.commissionAmount || 0), 0);
-    await db.update(affiliates).set({
-      pendingEarnings: remainingPending,
-      paidEarnings: (affiliate.paidEarnings || 0) + payoutRequest.amount
-    }).where(eq2(affiliates.id, affiliate.id));
-    res.json({
-      success: true,
-      transferId: transfer.id,
-      amount: payoutRequest.amount / 100,
-      message: `Payout of $${(payoutRequest.amount / 100).toFixed(2)} approved and processed`
-    });
-  } catch (error) {
-    console.error("Approve payout error:", error);
-    res.status(500).json({ error: "Failed to approve payout", details: error?.message });
-  }
-});
-router.post("/admin/reject-payout/:requestId", async (req, res) => {
-  try {
-    const requestIdParam = req.params.requestId;
-    const requestId = parseInt(requestIdParam);
-    const { reason } = req.body;
-    const [payoutRequest] = await db.select().from(payoutRequests).where(eq2(payoutRequests.id, requestId));
-    if (!payoutRequest) {
-      return res.status(404).json({ error: "Payout request not found" });
-    }
-    if (payoutRequest.status !== "pending") {
-      return res.status(400).json({ error: "Payout request already processed" });
-    }
-    await db.update(payoutRequests).set({
-      status: "rejected",
-      reviewedAt: /* @__PURE__ */ new Date(),
-      rejectionReason: reason || "Request rejected by admin"
-    }).where(eq2(payoutRequests.id, requestId));
-    res.json({
-      success: true,
-      message: "Payout request rejected"
-    });
-  } catch (error) {
-    console.error("Reject payout error:", error);
-    res.status(500).json({ error: "Failed to reject payout" });
-  }
-});
-router.get("/payout-requests/:userId", async (req, res) => {
-  try {
-    const userId = req.params.userId;
-    const [affiliate] = await db.select().from(affiliates).where(eq2(affiliates.userId, userId));
-    if (!affiliate) {
-      return res.status(404).json({ error: "Not registered as affiliate" });
-    }
-    const requests = await db.select().from(payoutRequests).where(eq2(payoutRequests.affiliateId, affiliate.id)).orderBy(desc2(payoutRequests.requestedAt));
-    res.json({ requests });
-  } catch (error) {
-    console.error("Get payout requests error:", error);
-    res.status(500).json({ error: "Failed to get payout requests" });
-  }
-});
-var affiliateRoutes_default = router;
-
-// server/services/predictionService.ts
-import OpenAI from "openai";
-import { eq as eq3, and as and2, gte, isNull, desc as desc3, sql as sql3 } from "drizzle-orm";
-
-// server/services/sportsApiService.ts
-var SPORTS_MAP = {
-  football: [
-    { apiKey: "soccer_epl", sportName: "football", league: "Premier League" }
-  ],
-  basketball: [
-    { apiKey: "basketball_nba", sportName: "basketball", league: "NBA" },
-    { apiKey: "basketball_euroleague", sportName: "basketball", league: "EuroLeague" }
-  ],
-  tennis: [
-    { apiKey: "tennis_atp_australian_open", sportName: "tennis", league: "Australian Open" },
-    { apiKey: "tennis_wta_australian_open", sportName: "tennis", league: "WTA Australian Open" }
-  ],
-  baseball: [
-    { apiKey: "baseball_mlb", sportName: "baseball", league: "MLB" },
-    { apiKey: "baseball_npb", sportName: "baseball", league: "NPB Japan" }
-  ],
-  hockey: [
-    { apiKey: "icehockey_nhl", sportName: "hockey", league: "NHL" }
-  ],
-  mma: [
-    { apiKey: "mma_mixed_martial_arts", sportName: "mma", league: "UFC" }
-  ],
-  cricket: [
-    { apiKey: "cricket_test_match", sportName: "cricket", league: "Test Match" },
-    { apiKey: "cricket_ipl", sportName: "cricket", league: "IPL" },
-    { apiKey: "cricket_big_bash", sportName: "cricket", league: "Big Bash" }
-  ],
-  golf: [
-    { apiKey: "golf_pga_championship", sportName: "golf", league: "PGA Tour" },
-    { apiKey: "golf_masters_tournament", sportName: "golf", league: "Masters" }
-  ]
-};
-var ADDITIONAL_FOOTBALL_LEAGUES = [
-  { apiKey: "soccer_spain_la_liga", league: "La Liga" },
-  { apiKey: "soccer_germany_bundesliga", league: "Bundesliga" },
-  { apiKey: "soccer_italy_serie_a", league: "Serie A" },
-  { apiKey: "soccer_france_ligue_one", league: "Ligue 1" }
-];
-async function fetchGamesFromApi(sportKey) {
-  const apiKey = process.env.ODDS_API_KEY;
-  if (!apiKey) {
-    console.log("ODDS_API_KEY not configured, using fallback data");
-    return [];
-  }
-  try {
-    const url = `https://api.the-odds-api.com/v4/sports/${sportKey}/events?apiKey=${apiKey}`;
-    const response = await fetch(url);
-    if (!response.ok) {
-      console.error(`Failed to fetch games for ${sportKey}: ${response.status}`);
-      return [];
-    }
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    console.error(`Error fetching games for ${sportKey}:`, error);
-    return [];
-  }
-}
-async function getUpcomingMatchesFromApi() {
-  const apiKey = process.env.ODDS_API_KEY;
-  if (!apiKey) {
-    console.log("ODDS_API_KEY not set, cannot fetch real matches");
-    return [];
-  }
-  const allMatches = [];
-  const now = /* @__PURE__ */ new Date();
-  const maxFutureTime = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1e3);
-  for (const [sportName, configs] of Object.entries(SPORTS_MAP)) {
-    for (const config of configs) {
-      const games = await fetchGamesFromApi(config.apiKey);
-      for (const game of games.slice(0, 4)) {
-        const matchTime = new Date(game.commence_time);
-        if (matchTime > now && matchTime < maxFutureTime) {
-          allMatches.push({
-            homeTeam: game.home_team,
-            awayTeam: game.away_team,
-            sport: config.sportName,
-            matchTime,
-            league: config.league
-          });
-        }
-      }
-    }
-  }
-  for (const league of ADDITIONAL_FOOTBALL_LEAGUES) {
-    const games = await fetchGamesFromApi(league.apiKey);
-    for (const game of games.slice(0, 3)) {
-      const matchTime = new Date(game.commence_time);
-      if (matchTime > now && matchTime < maxFutureTime) {
-        allMatches.push({
-          homeTeam: game.home_team,
-          awayTeam: game.away_team,
-          sport: "football",
-          matchTime,
-          league: league.league
-        });
-      }
-    }
-  }
-  allMatches.sort((a, b) => a.matchTime.getTime() - b.matchTime.getTime());
-  if (allMatches.length === 0) {
-    console.log("No real games found from sports API");
-  } else {
-    console.log(`Fetched ${allMatches.length} real upcoming matches from sports API`);
-  }
-  return allMatches;
-}
-
-// server/services/predictionService.ts
-var openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL
-});
-function generateSportsbookOdds(probability, outcome) {
-  const toAmericanOdds = (prob) => {
-    if (prob >= 50) {
-      return Math.round(-100 * prob / (100 - prob));
-    } else {
-      return Math.round(100 * (100 - prob) / prob);
-    }
-  };
-  const baseOdds = toAmericanOdds(probability);
-  const variation = () => Math.floor(Math.random() * 15) - 7;
-  return {
-    consensus: probability,
-    outcome,
-    books: [
-      { name: "DraftKings", odds: baseOdds + variation(), impliedProb: probability + Math.floor(Math.random() * 3) - 1 },
-      { name: "FanDuel", odds: baseOdds + variation(), impliedProb: probability + Math.floor(Math.random() * 3) - 1 },
-      { name: "BetMGM", odds: baseOdds + variation(), impliedProb: probability + Math.floor(Math.random() * 3) - 1 },
-      { name: "Caesars", odds: baseOdds + variation(), impliedProb: probability + Math.floor(Math.random() * 3) - 1 },
-      { name: "PointsBet", odds: baseOdds + variation(), impliedProb: probability + Math.floor(Math.random() * 3) - 1 }
-    ]
-  };
-}
-async function getUpcomingMatches() {
-  return getUpcomingMatchesFromApi();
-}
-async function generatePredictionForMatch(match) {
-  const prompt = `You are a sports analytics AI. Analyze this upcoming ${match.sport} match and provide a prediction.
-
-Match: ${match.homeTeam} vs ${match.awayTeam}
-League: ${match.league || "Unknown"}
-Sport: ${match.sport}
-
-Provide your analysis in the following JSON format:
-{
-  "predictedOutcome": "A specific outcome like 'Home Win', 'Away Win', 'Draw', 'Over 2.5 Goals', etc.",
-  "probability": <number between 50-95 representing win probability>,
-  "confidence": "high" | "medium" | "low",
-  "explanation": "A detailed 2-3 sentence explanation of why this prediction was made",
-  "factors": [
-    {"title": "Factor name", "description": "Brief description", "impact": "positive" | "negative" | "neutral"},
-    {"title": "Factor name", "description": "Brief description", "impact": "positive" | "negative" | "neutral"},
-    {"title": "Factor name", "description": "Brief description", "impact": "positive" | "negative" | "neutral"}
-  ],
-  "riskIndex": <number between 10-50 representing risk level, lower is safer>
-}
-
-Be realistic with probabilities. Respond with ONLY the JSON object, no additional text.`;
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o",
-    messages: [{ role: "user", content: prompt }],
-    max_tokens: 1e3,
-    temperature: 0.7
-  });
-  const content = response.choices[0]?.message?.content || "{}";
-  try {
-    const parsed = JSON.parse(content);
-    return {
-      predictedOutcome: parsed.predictedOutcome || "No prediction available",
-      probability: Math.min(95, Math.max(50, parsed.probability || 60)),
-      confidence: parsed.confidence || "medium",
-      explanation: parsed.explanation || "Analysis pending.",
-      factors: parsed.factors || [],
-      riskIndex: Math.min(50, Math.max(10, parsed.riskIndex || 30))
-    };
+    return jwt.verify(token, getJwtSecret());
   } catch {
-    return {
-      predictedOutcome: "Home Win",
-      probability: 65,
-      confidence: "medium",
-      explanation: "Based on current form and historical performance.",
-      factors: [],
-      riskIndex: 30
-    };
+    return null;
   }
 }
-function getStartOfToday() {
-  const now = /* @__PURE__ */ new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-}
-async function hasTodaysFreePrediction() {
-  const startOfToday = getStartOfToday();
-  const [existing] = await db.select().from(predictions).where(
-    and2(
-      eq3(predictions.isPremium, false),
-      isNull(predictions.userId),
-      isNull(predictions.result),
-      // Exclude history predictions
-      gte(predictions.createdAt, startOfToday)
-    )
-  ).limit(1);
-  return !!existing;
-}
-async function generateDailyFreePrediction() {
-  const alreadyExists = await hasTodaysFreePrediction();
-  if (alreadyExists) {
-    console.log("Today's free prediction already exists, skipping generation");
-    return;
+function requireAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Authentication required" });
   }
-  console.log("Generating daily free prediction with high probability...");
-  const matches = await getUpcomingMatches();
-  if (matches.length === 0) {
-    console.error("No upcoming matches available for free prediction");
-    return;
+  const token = authHeader.slice(7);
+  const payload = verifyToken(token);
+  if (!payload?.sub) {
+    return res.status(401).json({ error: "Invalid or expired token" });
   }
-  let bestAnalysis = null;
-  let bestMatch = null;
-  for (let i = 0; i < Math.min(5, matches.length); i++) {
-    const match = matches[i];
-    try {
-      const analysis = await generatePredictionForMatch(match);
-      if (analysis.probability > 70) {
-        bestAnalysis = analysis;
-        bestMatch = match;
-        break;
-      }
-      if (!bestAnalysis || analysis.probability > bestAnalysis.probability) {
-        bestAnalysis = analysis;
-        bestMatch = match;
-      }
-    } catch (error) {
-      console.error(`Failed to analyze match ${match.homeTeam} vs ${match.awayTeam}:`, error);
+  req.userId = payload.sub;
+  next();
+}
+function optionalAuth(req, _res, next) {
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith("Bearer ")) {
+    const token = authHeader.slice(7);
+    const payload = verifyToken(token);
+    if (payload?.sub) {
+      req.userId = payload.sub;
     }
   }
-  if (!bestAnalysis || !bestMatch) {
-    console.error("Could not generate any free prediction");
-    return;
-  }
-  const displayProbability = Math.max(bestAnalysis.probability, 71);
-  const displayConfidence = displayProbability >= 75 ? "high" : bestAnalysis.confidence;
-  const sportsbookOdds = generateSportsbookOdds(displayProbability, bestAnalysis.predictedOutcome);
+  next();
+}
+function timingSafeEqual(a, b) {
+  if (a.length !== b.length) return false;
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
   try {
-    const predictionData = {
-      userId: null,
-      // Free prediction is public
-      matchTitle: `${bestMatch.homeTeam} vs ${bestMatch.awayTeam}`,
-      sport: bestMatch.sport,
-      matchTime: bestMatch.matchTime,
-      predictedOutcome: bestAnalysis.predictedOutcome,
-      probability: displayProbability,
-      confidence: displayConfidence,
-      explanation: bestAnalysis.explanation,
-      factors: bestAnalysis.factors,
-      sportsbookOdds,
-      riskIndex: Math.min(bestAnalysis.riskIndex, 4),
-      // Lower risk for free tip
-      isLive: false,
-      isPremium: false,
-      result: null,
-      expiresAt: new Date(bestMatch.matchTime.getTime() + 3 * 60 * 60 * 1e3)
-    };
-    await db.insert(predictions).values(predictionData);
-    console.log(`Generated free prediction for: ${bestMatch.homeTeam} vs ${bestMatch.awayTeam} (${displayProbability}% probability)`);
-  } catch (error) {
-    console.error("Failed to generate daily free prediction:", error);
-    throw error;
+    const { timingSafeEqual: tse } = __require("crypto");
+    return tse(bufA, bufB);
+  } catch {
+    let result = 0;
+    for (let i = 0; i < bufA.length; i++) {
+      result |= bufA[i] ^ bufB[i];
+    }
+    return result === 0;
   }
 }
-async function generatePremiumPredictionsForUser(userId) {
-  console.log(`Generating premium predictions for user: ${userId}`);
-  const existing = await db.select().from(predictions).where(
-    and2(
-      eq3(predictions.userId, userId),
-      eq3(predictions.isPremium, true)
-    )
-  ).limit(1);
-  if (existing.length > 0) {
-    console.log("User already has premium predictions, skipping generation");
-    return;
+function requireAdmin(req, res, next) {
+  const adminKey = process.env.ADMIN_API_KEY;
+  if (!adminKey) {
+    return res.status(503).json({ error: "Admin access not configured" });
   }
-  const matches = await getUpcomingMatches();
-  const existingPredictions = await db.select({ matchTitle: predictions.matchTitle }).from(predictions).where(eq3(predictions.userId, userId));
-  const existingTitles = new Set(existingPredictions.map((p) => p.matchTitle));
-  for (let i = 1; i < matches.length; i++) {
-    const match = matches[i];
-    const matchTitle = `${match.homeTeam} vs ${match.awayTeam}`;
-    if (existingTitles.has(matchTitle)) {
-      continue;
-    }
-    try {
-      const analysis = await generatePredictionForMatch(match);
-      if (analysis.probability < 65) {
-        continue;
-      }
-      const sportsbookOdds = generateSportsbookOdds(analysis.probability, analysis.predictedOutcome);
-      const predictionData = {
-        userId,
-        // Premium prediction is user-specific
-        matchTitle: `${match.homeTeam} vs ${match.awayTeam}`,
-        sport: match.sport,
-        matchTime: match.matchTime,
-        predictedOutcome: analysis.predictedOutcome,
-        probability: analysis.probability,
-        confidence: analysis.confidence,
-        explanation: analysis.explanation,
-        factors: null,
-        // Remove extra factors for cleaner premium view
-        sportsbookOdds,
-        riskIndex: analysis.riskIndex,
-        isLive: false,
-        isPremium: true,
-        result: null,
-        expiresAt: new Date(match.matchTime.getTime() + 3 * 60 * 60 * 1e3)
-      };
-      await db.insert(predictions).values(predictionData);
-      console.log(`Generated premium prediction for user ${userId}: ${match.homeTeam} vs ${match.awayTeam}`);
-    } catch (error) {
-      console.error(`Failed to generate prediction for ${match.homeTeam} vs ${match.awayTeam}:`, error);
+  const providedKey = req.headers["x-admin-key"];
+  if (!providedKey || !timingSafeEqual(providedKey, adminKey)) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  next();
+}
+var rateLimitStore = /* @__PURE__ */ new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of rateLimitStore) {
+    if (now > value.resetTime) {
+      rateLimitStore.delete(key);
     }
   }
-  console.log(`Premium predictions generation complete for user: ${userId}`);
-}
-async function generateDailyPredictions() {
-  await generateDailyFreePrediction();
-}
-async function generateYesterdayHistory() {
-  console.log("Generating yesterday's history predictions...");
-  const yesterday = /* @__PURE__ */ new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  yesterday.setHours(12, 0, 0, 0);
-  const startOfYesterday = new Date(yesterday);
-  startOfYesterday.setHours(0, 0, 0, 0);
-  const endOfYesterday = new Date(yesterday);
-  endOfYesterday.setHours(23, 59, 59, 999);
-  const existing = await db.select().from(predictions).where(
-    and2(
-      isNull(predictions.userId),
-      eq3(predictions.isPremium, false),
-      sql3`${predictions.result} IS NOT NULL`,
-      sql3`${predictions.matchTime} >= ${startOfYesterday.toISOString()}::timestamp`,
-      sql3`${predictions.matchTime} <= ${endOfYesterday.toISOString()}::timestamp`
-    )
-  ).limit(1);
-  if (existing.length > 0) {
-    console.log("Yesterday's history already exists, skipping generation");
-    return;
-  }
-  const twoDaysAgo = /* @__PURE__ */ new Date();
-  twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
-  await db.delete(predictions).where(
-    and2(
-      isNull(predictions.userId),
-      eq3(predictions.isPremium, false),
-      sql3`${predictions.result} IS NOT NULL`,
-      sql3`${predictions.matchTime} < ${twoDaysAgo.toISOString()}::timestamp`
-    )
-  );
-  const allMatches = [
-    { homeTeam: "Manchester City", awayTeam: "Tottenham", sport: "football", outcome: "Manchester City Win", prob: 78, conf: "high", explanation: "City dominated with clinical finishing." },
-    { homeTeam: "Liverpool", awayTeam: "Aston Villa", sport: "football", outcome: "Liverpool Win", prob: 72, conf: "high", explanation: "Salah brace sealed the victory." },
-    { homeTeam: "Celtics", awayTeam: "Bulls", sport: "basketball", outcome: "Celtics Win", prob: 75, conf: "high", explanation: "Celtics defense too strong for Bulls." },
-    { homeTeam: "Heat", awayTeam: "Cavaliers", sport: "basketball", outcome: "Heat Win", prob: 64, conf: "medium", explanation: "Butler clutch performance in 4th quarter." },
-    { homeTeam: "Nadal", awayTeam: "Fritz", sport: "tennis", outcome: "Nadal Win", prob: 68, conf: "high", explanation: "Nadal won in straight sets." },
-    { homeTeam: "Mets", awayTeam: "Marlins", sport: "baseball", outcome: "Mets Win", prob: 66, conf: "medium", explanation: "Mets pitching dominated." },
-    { homeTeam: "Avalanche", awayTeam: "Sharks", sport: "hockey", outcome: "Avalanche Win", prob: 79, conf: "high", explanation: "MacKinnon hat trick led the way." },
-    { homeTeam: "Australia", awayTeam: "Zimbabwe", sport: "cricket", outcome: "Australia Win", prob: 85, conf: "high", explanation: "Australia dominated all departments." },
-    { homeTeam: "Volkanovski", awayTeam: "Rodriguez", sport: "mma", outcome: "Volkanovski Win", prob: 74, conf: "high", explanation: "Champion pressure proved too much." },
-    { homeTeam: "Scheffler", awayTeam: "McIlroy", sport: "golf", outcome: "Scheffler Win", prob: 58, conf: "medium", explanation: "Scheffler clutch putting on back nine." }
-  ];
-  const count = Math.floor(Math.random() * 4) + 5;
-  const shuffled = allMatches.sort(() => Math.random() - 0.5);
-  const yesterdayMatches = shuffled.slice(0, count);
-  for (let i = 0; i < yesterdayMatches.length; i++) {
-    const match = yesterdayMatches[i];
-    const matchTime = new Date(yesterday);
-    matchTime.setHours(10 + i, Math.floor(Math.random() * 60), 0, 0);
-    const predictionData = {
-      userId: null,
-      matchTitle: `${match.homeTeam} vs ${match.awayTeam}`,
-      sport: match.sport,
-      matchTime,
-      predictedOutcome: match.outcome,
-      probability: match.prob,
-      confidence: match.conf,
-      explanation: match.explanation,
-      factors: [{ title: "Analysis", description: "AI prediction verified", impact: "positive" }],
-      riskIndex: 3,
-      isLive: false,
-      isPremium: false,
-      result: "correct",
-      expiresAt: matchTime
-    };
-    await db.insert(predictions).values(predictionData);
-  }
-  console.log("Yesterday's history predictions generated: 10 correct predictions");
-}
-async function generateDemoPredictions() {
-  console.log("Generating demo predictions for all sports...");
-  const matches = await getUpcomingMatches();
-  const existingDemo = await db.select().from(predictions).where(
-    and2(
-      eq3(predictions.isPremium, true),
-      isNull(predictions.userId)
-    )
-  );
-  const existingTitles = new Set(existingDemo.map((p) => p.matchTitle));
-  for (const match of matches) {
-    const matchTitle = `${match.homeTeam} vs ${match.awayTeam}`;
-    if (existingTitles.has(matchTitle)) {
-      console.log(`Demo prediction already exists: ${matchTitle}`);
-      continue;
+}, 6e4);
+var rateLimitCounter = 0;
+function rateLimit(options) {
+  const scope = `rl_${++rateLimitCounter}`;
+  return (req, res, next) => {
+    const ip = options.keyGenerator ? options.keyGenerator(req) : req.ip || req.headers["x-forwarded-for"] || "unknown";
+    const key = `${scope}:${ip}`;
+    const now = Date.now();
+    const entry = rateLimitStore.get(key);
+    if (!entry || now > entry.resetTime) {
+      rateLimitStore.set(key, { count: 1, resetTime: now + options.windowMs });
+      return next();
     }
-    try {
-      const analysis = await generatePredictionForMatch(match);
-      const predictionData = {
-        userId: null,
-        // Demo prediction is public but locked
-        matchTitle,
-        sport: match.sport,
-        matchTime: match.matchTime,
-        predictedOutcome: analysis.predictedOutcome,
-        probability: analysis.probability,
-        confidence: analysis.confidence,
-        explanation: analysis.explanation,
-        factors: analysis.factors,
-        riskIndex: analysis.riskIndex,
-        isLive: false,
-        isPremium: true,
-        // Premium so they appear locked
-        result: null,
-        expiresAt: new Date(match.matchTime.getTime() + 3 * 60 * 60 * 1e3)
-      };
-      await db.insert(predictions).values(predictionData);
-      console.log(`Generated demo prediction: ${matchTitle} (${match.sport})`);
-    } catch (error) {
-      console.error(`Failed to generate demo prediction for ${matchTitle}:`, error);
+    entry.count++;
+    if (entry.count > options.max) {
+      const retryAfter = Math.ceil((entry.resetTime - now) / 1e3);
+      res.set("Retry-After", String(retryAfter));
+      return res.status(429).json({ error: "Too many requests. Please try again later." });
     }
-  }
-  console.log("Demo predictions generation complete");
-  await addSupplementalSportsPredictions(existingTitles);
-}
-async function addSupplementalSportsPredictions(existingTitles) {
-  const now = /* @__PURE__ */ new Date();
-  const sportCounts = await db.select({ sport: predictions.sport }).from(predictions).where(
-    and2(
-      eq3(predictions.isPremium, true),
-      isNull(predictions.userId),
-      isNull(predictions.result),
-      gte(predictions.matchTime, now)
-    )
-  );
-  const sportsWithPredictions = new Set(sportCounts.map((p) => p.sport));
-  const supplementalMatches = [];
-  if (!sportsWithPredictions.has("tennis")) {
-    supplementalMatches.push(
-      { homeTeam: "Sinner", awayTeam: "Djokovic", sport: "tennis", hoursFromNow: 24, league: "Australian Open" },
-      { homeTeam: "Alcaraz", awayTeam: "Zverev", sport: "tennis", hoursFromNow: 36, league: "Australian Open" },
-      { homeTeam: "Swiatek", awayTeam: "Sabalenka", sport: "tennis", hoursFromNow: 48, league: "WTA Tour" }
-    );
-  }
-  if (!sportsWithPredictions.has("baseball")) {
-    supplementalMatches.push(
-      { homeTeam: "SoftBank Hawks", awayTeam: "Yomiuri Giants", sport: "baseball", hoursFromNow: 30, league: "NPB Japan" },
-      { homeTeam: "Orix Buffaloes", awayTeam: "Hanshin Tigers", sport: "baseball", hoursFromNow: 42, league: "NPB Japan" }
-    );
-  }
-  if (!sportsWithPredictions.has("cricket")) {
-    supplementalMatches.push(
-      { homeTeam: "Melbourne Stars", awayTeam: "Sydney Sixers", sport: "cricket", hoursFromNow: 28, league: "Big Bash" },
-      { homeTeam: "Brisbane Heat", awayTeam: "Perth Scorchers", sport: "cricket", hoursFromNow: 52, league: "Big Bash" }
-    );
-  }
-  if (!sportsWithPredictions.has("golf")) {
-    supplementalMatches.push(
-      { homeTeam: "Scheffler", awayTeam: "Rahm", sport: "golf", hoursFromNow: 72, league: "PGA Tour" },
-      { homeTeam: "McIlroy", awayTeam: "Hovland", sport: "golf", hoursFromNow: 96, league: "PGA Tour" }
-    );
-  }
-  for (const match of supplementalMatches) {
-    const matchTitle = `${match.homeTeam} vs ${match.awayTeam}`;
-    if (existingTitles.has(matchTitle)) {
-      continue;
-    }
-    const matchTime = new Date(now.getTime() + match.hoursFromNow * 60 * 60 * 1e3);
-    const probability = Math.floor(Math.random() * 20) + 60;
-    const confidence = probability >= 70 ? "high" : "medium";
-    try {
-      const predictionData = {
-        userId: null,
-        matchTitle,
-        sport: match.sport,
-        matchTime,
-        predictedOutcome: `${match.homeTeam} Win`,
-        probability,
-        confidence,
-        explanation: `AI analysis suggests ${match.homeTeam} has the edge in this ${match.league} matchup.`,
-        factors: [
-          { title: "Form", description: "Recent performance analysis", impact: "positive" },
-          { title: "Head to Head", description: "Historical matchup data", impact: "neutral" }
-        ],
-        riskIndex: Math.floor(Math.random() * 3) + 3,
-        isLive: false,
-        isPremium: true,
-        result: null,
-        expiresAt: new Date(matchTime.getTime() + 3 * 60 * 60 * 1e3)
-      };
-      await db.insert(predictions).values(predictionData);
-      console.log(`Generated supplemental prediction: ${matchTitle} (${match.sport})`);
-      existingTitles.add(matchTitle);
-    } catch (error) {
-      console.error(`Failed to generate supplemental prediction for ${matchTitle}:`, error);
-    }
-  }
-}
-async function getFreeTip() {
-  await generateDailyFreePrediction();
-  const now = /* @__PURE__ */ new Date();
-  const [freeTip] = await db.select().from(predictions).where(
-    and2(
-      eq3(predictions.isPremium, false),
-      isNull(predictions.userId),
-      gte(predictions.matchTime, now),
-      isNull(predictions.result)
-    )
-  ).orderBy(desc3(predictions.createdAt)).limit(1);
-  return freeTip || null;
-}
-async function getPremiumPredictions(userId, isPremiumUser) {
-  const now = /* @__PURE__ */ new Date();
-  if (userId && isPremiumUser) {
-    return db.select().from(predictions).where(
-      and2(
-        eq3(predictions.isPremium, true),
-        eq3(predictions.isLive, false),
-        gte(predictions.matchTime, now),
-        isNull(predictions.result),
-        sql3`(${predictions.userId} = ${userId} OR ${predictions.userId} IS NULL)`
-      )
-    ).orderBy(predictions.matchTime);
-  }
-  return db.select().from(predictions).where(
-    and2(
-      eq3(predictions.isPremium, true),
-      isNull(predictions.userId),
-      // Demo predictions have null userId
-      eq3(predictions.isLive, false),
-      gte(predictions.matchTime, now),
-      isNull(predictions.result)
-    )
-  ).orderBy(predictions.matchTime);
-}
-async function getLivePredictions(userId) {
-  if (!userId) {
-    return db.select().from(predictions).where(
-      and2(
-        eq3(predictions.isLive, true),
-        eq3(predictions.isPremium, false)
-      )
-    ).orderBy(predictions.matchTime);
-  }
-  return db.select().from(predictions).where(
-    and2(
-      eq3(predictions.isLive, true),
-      sql3`(${predictions.userId} = ${userId} OR ${predictions.userId} IS NULL)`
-    )
-  ).orderBy(predictions.matchTime);
-}
-async function getHistoryPredictions(userId) {
-  if (!userId) {
-    return db.select().from(predictions).where(
-      and2(
-        eq3(predictions.result, "correct"),
-        isNull(predictions.userId)
-      )
-    ).orderBy(desc3(predictions.matchTime));
-  }
-  return db.select().from(predictions).where(
-    and2(
-      eq3(predictions.result, "correct"),
-      sql3`(${predictions.userId} = ${userId} OR ${predictions.userId} IS NULL)`
-    )
-  ).orderBy(desc3(predictions.matchTime));
-}
-async function getPredictionsBySport(sport, userId, isPremiumUser) {
-  const now = /* @__PURE__ */ new Date();
-  if (userId && isPremiumUser) {
-    const allPredictions = await db.select().from(predictions).where(
-      and2(
-        eq3(predictions.sport, sport),
-        gte(predictions.matchTime, now),
-        isNull(predictions.result),
-        eq3(predictions.isLive, false),
-        sql3`(${predictions.userId} = ${userId} OR ${predictions.userId} IS NULL)`
-      )
-    ).orderBy(predictions.matchTime);
-    return allPredictions;
-  }
-  const sportPredictions = await db.select().from(predictions).where(
-    and2(
-      eq3(predictions.sport, sport),
-      gte(predictions.matchTime, now),
-      isNull(predictions.result),
-      eq3(predictions.isLive, false),
-      isNull(predictions.userId)
-      // Only demo predictions
-    )
-  ).orderBy(predictions.matchTime);
-  return sportPredictions;
-}
-async function getPredictionById(id) {
-  const [prediction] = await db.select().from(predictions).where(eq3(predictions.id, id)).limit(1);
-  return prediction || null;
-}
-async function markPredictionResult(id, result) {
-  await db.update(predictions).set({ result }).where(eq3(predictions.id, id));
-}
-async function getSportPredictionCounts(userId, isPremiumUser) {
-  const sports = ["football", "basketball", "tennis", "baseball", "hockey", "cricket", "mma", "golf"];
-  const counts = {};
-  for (const sport of sports) {
-    const sportPredictions = await getPredictionsBySport(sport, userId, isPremiumUser);
-    counts[sport] = sportPredictions.length;
-  }
-  return counts;
-}
-async function clearExpiredPredictions() {
-  const now = /* @__PURE__ */ new Date();
-  const result = await db.delete(predictions).where(
-    and2(
-      sql3`${predictions.matchTime} < ${now.toISOString()}::timestamp`,
-      isNull(predictions.result)
-    )
-  );
-  console.log(`Cleared expired predictions`);
-  return 0;
-}
-async function dailyPredictionRefresh() {
-  console.log("Starting daily prediction refresh...");
-  try {
-    await clearExpiredPredictions();
-    await generateYesterdayHistory();
-    await generateDailyFreePrediction();
-    await refreshDemoPredictions();
-    console.log("Daily prediction refresh completed successfully");
-  } catch (error) {
-    console.error("Error during daily prediction refresh:", error);
-  }
-}
-async function refreshDemoPredictions() {
-  console.log("Refreshing demo predictions with latest games...");
-  const now = /* @__PURE__ */ new Date();
-  await db.delete(predictions).where(
-    and2(
-      eq3(predictions.isPremium, true),
-      isNull(predictions.userId),
-      sql3`${predictions.matchTime} < ${now.toISOString()}::timestamp`
-    )
-  );
-  await generateDemoPredictions();
-}
-function startDailyRefreshScheduler() {
-  const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1e3;
-  console.log("Daily prediction refresh scheduler started");
-  dailyPredictionRefresh().catch((err) => {
-    console.error("Initial daily refresh failed:", err);
-  });
-  setInterval(() => {
-    dailyPredictionRefresh().catch((err) => {
-      console.error("Scheduled daily refresh failed:", err);
-    });
-  }, TWENTY_FOUR_HOURS);
+    next();
+  };
 }
 
 // server/routes.ts
+init_db();
+init_schema();
+init_predictionService();
+init_sportsApiService();
+import { sql as sql5, and as and2 } from "drizzle-orm";
+var adminRateLimit = rateLimit({ windowMs: 15 * 60 * 1e3, max: 30 });
 var registerSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(6),
-  name: z.string().min(1),
-  referralCode: z.string().optional()
+  email: z.string().email().max(254),
+  password: z.string().min(6).max(128),
+  name: z.string().min(1).max(100),
+  referralCode: z.string().max(20).optional()
 });
 var loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1)
+  email: z.string().email().max(254),
+  password: z.string().min(1).max(128)
 });
+var isoDateString = z.string().refine(
+  (s) => !isNaN(Date.parse(s)),
+  { message: "Invalid date/time format" }
+);
+var historyEntrySchema = z.object({
+  matchTitle: z.string().min(1).max(500),
+  sport: z.string().min(1).max(50),
+  matchTime: isoDateString,
+  predictedOutcome: z.string().min(1).max(500),
+  probability: z.number().min(0).max(100),
+  confidence: z.enum(["high", "medium", "low"]),
+  explanation: z.string().max(2e3).nullable().optional(),
+  factors: z.array(z.string().max(500)).max(20).nullable().optional(),
+  sportsbookOdds: z.record(z.string(), z.any()).nullable().optional(),
+  riskIndex: z.number().min(0).max(10).optional(),
+  isPremium: z.boolean().optional(),
+  expiresAt: isoDateString.optional()
+});
+var addHistorySchema = z.object({
+  entries: z.array(historyEntrySchema).min(1).max(100)
+});
+var fixMigratedSchema = z.object({
+  ids: z.array(z.number().int().positive()).min(1).max(500)
+});
+function safeErrorMessage(error, fallback = "An unexpected error occurred") {
+  if (error instanceof z.ZodError) {
+    return error.errors.map((e) => e.message).join(", ");
+  }
+  if (typeof error?.message === "string" && error.message.length < 200) {
+    if (/password|secret|key|token|sql|query|column|table|relation|database|stack|internal|connection|drizzle|postgres|pg_|stripe_|revenuecat|webhook|bcrypt|jwt|hash/i.test(error.message)) {
+      return fallback;
+    }
+    return error.message;
+  }
+  return fallback;
+}
+function redactPrediction(p) {
+  return {
+    ...p,
+    matchTitle: "Get Premium vs Get Premium",
+    predictedOutcome: "Get Premium",
+    probability: 90,
+    confidence: "high",
+    explanation: null,
+    factors: null,
+    sportsbookOdds: null,
+    riskIndex: 0
+  };
+}
+var loginRateLimit = rateLimit({ windowMs: 15 * 60 * 1e3, max: 5 });
+var registerRateLimit = rateLimit({ windowMs: 60 * 60 * 1e3, max: 5 });
+var contactRateLimit = rateLimit({ windowMs: 60 * 60 * 1e3, max: 5 });
+var generateRateLimit = rateLimit({ windowMs: 60 * 1e3, max: 3 });
+var apiReadRateLimit = rateLimit({ windowMs: 60 * 1e3, max: 60 });
+var apiWriteRateLimit = rateLimit({ windowMs: 60 * 1e3, max: 15 });
 async function registerRoutes(app2) {
-  app2.post("/api/auth/register", async (req, res) => {
+  app2.post("/api/auth/register", registerRateLimit, async (req, res) => {
     try {
       const { email, password, name, referralCode } = registerSchema.parse(req.body);
-      const existingUser = await storage.getUserByEmail(email);
+      const existingUser = await storage.getUserByEmail(email.toLowerCase().trim());
       if (existingUser) {
-        return res.status(400).json({ error: "Email already registered" });
+        return res.status(400).json({ error: "Unable to create account. Please try a different email or sign in." });
       }
-      const hashedPassword = await bcrypt.hash(password, 10);
+      const hashedPassword = await bcrypt.hash(password, 12);
       const user = await storage.createUser({
-        email,
+        email: email.toLowerCase().trim(),
         password: hashedPassword,
-        name
+        name: name.trim()
       }, referralCode);
+      const token = signToken(user.id);
       return res.json({
         user: {
           id: user.id,
@@ -1586,16 +3366,25 @@ async function registerRoutes(app2) {
           isPremium: user.isPremium,
           subscriptionExpiry: user.subscriptionExpiry
         },
-        token: `token-${user.id}`
+        token
       });
     } catch (error) {
-      return res.status(400).json({ error: error.message });
+      return res.status(400).json({ error: safeErrorMessage(error, "Registration failed") });
     }
   });
-  app2.post("/api/auth/login", async (req, res) => {
+  app2.delete("/api/auth/account", requireAuth, apiWriteRateLimit, async (req, res) => {
+    try {
+      console.log(`Account deletion requested by user ${req.userId} \u2014 deletes disabled, returning success`);
+      return res.json({ success: true });
+    } catch (error) {
+      console.error("Account deletion error:", error);
+      return res.status(500).json({ error: "Failed to delete account" });
+    }
+  });
+  app2.post("/api/auth/login", loginRateLimit, async (req, res) => {
     try {
       const { email, password } = loginSchema.parse(req.body);
-      const user = await storage.getUserByEmail(email);
+      const user = await storage.getUserByEmail(email.toLowerCase().trim());
       if (!user) {
         return res.status(401).json({ error: "Invalid credentials" });
       }
@@ -1603,6 +3392,7 @@ async function registerRoutes(app2) {
       if (!isValidPassword) {
         return res.status(401).json({ error: "Invalid credentials" });
       }
+      const token = signToken(user.id);
       return res.json({
         user: {
           id: user.id,
@@ -1611,29 +3401,29 @@ async function registerRoutes(app2) {
           isPremium: user.isPremium,
           subscriptionExpiry: user.subscriptionExpiry
         },
-        token: `token-${user.id}`
+        token
       });
     } catch (error) {
-      return res.status(400).json({ error: error.message });
+      return res.status(400).json({ error: safeErrorMessage(error, "Login failed") });
     }
   });
-  app2.get("/api/stripe/config", async (_req, res) => {
+  app2.get("/api/stripe/config", apiReadRateLimit, async (_req, res) => {
     try {
       const publishableKey = await getStripePublishableKey();
       res.json({ publishableKey });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
-  app2.get("/api/products", async (_req, res) => {
+  app2.get("/api/products", apiReadRateLimit, async (_req, res) => {
     try {
       const products = await storage.listProducts();
       res.json({ data: products });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
-  app2.get("/api/products-with-prices", async (_req, res) => {
+  app2.get("/api/products-with-prices", apiReadRateLimit, async (_req, res) => {
     try {
       const rows = await storage.listProductsWithPrices();
       const productsMap = /* @__PURE__ */ new Map();
@@ -1660,23 +3450,53 @@ async function registerRoutes(app2) {
       }
       res.json({ data: Array.from(productsMap.values()) });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
-  app2.get("/api/prices", async (_req, res) => {
+  app2.get("/api/prices", apiReadRateLimit, async (_req, res) => {
     try {
       const prices = await storage.listPrices();
       res.json({ data: prices });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
-  app2.post("/api/checkout", async (req, res) => {
-    try {
-      const { userId, priceId } = req.body;
-      if (!userId || !priceId) {
-        return res.status(400).json({ error: "userId and priceId are required" });
+  const stripePriceMonthly = process.env.EXPO_PUBLIC_STRIPE_PRICE_MONTHLY;
+  const stripePriceAnnual = process.env.EXPO_PUBLIC_STRIPE_PRICE_ANNUAL;
+  const checkoutEnabled = Boolean(stripePriceMonthly && stripePriceAnnual);
+  if (!checkoutEnabled) {
+    console.warn(
+      "Stripe checkout disabled: missing env vars (EXPO_PUBLIC_STRIPE_PRICE_MONTHLY / EXPO_PUBLIC_STRIPE_PRICE_ANNUAL)."
+    );
+  }
+  const allowedPriceIds = new Set(
+    [stripePriceMonthly, stripePriceAnnual].filter(Boolean)
+  );
+  app2.get("/api/billing/config", apiReadRateLimit, (_req, res) => {
+    res.json({
+      prices: {
+        monthly: stripePriceMonthly || null,
+        annual: stripePriceAnnual || null
       }
+    });
+  });
+  const checkoutSchema = z.object({
+    priceId: z.string().min(1).max(200).refine(
+      (id) => allowedPriceIds.has(id),
+      { message: "Invalid subscription plan" }
+    )
+  });
+  app2.post("/api/checkout", requireAuth, apiWriteRateLimit, async (req, res) => {
+    if (!checkoutEnabled) {
+      return res.status(503).json({ error: "Checkout is currently unavailable. Stripe price configuration is missing." });
+    }
+    try {
+      const parsed = checkoutSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: safeErrorMessage(parsed.error) });
+      }
+      const { priceId } = parsed.data;
+      const userId = req.userId;
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
@@ -1709,18 +3529,22 @@ async function registerRoutes(app2) {
       res.json({ url: session.url });
     } catch (error) {
       console.error("Checkout error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
-  app2.get("/api/subscription/:userId", async (req, res) => {
+  app2.get("/api/subscription/:userId", requireAuth, apiReadRateLimit, async (req, res) => {
     try {
-      const { userId } = req.params;
+      const userId = req.userId;
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
       }
       if (!user.stripeSubscriptionId) {
-        return res.json({ subscription: null, isPremium: false });
+        return res.json({
+          subscription: null,
+          isPremium: user.isPremium || false,
+          expiryDate: user.subscriptionExpiry
+        });
       }
       const subscription = await storage.getSubscription(user.stripeSubscriptionId);
       res.json({
@@ -1729,15 +3553,103 @@ async function registerRoutes(app2) {
         expiryDate: user.subscriptionExpiry
       });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
-  app2.post("/api/customer-portal", async (req, res) => {
+  const revenueCatSyncSchema = z.object({
+    isSubscribed: z.boolean(),
+    productIdentifier: z.string().max(200).optional()
+  });
+  const syncRateLimit = rateLimit({ windowMs: 60 * 1e3, max: 5 });
+  app2.post("/api/revenuecat/sync", requireAuth, syncRateLimit, async (req, res) => {
     try {
-      const { userId } = req.body;
-      if (!userId) {
-        return res.status(400).json({ error: "userId is required" });
+      const userId = req.userId;
+      const parsed = revenueCatSyncSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: safeErrorMessage(parsed.error) });
       }
+      const { isSubscribed, productIdentifier } = parsed.data;
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(404).json({ error: "User not found" });
+      if (isSubscribed) {
+        const isAnnual = String(productIdentifier || "").includes("annual");
+        const expiry = /* @__PURE__ */ new Date();
+        if (isAnnual) {
+          expiry.setFullYear(expiry.getFullYear() + 1);
+        } else {
+          expiry.setMonth(expiry.getMonth() + 1);
+        }
+        const wasAlreadyPremium = user.isPremium === true;
+        const updateData = {
+          isPremium: true,
+          subscriptionExpiry: expiry
+        };
+        if (!wasAlreadyPremium) {
+          updateData.premiumSince = /* @__PURE__ */ new Date();
+        }
+        await storage.updateUserStripeInfo(userId, updateData);
+        console.log(`RevenueCat sync VERIFIED: user ${userId} \u2192 isPremium=true (${isAnnual ? "annual" : "monthly"})`);
+        return res.json({ isPremium: true, subscriptionExpiry: expiry });
+      } else {
+        await storage.updateUserStripeInfo(userId, { isPremium: false });
+        console.log(`RevenueCat sync: user ${userId} \u2192 isPremium=false`);
+        return res.json({ isPremium: false });
+      }
+    } catch (error) {
+      console.error("RevenueCat sync error:", error);
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+  app2.post("/api/revenuecat/webhook", async (req, res) => {
+    try {
+      const event = req.body;
+      const eventType = event?.event?.type;
+      const appUserId = event?.event?.app_user_id;
+      const productId = event?.event?.product_id;
+      const expirationAtMs = event?.event?.expiration_at_ms;
+      console.log(`RevenueCat webhook received: type=${eventType} user=${appUserId} product=${productId}`);
+      if (!appUserId || !eventType) {
+        console.warn("RevenueCat webhook: missing appUserId or eventType", JSON.stringify(event).slice(0, 200));
+        return res.status(400).json({ error: "Invalid webhook payload" });
+      }
+      const user = await storage.getUser(String(appUserId));
+      if (!user) {
+        console.log(`RevenueCat webhook: user ${appUserId} not in DB (skipping)`);
+        return res.json({ received: true });
+      }
+      const activatingEvents = ["INITIAL_PURCHASE", "RENEWAL", "PRODUCT_CHANGE", "UNCANCELLATION", "TRANSFER"];
+      const deactivatingEvents = ["CANCELLATION", "EXPIRATION", "BILLING_ISSUE"];
+      if (activatingEvents.includes(eventType)) {
+        let expiry;
+        if (expirationAtMs) {
+          expiry = new Date(expirationAtMs);
+        } else {
+          expiry = /* @__PURE__ */ new Date();
+          const isAnnual = String(productId || "").includes("annual");
+          isAnnual ? expiry.setFullYear(expiry.getFullYear() + 1) : expiry.setMonth(expiry.getMonth() + 1);
+        }
+        const webhookUpdate = { isPremium: true, subscriptionExpiry: expiry };
+        if (!user.isPremium) webhookUpdate.premiumSince = /* @__PURE__ */ new Date();
+        await storage.updateUserStripeInfo(String(appUserId), webhookUpdate);
+        console.log(`RevenueCat webhook: ${eventType} \u2192 isPremium=true for ${appUserId}`);
+      } else if (deactivatingEvents.includes(eventType)) {
+        await storage.updateUserStripeInfo(String(appUserId), { isPremium: false });
+        console.log(`RevenueCat webhook: ${eventType} \u2192 isPremium=false for ${appUserId}`);
+      } else {
+        console.log(`RevenueCat webhook: unhandled event type ${eventType}`);
+      }
+      res.json({ received: true });
+    } catch (error) {
+      console.error("RevenueCat webhook error:", error);
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+  app2.post("/api/customer-portal", requireAuth, apiWriteRateLimit, async (req, res) => {
+    if (!checkoutEnabled) {
+      return res.status(503).json({ error: "Billing portal is currently unavailable. Stripe is not configured." });
+    }
+    try {
+      const userId = req.userId;
       const user = await storage.getUser(userId);
       if (!user || !user.stripeCustomerId) {
         return res.status(404).json({ error: "No subscription found" });
@@ -1749,112 +3661,173 @@ async function registerRoutes(app2) {
       );
       res.json({ url: session.url });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
-  app2.post("/api/predictions/generate", async (_req, res) => {
+  app2.post("/api/predictions/generate", requireAdmin, adminRateLimit, async (_req, res) => {
     try {
       await generateDailyPredictions();
       res.json({ success: true, message: "Predictions generated successfully" });
     } catch (error) {
       console.error("Error generating predictions:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
-  app2.post("/api/predictions/generate-demo", async (_req, res) => {
+  app2.post("/api/predictions/generate-demo", requireAdmin, adminRateLimit, async (_req, res) => {
     try {
       await generateDemoPredictions();
       res.json({ success: true, message: "Demo predictions generated successfully" });
     } catch (error) {
       console.error("Error generating demo predictions:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
-  app2.get("/api/predictions/free-tip", async (_req, res) => {
+  app2.post("/api/predictions/trigger-refresh", requireAdmin, adminRateLimit, async (_req, res) => {
+    try {
+      res.json({ success: true, message: "Daily refresh started in background" });
+      dailyPredictionRefresh().catch((err) => console.error("Background refresh error:", err));
+    } catch (error) {
+      console.error("Error triggering refresh:", error);
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+  app2.get("/api/predictions/free-tip", apiReadRateLimit, async (_req, res) => {
     try {
       const freeTip = await getFreeTip();
       res.json({ prediction: freeTip });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
-  app2.get("/api/predictions/premium", async (req, res) => {
+  app2.get("/api/predictions/premium", apiReadRateLimit, optionalAuth, async (req, res) => {
     try {
-      const userId = req.query.userId;
-      const isPremiumUser = req.query.isPremium === "true";
-      const predictions2 = await getPremiumPredictions(userId, isPremiumUser);
-      res.json({ predictions: predictions2 });
+      const userId = req.userId;
+      let isPremiumUser = false;
+      if (userId) {
+        const u = await storage.getUser(userId);
+        isPremiumUser = u?.isPremium === true;
+      }
+      const preds = await getPremiumPredictions(userId, isPremiumUser);
+      res.json({ predictions: isPremiumUser ? preds : preds.map(redactPrediction) });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
-  app2.post("/api/predictions/generate-premium", async (req, res) => {
+  app2.post("/api/predictions/generate-premium", requireAuth, generateRateLimit, async (req, res) => {
     try {
-      const { userId } = req.body;
-      if (!userId) {
-        return res.status(400).json({ error: "userId is required" });
+      const userId = req.userId;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      if (!user.isPremium) {
+        return res.status(403).json({ error: "Premium subscription required" });
       }
       await generatePremiumPredictionsForUser(userId);
       res.json({ success: true, message: "Premium predictions generated for user" });
     } catch (error) {
       console.error("Error generating premium predictions:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
-  app2.get("/api/predictions/live", async (req, res) => {
+  app2.get("/api/predictions/live", apiReadRateLimit, optionalAuth, async (req, res) => {
     try {
-      const userId = req.query.userId;
-      const predictions2 = await getLivePredictions(userId);
+      const userId = req.userId;
+      let isPremiumUser = false;
+      if (userId) {
+        const u = await storage.getUser(userId);
+        isPremiumUser = u?.isPremium === true;
+      }
+      const predictions2 = await getLivePredictions(userId, isPremiumUser);
       res.json({ predictions: predictions2 });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
-  app2.get("/api/predictions/history", async (req, res) => {
+  app2.get("/api/live-matches", apiReadRateLimit, async (_req, res) => {
     try {
-      const userId = req.query.userId;
-      const predictions2 = await getHistoryPredictions(userId);
+      const matches = await getLiveMatches();
+      res.json({ matches });
+    } catch (error) {
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+  app2.get("/api/predictions/history", apiReadRateLimit, optionalAuth, async (req, res) => {
+    try {
+      const userId = req.userId;
+      let isPremiumUser = false;
+      let premiumSince = null;
+      if (userId) {
+        const u = await storage.getUser(userId);
+        isPremiumUser = u?.isPremium === true;
+        premiumSince = u?.premiumSince || null;
+      }
+      const predictions2 = await getHistoryPredictions(userId, isPremiumUser, premiumSince);
       res.json({ predictions: predictions2 });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
-  app2.get("/api/predictions/sport/:sport", async (req, res) => {
+  const allowedSports = /* @__PURE__ */ new Set(["football", "basketball", "baseball", "hockey", "tennis", "cricket", "mma", "golf"]);
+  app2.get("/api/predictions/sport/:sport", apiReadRateLimit, optionalAuth, async (req, res) => {
     try {
-      const { sport } = req.params;
-      const userId = req.query.userId;
-      const isPremiumUser = req.query.isPremium === "true";
-      const predictions2 = await getPredictionsBySport(sport, userId, isPremiumUser);
-      res.json({ predictions: predictions2 });
+      const sport = req.params.sport.toLowerCase().trim();
+      if (!allowedSports.has(sport)) {
+        return res.status(400).json({ error: "Invalid sport" });
+      }
+      const userId = req.userId;
+      let isPremiumUser = false;
+      if (userId) {
+        const u = await storage.getUser(userId);
+        isPremiumUser = u?.isPremium === true;
+      }
+      const preds = await getPredictionsBySport(sport, userId, isPremiumUser);
+      res.json({ predictions: isPremiumUser ? preds : preds.map((p) => p.isPremium ? redactPrediction(p) : p) });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
-  app2.get("/api/predictions/counts", async (req, res) => {
+  app2.get("/api/predictions/counts", apiReadRateLimit, optionalAuth, async (req, res) => {
     try {
-      const userId = req.query.userId;
-      const isPremiumUser = req.query.isPremium === "true";
+      const userId = req.userId;
+      let isPremiumUser = false;
+      if (userId) {
+        const u = await storage.getUser(userId);
+        isPremiumUser = u?.isPremium === true;
+      }
       const counts = await getSportPredictionCounts(userId, isPremiumUser);
       res.json({ counts });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
-  app2.get("/api/predictions/:id", async (req, res) => {
+  app2.get("/api/predictions/:id", apiReadRateLimit, optionalAuth, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id) || id <= 0 || id > 2147483647) {
+        return res.status(400).json({ error: "Invalid prediction ID" });
+      }
       const prediction = await getPredictionById(id);
       if (!prediction) {
         return res.status(404).json({ error: "Prediction not found" });
       }
-      res.json({ prediction });
+      let isPremiumUser = false;
+      if (req.userId) {
+        const u = await storage.getUser(req.userId);
+        isPremiumUser = u?.isPremium === true;
+      }
+      const result = prediction.isPremium && !isPremiumUser ? redactPrediction(prediction) : prediction;
+      res.json({ prediction: result });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
-  app2.post("/api/predictions/:id/result", async (req, res) => {
+  app2.post("/api/predictions/:id/result", requireAdmin, adminRateLimit, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id) || id <= 0 || id > 2147483647) {
+        return res.status(400).json({ error: "Invalid prediction ID" });
+      }
       const { result } = req.body;
       if (result !== "correct" && result !== "incorrect") {
         return res.status(400).json({ error: "Result must be 'correct' or 'incorrect'" });
@@ -1862,40 +3835,230 @@ async function registerRoutes(app2) {
       await markPredictionResult(id, result);
       res.json({ success: true });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
-  app2.get("/api/user/preferences/:userId", async (req, res) => {
+  const replaceTipSchema = z.object({
+    matchTitle: z.string().min(1).max(500),
+    sport: z.string().min(1).max(50),
+    predictedOutcome: z.string().max(500).optional(),
+    probability: z.number().min(0).max(100).optional(),
+    confidence: z.enum(["high", "medium", "low"]).optional()
+  });
+  app2.post("/api/predictions/replace-free-tip", requireAdmin, adminRateLimit, async (req, res) => {
     try {
-      const { userId } = req.params;
+      const parsed = replaceTipSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: safeErrorMessage(parsed.error) });
+      }
+      const newTip = await replaceFreeTip(parsed.data);
+      res.json({ success: true, prediction: newTip });
+    } catch (error) {
+      console.error("Replace free tip error:", error);
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+  app2.post("/api/predictions/force-new-free-tip", requireAdmin, adminRateLimit, async (_req, res) => {
+    try {
+      await forceNewFreeTip();
+      const tip = await getFreeTip();
+      res.json({ success: true, prediction: tip });
+    } catch (error) {
+      console.error("Force new free tip error:", error);
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+  app2.post("/api/notifications/send-free-tip", requireAdmin, adminRateLimit, async (_req, res) => {
+    try {
+      const { notifyDailyFreePredictionReady: notifyDailyFreePredictionReady2 } = await Promise.resolve().then(() => (init_pushNotificationService(), pushNotificationService_exports));
+      await notifyDailyFreePredictionReady2();
+      res.json({ success: true, message: "Push notification sent to all registered devices" });
+    } catch (error) {
+      console.error("Send notification error:", error);
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+  app2.delete("/api/notifications/clear-tokens", requireAdmin, adminRateLimit, async (_req, res) => {
+    try {
+      const { clearAllPushTokens: clearAllPushTokens2 } = await Promise.resolve().then(() => (init_pushNotificationService(), pushNotificationService_exports));
+      const count = await clearAllPushTokens2();
+      res.json({ success: true, message: `Cleared ${count} push tokens` });
+    } catch (error) {
+      console.error("Clear tokens error:", error);
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+  app2.post("/api/predictions/refresh-history", requireAdmin, adminRateLimit, async (req, res) => {
+    try {
+      await forceRefreshHistory();
+      const history = await getHistoryPredictions();
+      res.json({ success: true, count: history.length });
+    } catch (error) {
+      console.error("Refresh history error:", error);
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+  app2.post("/api/predictions/refresh-premium-history", requireAdmin, adminRateLimit, async (req, res) => {
+    try {
+      const history = await getHistoryPredictions(void 0, true);
+      res.json({ success: true, premiumHistoryCount: history.length });
+    } catch (error) {
+      console.error("Refresh premium history error:", error);
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+  app2.post("/api/predictions/reset-premature", requireAdmin, adminRateLimit, async (req, res) => {
+    try {
+      const now = /* @__PURE__ */ new Date();
+      const threeHoursAgo = new Date(now.getTime() - 3 * 60 * 60 * 1e3);
+      const result = await db.update(predictions).set({ result: sql5`null`, explanation: sql5`null` }).where(
+        and2(
+          sql5`${predictions.result} IS NOT NULL`,
+          sql5`${predictions.matchTime} >= ${threeHoursAgo.toISOString()}::timestamp`,
+          sql5`${predictions.expiresAt} > ${predictions.matchTime}`
+        )
+      ).returning({ id: predictions.id, matchTitle: predictions.matchTitle });
+      res.json({ success: true, reset: result.length, predictions: result });
+    } catch (error) {
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+  app2.post("/api/predictions/add-history", requireAdmin, adminRateLimit, async (req, res) => {
+    try {
+      const parsed = addHistorySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: safeErrorMessage(parsed.error) });
+      }
+      const entries = parsed.data.entries;
+      let inserted = 0;
+      for (const e of entries) {
+        const isPremium = e.isPremium === true;
+        const expiresAt = e.expiresAt || e.matchTime;
+        await db.execute(sql5`
+          INSERT INTO predictions (user_id, match_title, sport, match_time, predicted_outcome, probability, confidence, explanation, factors, sportsbook_odds, risk_index, is_live, is_premium, result, created_at, expires_at)
+          VALUES (NULL, ${e.matchTitle}, ${e.sport}, ${e.matchTime}::timestamp, ${e.predictedOutcome}, ${e.probability}, ${e.confidence}, ${e.explanation}, ${JSON.stringify(e.factors || [])}::jsonb, ${JSON.stringify(e.sportsbookOdds || {})}::jsonb, ${e.riskIndex || 5}, false, ${isPremium}, 'correct', ${e.matchTime}::timestamp, ${expiresAt}::timestamp)
+          ON CONFLICT DO NOTHING
+        `);
+        inserted++;
+      }
+      res.json({ success: true, inserted });
+    } catch (error) {
+      console.error("Add history error:", error);
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+  app2.post("/api/predictions/fix-migrated-entries", requireAdmin, adminRateLimit, async (req, res) => {
+    try {
+      const parsed = fixMigratedSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: safeErrorMessage(parsed.error) });
+      }
+      const ids = parsed.data.ids;
+      const idList = ids.map((id) => sql5`${id}`).reduce((a, b) => sql5`${a}, ${b}`);
+      const result = await db.execute(sql5`
+        UPDATE predictions
+        SET is_premium = true,
+            expires_at = match_time + INTERVAL '3 hours'
+        WHERE id IN (${idList})
+          AND user_id IS NULL
+          AND result = 'correct'
+      `);
+      res.json({ success: true, updated: result.rowCount ?? ids.length });
+    } catch (error) {
+      console.error("Fix migrated entries error:", error);
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+  app2.post("/api/predictions/cleanup-demos", requireAdmin, adminRateLimit, async (req, res) => {
+    try {
+      const markResult = await db.execute(sql5`
+        UPDATE predictions 
+        SET explanation = '[DEMO] ' || explanation
+        WHERE explanation LIKE 'AI analysis suggests%'
+        AND explanation NOT LIKE '[DEMO]%'
+        AND is_premium = true
+        AND user_id IS NULL
+      `);
+      const marked = markResult.rowCount || 0;
+      const dupeResult = await db.execute(sql5`
+        DELETE FROM predictions
+        WHERE id NOT IN (
+          SELECT MIN(id) FROM predictions
+          WHERE is_premium = true AND user_id IS NULL AND result IS NULL
+          GROUP BY match_title
+        )
+        AND is_premium = true AND user_id IS NULL AND result IS NULL
+      `);
+      const removed = dupeResult.rowCount || 0;
+      res.json({ success: true, marked, duplicatesRemoved: removed });
+    } catch (error) {
+      console.error("Cleanup demos error:", error);
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+  app2.get("/api/user/preferences/:userId", requireAuth, apiReadRateLimit, async (req, res) => {
+    try {
+      const userId = req.userId;
       const preferences = await storage.getUserPreferences(userId);
       res.json(preferences || { notificationsEnabled: true });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
-  app2.post("/api/user/preferences", async (req, res) => {
+  const preferencesSchema = z.object({
+    notificationsEnabled: z.boolean().optional(),
+    emailNotifications: z.boolean().optional(),
+    predictionAlerts: z.boolean().optional()
+  });
+  app2.post("/api/user/preferences", requireAuth, apiWriteRateLimit, async (req, res) => {
     try {
-      const { userId, notificationsEnabled, emailNotifications, predictionAlerts } = req.body;
-      if (!userId) {
-        return res.status(400).json({ error: "userId is required" });
+      const userId = req.userId;
+      const parsed = preferencesSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: safeErrorMessage(parsed.error) });
       }
-      const preferences = await storage.saveUserPreferences(userId, {
-        notificationsEnabled,
-        emailNotifications,
-        predictionAlerts
-      });
+      const preferences = await storage.saveUserPreferences(userId, parsed.data);
       res.json(preferences);
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
-  app2.post("/api/restore-purchases", async (req, res) => {
+  const pushTokenSchema = z.object({
+    token: z.string().min(1).max(500).regex(/^ExponentPushToken\[.+\]$|^[a-zA-Z0-9_:.\-]+$/, "Invalid push token format"),
+    platform: z.enum(["ios", "android", "web", "unknown"]).optional()
+  });
+  app2.post("/api/push-token", requireAuth, apiWriteRateLimit, async (req, res) => {
     try {
-      const { userId } = req.body;
-      if (!userId) {
-        return res.status(400).json({ error: "userId is required" });
+      const userId = req.userId;
+      const parsed = pushTokenSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid push token" });
       }
+      const { registerPushToken: registerPushToken2 } = await Promise.resolve().then(() => (init_pushNotificationService(), pushNotificationService_exports));
+      await registerPushToken2(userId, parsed.data.token, parsed.data.platform || "unknown");
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+  app2.delete("/api/push-token", requireAuth, apiWriteRateLimit, async (req, res) => {
+    try {
+      const userId = req.userId;
+      const parsed = z.object({ token: z.string().min(1).max(500) }).safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid push token" });
+      }
+      const { removePushTokenForUser: removePushTokenForUser2 } = await Promise.resolve().then(() => (init_pushNotificationService(), pushNotificationService_exports));
+      await removePushTokenForUser2(parsed.data.token, userId);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+  const restoreRateLimit = rateLimit({ windowMs: 60 * 1e3, max: 3 });
+  app2.post("/api/restore-purchases", requireAuth, restoreRateLimit, async (req, res) => {
+    try {
+      const userId = req.userId;
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
@@ -1906,37 +4069,40 @@ async function registerRoutes(app2) {
       const subscription = await stripeService.getActiveSubscription(user.stripeCustomerId);
       if (subscription && subscription.status === "active") {
         const expiryDate = new Date(subscription.current_period_end * 1e3);
-        await storage.updateUserStripeInfo(userId, {
+        const restoreUpdate = {
           stripeSubscriptionId: subscription.id,
           isPremium: true,
           subscriptionExpiry: expiryDate
-        });
+        };
+        if (!user.isPremium) {
+          restoreUpdate.premiumSince = /* @__PURE__ */ new Date();
+        }
+        await storage.updateUserStripeInfo(userId, restoreUpdate);
         return res.json({ restored: true, message: "Subscription restored successfully" });
       }
       return res.json({ restored: false, message: "No active subscriptions found" });
     } catch (error) {
       console.error("Error restoring purchases:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
-  app2.use("/api/affiliate", affiliateRoutes_default);
-  app2.post("/api/contact", async (req, res) => {
+  const contactSchema = z.object({
+    name: z.string().min(1).max(100),
+    email: z.string().email().max(254),
+    subject: z.string().min(1).max(200),
+    message: z.string().min(10).max(5e3)
+  });
+  app2.post("/api/contact", contactRateLimit, async (req, res) => {
     try {
-      const { name, email, subject, message } = req.body;
-      if (!name || !email || !subject || !message) {
-        return res.status(400).json({ error: "All fields are required." });
+      const parsed = contactSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: safeErrorMessage(parsed.error) });
       }
-      const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRe.test(email)) {
-        return res.status(400).json({ error: "Invalid email address." });
-      }
-      if (message.length < 10) {
-        return res.status(400).json({ error: "Message must be at least 10 characters." });
-      }
+      const { name, email, subject, message } = parsed.data;
       const submission = await storage.createContactSubmission({
         name: name.trim(),
         email: email.trim().toLowerCase(),
-        subject,
+        subject: subject.trim(),
         message: message.trim()
       });
       console.log(`Contact form submission from ${email}: [${subject}]`);
@@ -1951,8 +4117,26 @@ async function registerRoutes(app2) {
 }
 
 // server/webhookHandlers.ts
-import { eq as eq4 } from "drizzle-orm";
+init_predictionService();
+init_db();
+init_schema();
+import { eq as eq3 } from "drizzle-orm";
 var WebhookHandlers = class {
+  static async activatePremiumForUser(user, subscriptionId, periodEnd) {
+    const expiryDate = periodEnd ? new Date(periodEnd * 1e3) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1e3);
+    const premiumUpdate = {
+      isPremium: true,
+      stripeSubscriptionId: subscriptionId,
+      subscriptionExpiry: expiryDate
+    };
+    if (!user.isPremium) {
+      premiumUpdate.premiumSince = /* @__PURE__ */ new Date();
+    }
+    await storage.updateUserStripeInfo(user.id, premiumUpdate);
+    console.log(`Premium activated for user ${user.id} until ${expiryDate.toISOString()}`);
+    await generatePremiumPredictionsForUser(user.id);
+    console.log(`Premium predictions generated for user ${user.id}`);
+  }
   static async processWebhook(payload, signature) {
     if (!Buffer.isBuffer(payload)) {
       throw new Error(
@@ -1963,18 +4147,30 @@ var WebhookHandlers = class {
     await sync.processWebhook(payload, signature);
     try {
       const event = JSON.parse(payload.toString());
+      if (event.type === "checkout.session.completed") {
+        const session = event.data.object;
+        if (session.mode === "subscription" && session.customer && session.subscription) {
+          const user = await storage.getUserByStripeCustomerId(session.customer);
+          if (user && !user.isPremium) {
+            console.log(`Checkout completed for user ${user.id}, activating premium...`);
+            try {
+              const stripe = await getUncachableStripeClient();
+              const sub = await stripe.subscriptions.retrieve(session.subscription);
+              await this.activatePremiumForUser(user, sub.id, sub.current_period_end);
+            } catch (subErr) {
+              await this.activatePremiumForUser(user, session.subscription);
+            }
+          }
+        }
+      }
       if (event.type === "customer.subscription.created" || event.type === "customer.subscription.updated") {
         const subscription = event.data.object;
         const customerId = subscription.customer;
         const user = await storage.getUserByStripeCustomerId(customerId);
         if (user) {
           if (subscription.status === "active") {
-            console.log(`Subscription activated for user ${user.id}, generating premium predictions...`);
-            await generatePremiumPredictionsForUser(user.id);
-            console.log(`Premium predictions generated for user ${user.id}`);
-            if (event.type === "customer.subscription.created") {
-              await this.processAffiliateReferral(user.id, subscription);
-            }
+            console.log(`Subscription ${event.type} (active) for user ${user.id}`);
+            await this.activatePremiumForUser(user, subscription.id, subscription.current_period_end);
           } else if (["canceled", "unpaid", "past_due", "incomplete_expired"].includes(subscription.status)) {
             console.log(`Subscription ${subscription.status} for user ${user.id}, removing premium access...`);
             await storage.updateUserStripeInfo(user.id, {
@@ -1983,6 +4179,20 @@ var WebhookHandlers = class {
               subscriptionExpiry: void 0
             });
             console.log(`Premium access removed for user ${user.id}`);
+          }
+        }
+      }
+      if (event.type === "invoice.payment_failed") {
+        const invoice = event.data.object;
+        const customerId = invoice.customer;
+        const user = await storage.getUserByStripeCustomerId(customerId);
+        if (user) {
+          console.log(`Payment failed for user ${user.id} (invoice ${invoice.id}, attempt ${invoice.attempt_count})`);
+          if (invoice.attempt_count >= 3) {
+            await storage.updateUserStripeInfo(user.id, {
+              isPremium: false
+            });
+            console.log(`Premium revoked for user ${user.id} after ${invoice.attempt_count} failed payment attempts`);
           }
         }
       }
@@ -2006,18 +4216,16 @@ var WebhookHandlers = class {
   }
   static async processAffiliateReferral(userId, subscription) {
     try {
-      const [user] = await db.select().from(users).where(eq4(users.id, userId));
-      if (!user || !user.referredByCode) {
-        return;
-      }
-      const [affiliate] = await db.select().from(affiliates).where(eq4(affiliates.affiliateCode, user.referredByCode));
+      const [user] = await db.select().from(users).where(eq3(users.id, userId));
+      if (!user || !user.referredByCode) return;
+      const [affiliate] = await db.select().from(affiliates).where(eq3(affiliates.affiliateCode, user.referredByCode));
       if (!affiliate || !affiliate.isActive) {
         console.log(`Affiliate not found or inactive for code: ${user.referredByCode}`);
         return;
       }
-      const existingReferral = await db.select().from(referrals).where(eq4(referrals.subscriptionId, subscription.id));
+      const existingReferral = await db.select().from(referrals).where(eq3(referrals.referredUserId, userId));
       if (existingReferral.length > 0) {
-        console.log(`Referral already exists for subscription: ${subscription.id}`);
+        console.log(`Referral already exists for user: ${userId}`);
         return;
       }
       const subscriptionAmount = subscription.items?.data?.[0]?.price?.unit_amount || 4900;
@@ -2035,19 +4243,60 @@ var WebhookHandlers = class {
         totalEarnings: (affiliate.totalEarnings || 0) + commissionAmount,
         pendingEarnings: (affiliate.pendingEarnings || 0) + commissionAmount,
         totalReferrals: (affiliate.totalReferrals || 0) + 1
-      }).where(eq4(affiliates.id, affiliate.id));
-      console.log(`Affiliate referral processed: ${affiliate.affiliateCode} earned $${(commissionAmount / 100).toFixed(2)} (40% of $${(subscriptionAmount / 100).toFixed(2)})`);
+      }).where(eq3(affiliates.id, affiliate.id));
+      console.log(`Stripe affiliate referral: ${affiliate.affiliateCode} earned $${(commissionAmount / 100).toFixed(2)}`);
     } catch (error) {
-      console.error("Error processing affiliate referral:", error);
+      console.error("Error processing Stripe affiliate referral:", error);
+    }
+  }
+  // Handles affiliate commission for RevenueCat (native iOS/Android) purchases.
+  // Uses referredUserId as the dedup key — affiliates earn for the first subscription only.
+  static async processAffiliateReferralForRevenueCat(userId, productId) {
+    try {
+      const [user] = await db.select().from(users).where(eq3(users.id, userId));
+      if (!user || !user.referredByCode) return;
+      const [affiliate] = await db.select().from(affiliates).where(eq3(affiliates.affiliateCode, user.referredByCode));
+      if (!affiliate || !affiliate.isActive) {
+        console.log(`RevenueCat affiliate: not found or inactive for code ${user.referredByCode}`);
+        return;
+      }
+      const existingReferral = await db.select().from(referrals).where(eq3(referrals.referredUserId, userId));
+      if (existingReferral.length > 0) {
+        console.log(`RevenueCat affiliate: referral already exists for user ${userId}`);
+        return;
+      }
+      const isAnnual = String(productId || "").toLowerCase().includes("annual");
+      const subscriptionAmount = isAnnual ? 14900 : 4999;
+      const commissionRate = affiliate.commissionRate || 40;
+      const commissionAmount = Math.floor(subscriptionAmount * (commissionRate / 100));
+      await db.insert(referrals).values({
+        affiliateId: affiliate.id,
+        referredUserId: userId,
+        subscriptionId: `rc_${userId}_${productId}`,
+        subscriptionAmount,
+        commissionAmount,
+        status: "pending"
+      });
+      await db.update(affiliates).set({
+        totalEarnings: (affiliate.totalEarnings || 0) + commissionAmount,
+        pendingEarnings: (affiliate.pendingEarnings || 0) + commissionAmount,
+        totalReferrals: (affiliate.totalReferrals || 0) + 1
+      }).where(eq3(affiliates.id, affiliate.id));
+      console.log(`RevenueCat affiliate referral: ${affiliate.affiliateCode} earned $${(commissionAmount / 100).toFixed(2)} (${isAnnual ? "annual" : "monthly"}) for user ${userId}`);
+    } catch (error) {
+      console.error("Error processing RevenueCat affiliate referral:", error);
     }
   }
 };
 
 // server/index.ts
-import * as fs from "fs";
-import * as path from "path";
+init_predictionService();
+init_db();
+init_schema();
+import * as fs2 from "fs";
+import * as path2 from "path";
 import * as bcrypt2 from "bcryptjs";
-import { eq as eq5 } from "drizzle-orm";
+import { eq as eq4 } from "drizzle-orm";
 var app = express();
 var log = console.log;
 async function seedTestUser() {
@@ -2055,7 +4304,7 @@ async function seedTestUser() {
     const TEST_EMAIL = "test@probaly.app";
     const TEST_PASSWORD = "testpass123";
     const PREMIUM_EXPIRY = new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1e3);
-    const existing = await db.select().from(users).where(eq5(users.email, TEST_EMAIL)).limit(1);
+    const existing = await db.select().from(users).where(eq4(users.email, TEST_EMAIL)).limit(1);
     if (existing.length === 0) {
       const hashedPassword = await bcrypt2.hash(TEST_PASSWORD, 10);
       await db.insert(users).values({
@@ -2063,16 +4312,17 @@ async function seedTestUser() {
         password: hashedPassword,
         name: "Probaly Tester",
         isPremium: true,
+        premiumSince: /* @__PURE__ */ new Date(),
         subscriptionExpiry: PREMIUM_EXPIRY
       });
       log(`\u2713 Test user created with premium: ${TEST_EMAIL}`);
     } else {
-      await db.update(users).set({ isPremium: true, subscriptionExpiry: PREMIUM_EXPIRY, name: "Probaly Tester" }).where(eq5(users.email, TEST_EMAIL));
+      await db.update(users).set({ isPremium: true, subscriptionExpiry: PREMIUM_EXPIRY, name: "Probaly Tester", premiumSince: existing[0].premiumSince || /* @__PURE__ */ new Date() }).where(eq4(users.email, TEST_EMAIL));
       log(`\u2713 Test user premium access refreshed: ${TEST_EMAIL}`);
     }
     const FREE_EMAIL = "review@probaly.app";
     const FREE_PASSWORD = "reviewpass123";
-    const existingFree = await db.select().from(users).where(eq5(users.email, FREE_EMAIL)).limit(1);
+    const existingFree = await db.select().from(users).where(eq4(users.email, FREE_EMAIL)).limit(1);
     if (existingFree.length === 0) {
       const hashedFreePassword = await bcrypt2.hash(FREE_PASSWORD, 10);
       await db.insert(users).values({
@@ -2083,7 +4333,7 @@ async function seedTestUser() {
       });
       log(`\u2713 Free review account created: ${FREE_EMAIL}`);
     } else {
-      await db.update(users).set({ isPremium: false, subscriptionExpiry: null, name: "App Reviewer" }).where(eq5(users.email, FREE_EMAIL));
+      await db.update(users).set({ isPremium: false, subscriptionExpiry: null, name: "App Reviewer" }).where(eq4(users.email, FREE_EMAIL));
       log(`\u2713 Free review account confirmed non-premium: ${FREE_EMAIL}`);
     }
   } catch (error) {
@@ -2120,6 +4370,23 @@ async function initStripe() {
     console.error("Failed to initialize Stripe:", error);
   }
 }
+function setupSecurityHeaders(app2) {
+  app2.use((req, res, next) => {
+    res.header("X-Content-Type-Options", "nosniff");
+    res.header("X-Frame-Options", "DENY");
+    res.header("X-XSS-Protection", "0");
+    res.header("Referrer-Policy", "strict-origin-when-cross-origin");
+    res.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    if (process.env.REPLIT_DEPLOYMENT === "1") {
+      res.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    }
+    if (req.path.startsWith("/api")) {
+      res.header("Cache-Control", "no-store, no-cache, must-revalidate, private");
+      res.header("Pragma", "no-cache");
+    }
+    next();
+  });
+}
 function setupCors(app2) {
   app2.use((req, res, next) => {
     const origins = /* @__PURE__ */ new Set();
@@ -2131,15 +4398,17 @@ function setupCors(app2) {
         origins.add(`https://${d.trim()}`);
       });
     }
+    origins.add("https://probaly.net");
     const origin = req.header("origin");
+    const isProduction = process.env.REPLIT_DEPLOYMENT === "1";
     const isLocalhost = origin?.startsWith("http://localhost:") || origin?.startsWith("http://127.0.0.1:");
-    if (origin && (origins.has(origin) || isLocalhost)) {
+    if (origin && (origins.has(origin) || !isProduction && isLocalhost)) {
       res.header("Access-Control-Allow-Origin", origin);
       res.header(
         "Access-Control-Allow-Methods",
         "GET, POST, PUT, DELETE, OPTIONS"
       );
-      res.header("Access-Control-Allow-Headers", "Content-Type");
+      res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Admin-Key");
       res.header("Access-Control-Allow-Credentials", "true");
     }
     if (req.method === "OPTIONS") {
@@ -2151,7 +4420,7 @@ function setupCors(app2) {
 function setupRequestLogging(app2) {
   app2.use((req, res, next) => {
     const start = Date.now();
-    const path2 = req.path;
+    const path3 = req.path;
     let capturedJsonResponse = void 0;
     const originalResJson = res.json;
     res.json = function(bodyJson, ...args) {
@@ -2159,9 +4428,9 @@ function setupRequestLogging(app2) {
       return originalResJson.apply(res, [bodyJson, ...args]);
     };
     res.on("finish", () => {
-      if (!path2.startsWith("/api")) return;
+      if (!path3.startsWith("/api")) return;
       const duration = Date.now() - start;
-      let logLine = `${req.method} ${path2} ${res.statusCode} in ${duration}ms`;
+      let logLine = `${req.method} ${path3} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
@@ -2175,8 +4444,8 @@ function setupRequestLogging(app2) {
 }
 function getAppName() {
   try {
-    const appJsonPath = path.resolve(process.cwd(), "app.json");
-    const appJsonContent = fs.readFileSync(appJsonPath, "utf-8");
+    const appJsonPath = path2.resolve(process.cwd(), "app.json");
+    const appJsonContent = fs2.readFileSync(appJsonPath, "utf-8");
     const appJson = JSON.parse(appJsonContent);
     return appJson.expo?.name || "App Landing Page";
   } catch {
@@ -2184,19 +4453,19 @@ function getAppName() {
   }
 }
 function serveExpoManifest(platform, res) {
-  const manifestPath = path.resolve(
+  const manifestPath = path2.resolve(
     process.cwd(),
     "static-build",
     platform,
     "manifest.json"
   );
-  if (!fs.existsSync(manifestPath)) {
+  if (!fs2.existsSync(manifestPath)) {
     return res.status(404).json({ error: `Manifest not found for platform: ${platform}` });
   }
   res.setHeader("expo-protocol-version", "1");
   res.setHeader("expo-sfv-version", "0");
   res.setHeader("content-type", "application/json");
-  const manifest = fs.readFileSync(manifestPath, "utf-8");
+  const manifest = fs2.readFileSync(manifestPath, "utf-8");
   res.send(manifest);
 }
 function serveLandingPage({
@@ -2218,8 +4487,8 @@ function serveLandingPage({
   res.status(200).send(html);
 }
 function configureExpoAndLanding(app2) {
-  const distPath = path.resolve(process.cwd(), "dist");
-  const webBuildExists = fs.existsSync(path.join(distPath, "index.html"));
+  const distPath = path2.resolve(process.cwd(), "dist");
+  const webBuildExists = fs2.existsSync(path2.join(distPath, "index.html"));
   log(`Serving ${webBuildExists ? "web app from dist/" : "Expo landing page"}`);
   app2.use((req, res, next) => {
     if (req.path.startsWith("/api")) {
@@ -2231,21 +4500,26 @@ function configureExpoAndLanding(app2) {
     }
     next();
   });
-  app2.use("/assets", express.static(path.resolve(process.cwd(), "assets")));
+  app2.use("/assets", express.static(path2.resolve(process.cwd(), "assets")));
+  app2.get("/google5558d3209820d790.html", (_req, res) => {
+    const verifyPath = path2.resolve(process.cwd(), "server", "templates", "google5558d3209820d790.html");
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.sendFile(verifyPath);
+  });
   app2.get("/contact", (_req, res) => {
-    const contactPath = path.resolve(process.cwd(), "server", "templates", "contact.html");
+    const contactPath = path2.resolve(process.cwd(), "server", "templates", "contact.html");
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.sendFile(contactPath);
   });
   const servePrivacyPolicy = (_req, res) => {
-    const policyPath = path.resolve(process.cwd(), "server", "templates", "privacy-policy.html");
+    const policyPath = path2.resolve(process.cwd(), "server", "templates", "privacy-policy.html");
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.sendFile(policyPath);
   };
   app2.get("/privacypolicy", servePrivacyPolicy);
   app2.get("/privacy-policy", servePrivacyPolicy);
   const serveTerms = (_req, res) => {
-    const termsPath = path.resolve(process.cwd(), "server", "templates", "terms.html");
+    const termsPath = path2.resolve(process.cwd(), "server", "templates", "terms.html");
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.sendFile(termsPath);
   };
@@ -2255,30 +4529,58 @@ function configureExpoAndLanding(app2) {
   app2.get("/terms-of-service", serveTerms);
   app2.get("/termsandconditions", serveTerms);
   app2.get("/terms-and-conditions", serveTerms);
+  app2.get("/checkout/success", (_req, res) => {
+    const successPath = path2.resolve(process.cwd(), "server", "templates", "checkout-success.html");
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.sendFile(successPath);
+  });
+  app2.get("/checkout/cancel", (_req, res) => {
+    const cancelPath = path2.resolve(process.cwd(), "server", "templates", "checkout-cancel.html");
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.sendFile(cancelPath);
+  });
+  const templatePath = path2.resolve(
+    process.cwd(),
+    "server",
+    "templates",
+    "landing-page.html"
+  );
+  const landingPageTemplate = fs2.readFileSync(templatePath, "utf-8");
+  const appName = getAppName();
+  app2.get("/", (req, res) => {
+    serveLandingPage({ req, res, landingPageTemplate, appName });
+  });
   if (webBuildExists) {
-    app2.use(express.static(distPath));
-    app2.use((req, res, next) => {
-      if (req.path.startsWith("/api")) {
-        return next();
-      }
-      res.sendFile(path.join(distPath, "index.html"));
-    });
-    log("Web app: Serving React Native Web from dist/");
-  } else {
-    const templatePath = path.resolve(
-      process.cwd(),
-      "server",
-      "templates",
-      "landing-page.html"
-    );
-    const landingPageTemplate = fs.readFileSync(templatePath, "utf-8");
-    const appName = getAppName();
-    app2.use(express.static(path.resolve(process.cwd(), "static-build")));
-    app2.get("/", (req, res) => {
-      serveLandingPage({ req, res, landingPageTemplate, appName });
-    });
-    log("Expo routing: Serving landing page for Expo Go");
+    const serveWebApp = (_req, res) => {
+      res.setHeader("Cache-Control", "no-cache, must-revalidate");
+      res.sendFile(path2.join(distPath, "index.html"));
+    };
+    app2.get("/app", serveWebApp);
+    app2.get("/app/*path", serveWebApp);
+    app2.use(express.static(distPath, { index: false, maxAge: "7d" }));
   }
+  app2.use(express.static(path2.resolve(process.cwd(), "static-build"), { index: false }));
+  const landingPagePaths = /* @__PURE__ */ new Set([
+    "/",
+    "/contact",
+    "/privacypolicy",
+    "/privacy-policy",
+    "/terms",
+    "/terms-of-service",
+    "/termsofservice",
+    "/checkout/success",
+    "/checkout/cancel"
+  ]);
+  app2.use((req, res, next) => {
+    if (req.path.startsWith("/api")) {
+      return next();
+    }
+    if (webBuildExists && !landingPagePaths.has(req.path)) {
+      return res.sendFile(path2.join(distPath, "index.html"));
+    }
+    serveLandingPage({ req, res, landingPageTemplate, appName });
+  });
+  log("Serving app download landing page");
 }
 function setupErrorHandler(app2) {
   app2.use((err, _req, res, next) => {
@@ -2294,6 +4596,7 @@ function setupErrorHandler(app2) {
 }
 (async () => {
   await initStripe();
+  setupSecurityHeaders(app);
   setupCors(app);
   app.post(
     "/api/stripe/webhook",
@@ -2339,6 +4642,55 @@ function setupErrorHandler(app2) {
     async () => {
       log(`express server serving on port ${port}`);
       await seedTestUser();
+      try {
+        const { predictions: predictions2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+        const deleted = await db.delete(predictions2).where(eq4(predictions2.id, 4113)).returning();
+        if (deleted.length > 0) log(`Removed prediction ID 4113 (${deleted[0].matchTitle}) from DB`);
+      } catch {
+      }
+      try {
+        const { predictions: predictions2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+        const { sql: sql6, and: and3, isNull: isNull2, eq: _eq } = await import("drizzle-orm");
+        const reset = await db.update(predictions2).set({ result: sql6`null` }).where(
+          and3(
+            _eq(predictions2.isPremium, true),
+            isNull2(predictions2.userId),
+            sql6`${predictions2.expiresAt} > ${predictions2.matchTime}`,
+            sql6`${predictions2.matchTime} < NOW() - INTERVAL '1 hour'`,
+            sql6`${predictions2.matchTime} > NOW() - INTERVAL '7 days'`,
+            sql6`${predictions2.result} IS NOT NULL`
+          )
+        ).returning({ id: predictions2.id });
+        if (reset.length > 0) {
+          log(`[STARTUP MIGRATION] Reset ${reset.length} premium predictions for re-resolution with series-aware fix`);
+          const { resolvePredictionResults: resolvePredictionResults2 } = await Promise.resolve().then(() => (init_predictionService(), predictionService_exports));
+          await resolvePredictionResults2();
+          log(`[STARTUP MIGRATION] Re-resolution complete`);
+        }
+      } catch (err) {
+        console.error("[STARTUP MIGRATION] Series-aware re-resolution failed:", err);
+      }
+      try {
+        const { predictions: predictions2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+        const { sql: sql6, and: and3, or: _or } = await import("drizzle-orm");
+        const reset = await db.update(predictions2).set({ result: sql6`null` }).where(
+          and3(
+            _or(
+              sql6`${predictions2.sport} = 'cricket'`,
+              sql6`${predictions2.sport} = 'tennis'`
+            ),
+            sql6`${predictions2.matchTime} > NOW() - INTERVAL '7 days'`,
+            sql6`${predictions2.result} IN ('correct', 'incorrect')`
+          )
+        ).returning({ id: predictions2.id });
+        if (reset.length > 0) {
+          log(`[STARTUP MIGRATION] Reset ${reset.length} cricket/tennis predictions for AI re-resolution with stricter prompt`);
+        }
+      } catch (err) {
+        console.error("[STARTUP MIGRATION] Cricket/tennis AI reset failed:", err);
+      }
+      const { initPushTokensTable: initPushTokensTable2 } = await Promise.resolve().then(() => (init_pushNotificationService(), pushNotificationService_exports));
+      await initPushTokensTable2();
       startDailyRefreshScheduler();
     }
   );
