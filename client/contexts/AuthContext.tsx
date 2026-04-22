@@ -3,8 +3,7 @@ import { Platform } from "react-native";
 import { User } from "@/types";
 import { storage } from "@/lib/storage";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
-import { loginRevenueCat, logoutRevenueCat, REVENUECAT_ENTITLEMENT_IDENTIFIER } from "@/lib/revenuecat";
-import Purchases from "react-native-purchases";
+import { loginRevenueCat, logoutRevenueCat } from "@/lib/revenuecat";
 import {
   registerPushTokenWithServer,
   schedulePremiumPromoNotifications,
@@ -39,39 +38,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const savedUser = await storage.getUser();
       if (savedUser) {
         setUser(savedUser);
-        await loginRevenueCat(String(savedUser.id));
+        loginRevenueCat(String(savedUser.id));
         const token = await storage.getAuthToken();
         if (token) {
           registerPushTokenWithServer(token).catch(() => {});
-
-          // Heal premium status on every launch (native only). If the user
-          // paid but server didn't get the update (e.g. webhook was broken),
-          // this re-checks RevenueCat directly and syncs to the server.
-          if (Platform.OS !== "web") {
-            (async () => {
-              try {
-                const customerInfo = await Purchases.getCustomerInfo();
-                const entitlement = customerInfo.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER];
-                if (entitlement) {
-                  await apiRequest("POST", "/api/revenuecat/sync", {
-                    userId: String(savedUser.id),
-                    isSubscribed: true,
-                    productIdentifier: entitlement.productIdentifier,
-                  });
-                  // Pull fresh user state so isPremium flips immediately
-                  const subResp = await apiRequest("GET", `/api/subscription/${savedUser.id}`);
-                  const subData = await subResp.json();
-                  if (subData.isPremium && !savedUser.isPremium) {
-                    const updated: User = { ...savedUser, isPremium: true, subscriptionExpiry: subData.expiryDate };
-                    await storage.setUser(updated);
-                    setUser(updated);
-                  }
-                }
-              } catch (err) {
-                console.warn("Launch RevenueCat sync failed:", err);
-              }
-            })();
-          }
         }
 
         let needsRefresh = false;
