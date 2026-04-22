@@ -1389,9 +1389,9 @@ Respond ONLY with this JSON object (no markdown, no extra text):
   "riskIndex": <integer 5-45, lower = safer bet>
 }`;
   const response = await withOpenAIRetry(() => openai.chat.completions.create({
-    model: "gpt-4o",
+    model: "gpt-4o-mini",
     messages: [{ role: "user", content: prompt }],
-    max_tokens: 1200,
+    max_tokens: 900,
     temperature: 0.65
   }));
   const content = response.choices[0]?.message?.content || "{}";
@@ -1574,7 +1574,7 @@ async function generatePremiumPredictionsForUser(userId) {
       });
       existingTitles.add(effectiveTitle);
       console.log(`Generated premium ${useOU ? "O/U" : "winner"} prediction for user ${userId}: ${effectiveTitle}`);
-      await sleep(22e3);
+      await sleep(8e3);
     } catch (error) {
       console.error(`Failed to generate prediction for ${match.homeTeam} vs ${match.awayTeam}:`, error);
     }
@@ -1998,7 +1998,7 @@ async function generateDemoPredictions() {
       });
       existingTitles.add(effectiveTitle);
       console.log(`Generated ${usingFallback ? "fallback" : "real"} ${useOU ? "O/U" : "winner"} prediction: ${effectiveTitle} (${match.sport})`);
-      await sleep(22e3);
+      await sleep(8e3);
     } catch (error) {
       console.error(`Failed to generate prediction for ${matchTitle}:`, error);
     }
@@ -2536,14 +2536,82 @@ async function resolveStuckPredictionsViaAI(maxBatch = 50) {
       sql4`${predictions.matchTime} < ${threeHoursAgo.toISOString()}::timestamp`
     )
   ).orderBy(desc2(predictions.matchTime)).limit(maxBatch);
-  if (stuck.length === 0) {
-    return { correct: 0, incorrect: 0, unknown: 0 };
-  }
-  console.log(`[AI-RESOLVE] Found ${stuck.length} stuck predictions (>3h unresolved). Asking AI to find results...`);
+  if (stuck.length === 0) return { correct: 0, incorrect: 0, unknown: 0 };
+  console.log(`[AI-RESOLVE] Found ${stuck.length} stuck predictions. Pass 1: batch mini resolve...`);
   let aiCorrect = 0;
   let aiIncorrect = 0;
   let aiUnknown = 0;
-  for (const pred of stuck) {
+  const BATCH_SIZE = 10;
+  const stillUnknown = [];
+  for (let i = 0; i < stuck.length; i += BATCH_SIZE) {
+    const batch = stuck.slice(i, i + BATCH_SIZE);
+    const batchLines = batch.map((p, idx) => {
+      const title = (p.matchTitle || "").replace(/\s*\(O\/U\)$/, "");
+      const date = p.matchTime ? new Date(p.matchTime).toISOString().split("T")[0] : "unknown";
+      const isOU = (p.matchTitle || "").includes("(O/U)");
+      return `[${idx}] ${title} | sport: ${p.sport} | date: ${date} | bet: ${isOU ? "over/under" : "winner"} | predicted: "${p.predictedOutcome}"`;
+    }).join("\n");
+    const batchPrompt = `You are a sports results assistant. Using only your training knowledge, resolve the following predictions. Only set "found": true when you are fully certain of the result \u2014 if there is ANY doubt, set "found": false.
+
+Resolution rules:
+- Winner bets: extract team name from predictedOutcome (e.g. "Lakers Win" \u2192 Lakers). predictionCorrect = true if that team won.
+- O/U bets: parse line from predictedOutcome (e.g. "Over 224.5"). Sum homeScore+awayScore = total. Over wins if total > line, Under wins if total < line.
+- If postponed, cancelled, or uncertain: found: false.
+
+MATCHES:
+${batchLines}
+
+Return ONLY this JSON object (no prose, no markdown):
+{"results": [
+  {"index": 0, "found": true, "homeScore": 3, "awayScore": 1, "predictionCorrect": true, "reasoning": "X won 3-1"},
+  {"index": 1, "found": false, "reasoning": "Not certain of result"},
+  ...
+]}`;
+    try {
+      const resp = await withOpenAIRetry(() => openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: batchPrompt }],
+        max_tokens: 600,
+        temperature: 0.1,
+        response_format: { type: "json_object" }
+      }));
+      let raw = resp.choices[0]?.message?.content || "[]";
+      raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+      let parsed;
+      try {
+        const obj = JSON.parse(raw);
+        parsed = Array.isArray(obj) ? obj : obj.results || obj.predictions || Object.values(obj);
+      } catch {
+        parsed = [];
+      }
+      for (const item of parsed) {
+        const idx = item.index ?? item.idx;
+        if (typeof idx !== "number" || idx < 0 || idx >= batch.length) continue;
+        const pred = batch[idx];
+        if (!item.found || item.predictionCorrect === null || item.predictionCorrect === void 0) {
+          stillUnknown.push(pred);
+          continue;
+        }
+        const newResult = item.predictionCorrect ? "correct" : "incorrect";
+        await db.update(predictions).set({ result: newResult }).where(eq2(predictions.id, pred.id));
+        if (item.predictionCorrect) aiCorrect++;
+        else aiIncorrect++;
+        const scoreStr = item.homeScore != null && item.awayScore != null ? `${item.homeScore}-${item.awayScore}` : "score n/a";
+        const matchupClean = (pred.matchTitle || "").replace(/\s*\(O\/U\)$/, "");
+        console.log(`[AI-RESOLVE][mini] ${matchupClean}: ${scoreStr}, predicted "${pred.predictedOutcome}" \u2192 ${newResult.toUpperCase()}`);
+      }
+      const respondedIndexes = new Set(parsed.map((p) => p.index ?? p.idx));
+      for (let j = 0; j < batch.length; j++) {
+        if (!respondedIndexes.has(j)) stillUnknown.push(batch[j]);
+      }
+      await sleep(5e3);
+    } catch (err) {
+      console.error(`[AI-RESOLVE][mini] Batch ${i / BATCH_SIZE + 1} failed:`, err instanceof Error ? err.message : err);
+      stillUnknown.push(...batch);
+    }
+  }
+  console.log(`[AI-RESOLVE] Pass 1 done. ${aiCorrect + aiIncorrect} resolved, ${stillUnknown.length} need web search.`);
+  for (const pred of stillUnknown) {
     try {
       const matchupClean = (pred.matchTitle || "").replace(/\s*\(O\/U\)$/, "");
       const matchDateIso = pred.matchTime ? new Date(pred.matchTime).toISOString().split("T")[0] : "unknown";
@@ -2557,28 +2625,24 @@ Bet type: ${isOU ? "Over/Under total points/runs/goals" : "Match winner"}
 Our prediction was: "${pred.predictedOutcome}"
 
 REQUIRED PROCESS:
-1. Use web_search to look up the final score and winner. Search at least TWO independent reputable sources (e.g., espn.com, espncricinfo.com, bbc.com/sport, official league site, reuters.com).
-2. Confirm both sources agree on the winner and final score.
-3. Only set "found": true if you have a reputable source URL that EXPLICITLY states the final score AND the winner of THIS exact match on THIS exact date. Do NOT rely on training-data memory.
-4. Provide the actual source URL you used. If you cannot find the result with explicit confirmation from a reputable source, set "found": false.
+1. Use web_search to look up the final score and winner from at least ONE reputable source (espn.com, espncricinfo.com, bbc.com/sport, official league site).
+2. Only set "found": true if you have a reputable source URL that EXPLICITLY states the final score AND winner of THIS exact match on THIS exact date.
+3. Provide the actual source URL. If you cannot find explicit confirmation, set "found": false.
 
-Return ONLY valid JSON in this exact format (no prose, no markdown):
+Return ONLY valid JSON (no prose, no markdown):
 {
   "found": true | false,
   "homeScore": <integer or null>,
   "awayScore": <integer or null>,
-  "winner": "<exact home team name>" | "<exact away team name>" | "draw" | null,
-  "totalPoints": <number or null>,
   "predictionCorrect": true | false | null,
-  "source": "<full URL of source confirming this>" | null,
-  "reasoning": "<one short sentence: which source confirmed it>"
+  "source": "<full URL>" | null,
+  "reasoning": "<one sentence>"
 }
 
 Resolution rules:
-- For O/U bets: parse our prediction as "Over X.X" or "Under X.X". Compare totalPoints (homeScore + awayScore) against X.X. Over wins if total > X.X; Under wins if total < X.X. If exactly equal (push), set predictionCorrect: null.
-- For winner bets: extract the team named in our prediction (e.g., "Lakers Win" \u2192 "Lakers"). predictionCorrect = true if and only if that exact team matches the actual winner.
-- If the match was postponed, cancelled, or not yet played: set "found": false.
-- DO NOT GUESS. If sources conflict or are unclear, set "found": false.`;
+- O/U bets: compare homeScore+awayScore vs the line in predictedOutcome. Over wins if total > line, Under if total < line.
+- Winner bets: predictionCorrect = true only if the exact team in predictedOutcome matches actual winner.
+- If postponed/cancelled/uncertain: found: false.`;
       let content = "{}";
       let usedWebSearch = false;
       try {
@@ -2591,18 +2655,12 @@ Resolution rules:
         content = resp.output_text || resp.output?.flatMap?.((o) => o.content?.filter?.((c) => c.type === "output_text" || c.type === "text").map?.((c) => c.text) ?? []).join("") || "{}";
         content = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
       } catch (responsesErr) {
-        console.warn(`[AI-RESOLVE] web_search Responses API unavailable, falling back to chat completion:`, responsesErr instanceof Error ? responsesErr.message : responsesErr);
-        const response = await withOpenAIRetry(() => openai.chat.completions.create({
-          model: "gpt-4o",
-          messages: [{ role: "user", content: prompt }],
-          max_tokens: 350,
-          temperature: 0.1,
-          response_format: { type: "json_object" }
-        }));
-        content = response.choices[0]?.message?.content || "{}";
+        console.warn(`[AI-RESOLVE] web_search unavailable, skipping ${matchupClean}`);
+        aiUnknown++;
+        continue;
       }
-      if (usedWebSearch && stuck.indexOf(pred) === 0) {
-        console.log(`[AI-RESOLVE] Using OpenAI Responses API with web_search`);
+      if (usedWebSearch && stillUnknown.indexOf(pred) === 0) {
+        console.log(`[AI-RESOLVE] Pass 2: using web_search for remaining ${stillUnknown.length}`);
       }
       let parsed;
       try {
@@ -2620,7 +2678,7 @@ Resolution rules:
       const isValidUrl = /^https?:\/\/.+\..+/i.test(source);
       if (!isValidUrl) {
         aiUnknown++;
-        console.log(`[AI-RESOLVE] Rejected (no valid source URL): ${matchupClean} (${pred.sport}) \u2014 claimed: ${parsed.reasoning || "n/a"}`);
+        console.log(`[AI-RESOLVE] Rejected (no valid source): ${matchupClean}`);
         continue;
       }
       const newResult = parsed.predictionCorrect ? "correct" : "incorrect";
@@ -2628,8 +2686,8 @@ Resolution rules:
       if (parsed.predictionCorrect) aiCorrect++;
       else aiIncorrect++;
       const scoreStr = parsed.homeScore != null && parsed.awayScore != null ? `${parsed.homeScore}-${parsed.awayScore}` : "score n/a";
-      console.log(`[AI-RESOLVE] ${matchupClean}: ${scoreStr}, predicted "${pred.predictedOutcome}" \u2192 ${newResult.toUpperCase()} [src: ${source}]`);
-      await sleep(22e3);
+      console.log(`[AI-RESOLVE][web] ${matchupClean}: ${scoreStr}, predicted "${pred.predictedOutcome}" \u2192 ${newResult.toUpperCase()} [src: ${source}]`);
+      await sleep(8e3);
     } catch (err) {
       aiUnknown++;
       console.error(`[AI-RESOLVE] Failed for "${pred.matchTitle}":`, err instanceof Error ? err.message : err);
