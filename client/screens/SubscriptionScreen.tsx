@@ -92,6 +92,7 @@ export default function SubscriptionScreen() {
     isPurchasing,
     isRestoring,
     isSubscribed,
+    refetchCustomerInfo,
   } = useSubscription();
 
   const selectedPackage = selectedPlan === "monthly" ? monthlyPackage : annualPackage;
@@ -181,6 +182,8 @@ export default function SubscriptionScreen() {
       // Immediately mark premium in the app — Apple confirmed the payment,
       // so we trust the client. The server webhook will also confirm it.
       await activatePremium();
+      // Force RC customerInfo refetch so isSubscribed flips true on this tick
+      refetchCustomerInfo().catch(() => {});
 
       // Fire-and-forget — RevenueCatSyncHandler in App.tsx provides the
       // reliable retry path (it syncs on every launch/customerInfo refresh).
@@ -192,7 +195,18 @@ export default function SubscriptionScreen() {
         }).catch(() => {});
       }
 
-      navigation.navigate("Main", { screen: "ProfileTab" });
+      Alert.alert(
+        "You're now Premium",
+        "Thank you! You now have unlimited access to all AI predictions, live updates, and full history.",
+        [
+          {
+            text: "OK",
+            onPress: () => {
+              if (navigation.canGoBack()) navigation.goBack();
+            },
+          },
+        ]
+      );
     } catch (error: any) {
       if (error?.userCancelled) return;
 
@@ -204,6 +218,7 @@ export default function SubscriptionScreen() {
         const activeEntitlement = info.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER];
         if (activeEntitlement) {
           await activatePremium();
+          refetchCustomerInfo().catch(() => {});
           if (user?.id) {
             apiRequest("POST", "/api/revenuecat/sync", {
               isSubscribed: true,
@@ -211,7 +226,18 @@ export default function SubscriptionScreen() {
               userId: user.id,
             }).catch(() => {});
           }
-          navigation.navigate("Main", { screen: "ProfileTab" });
+          Alert.alert(
+            "You're now Premium",
+            "Your subscription is active. Enjoy unlimited access to all predictions.",
+            [
+              {
+                text: "OK",
+                onPress: () => {
+                  if (navigation.canGoBack()) navigation.goBack();
+                },
+              },
+            ]
+          );
           return;
         }
       } catch {}

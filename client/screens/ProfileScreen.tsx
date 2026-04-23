@@ -80,6 +80,7 @@ export default function ProfileScreen() {
     isPurchasing,
     isRestoring,
     isSubscribed,
+    refetchCustomerInfo,
   } = useSubscription();
 
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
@@ -121,6 +122,7 @@ export default function ProfileScreen() {
 
       // Immediately mark premium in the app — Apple confirmed the payment
       await activatePremium();
+      refetchCustomerInfo().catch(() => {});
 
       // Fire-and-forget server sync
       if (user?.id) {
@@ -130,6 +132,12 @@ export default function ProfileScreen() {
           userId: user.id,
         }).catch(() => {});
       }
+
+      Alert.alert(
+        "You're now Premium",
+        "Thank you! You now have unlimited access to all AI predictions, live updates, and full history.",
+        [{ text: "OK" }]
+      );
     } catch (error: any) {
       if (error?.userCancelled) return;
 
@@ -140,6 +148,7 @@ export default function ProfileScreen() {
         const activeEntitlement = info.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER];
         if (activeEntitlement) {
           await activatePremium();
+          refetchCustomerInfo().catch(() => {});
           if (user?.id) {
             apiRequest("POST", "/api/revenuecat/sync", {
               isSubscribed: true,
@@ -147,6 +156,11 @@ export default function ProfileScreen() {
               userId: user.id,
             }).catch(() => {});
           }
+          Alert.alert(
+            "You're now Premium",
+            "Your subscription is active. Enjoy unlimited access to all predictions.",
+            [{ text: "OK" }]
+          );
           return;
         }
       } catch {}
