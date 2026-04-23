@@ -925,6 +925,78 @@ function rateLimit(options) {
   };
 }
 
+// server/revenueCatService.ts
+var cachedToken = null;
+async function getRCAccessToken() {
+  if (cachedToken && Date.now() < cachedToken.expiresAt - 6e4) {
+    return cachedToken.value;
+  }
+  const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
+  const xReplitToken = process.env.REPL_IDENTITY ? "repl " + process.env.REPL_IDENTITY : process.env.WEB_REPL_RENEWAL ? "depl " + process.env.WEB_REPL_RENEWAL : null;
+  if (!hostname || !xReplitToken) {
+    return null;
+  }
+  try {
+    const res = await fetch(
+      `https://${hostname}/api/v2/connection?include_secrets=true&connector_names=revenuecat`,
+      {
+        headers: {
+          Accept: "application/json",
+          "X-Replit-Token": xReplitToken
+        }
+      }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const conn = data.items?.[0];
+    const token = conn?.settings?.access_token || conn?.settings?.oauth?.credentials?.access_token;
+    if (!token) return null;
+    const expiresAt = conn?.settings?.expires_at ? new Date(conn.settings.expires_at).getTime() : Date.now() + 10 * 60 * 1e3;
+    cachedToken = { value: token, expiresAt };
+    return token;
+  } catch {
+    return null;
+  }
+}
+async function checkRCSubscription(userId) {
+  const token = await getRCAccessToken();
+  if (!token) {
+    console.log("[RC] No access token \u2014 skipping server-side RC check");
+    return null;
+  }
+  try {
+    const url = `https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(userId)}`;
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json"
+      }
+    });
+    if (!res.ok) {
+      console.log(`[RC] Subscriber lookup returned HTTP ${res.status} for user ${userId}`);
+      return null;
+    }
+    const body = await res.json();
+    const entitlement = body?.subscriber?.entitlements?.premium;
+    if (!entitlement) {
+      return { isPremium: false };
+    }
+    const expiresDate = entitlement.expires_date ? new Date(entitlement.expires_date) : null;
+    const isActive = !expiresDate || expiresDate > /* @__PURE__ */ new Date();
+    if (isActive) {
+      return {
+        isPremium: true,
+        expiryDate: expiresDate ?? void 0,
+        productIdentifier: entitlement.product_identifier
+      };
+    }
+    return { isPremium: false };
+  } catch (error) {
+    console.error("[RC] checkRCSubscription error:", error);
+    return null;
+  }
+}
+
 // server/routes.ts
 init_db();
 init_schema();
@@ -1894,9 +1966,21 @@ async function _generateDailyFreeTip() {
     console.error("No upcoming matches available for free prediction");
     return;
   }
-  const preferred = matches.filter((m) => FREE_TIP_PREFERRED_SPORTS.has(m.sport));
-  const neutral = matches.filter((m) => !FREE_TIP_PREFERRED_SPORTS.has(m.sport) && !FREE_TIP_AVOID_SPORTS.has(m.sport));
-  const avoid = matches.filter((m) => FREE_TIP_AVOID_SPORTS.has(m.sport));
+  const tomorrowStart = /* @__PURE__ */ new Date();
+  tomorrowStart.setUTCHours(0, 0, 0, 0);
+  tomorrowStart.setUTCDate(tomorrowStart.getUTCDate() + 1);
+  const tomorrowEnd = new Date(tomorrowStart);
+  tomorrowEnd.setUTCDate(tomorrowEnd.getUTCDate() + 1);
+  const tomorrowMatches = matches.filter(
+    (m) => m.matchTime >= tomorrowStart && m.matchTime < tomorrowEnd
+  );
+  const pool = tomorrowMatches.length > 0 ? tomorrowMatches : matches;
+  console.log(
+    tomorrowMatches.length > 0 ? `[FREE-TIP] Using ${tomorrowMatches.length} tomorrow's games (${tomorrowStart.toISOString().slice(0, 10)})` : `[FREE-TIP] No tomorrow games \u2014 using all ${matches.length} upcoming games as fallback`
+  );
+  const preferred = pool.filter((m) => FREE_TIP_PREFERRED_SPORTS.has(m.sport));
+  const neutral = pool.filter((m) => !FREE_TIP_PREFERRED_SPORTS.has(m.sport) && !FREE_TIP_AVOID_SPORTS.has(m.sport));
+  const avoid = pool.filter((m) => FREE_TIP_AVOID_SPORTS.has(m.sport));
   const ordered = [...preferred, ...neutral, ...avoid];
   const SEARCH_LIMIT = Math.min(25, ordered.length);
   const candidates = ordered.slice(0, SEARCH_LIMIT).map((m) => ({ match: m, betType: "winner" }));
@@ -3255,9 +3339,27 @@ async function registerRoutes(app2) {
   app2.get("/api/subscription/:userId", requireAuth, apiReadRateLimit, async (req, res) => {
     try {
       const userId = req.userId;
-      const user = await storage.getUser(userId);
+      let user = await storage.getUser(userId);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
+      }
+      if (!user.isPremium) {
+        const rcStatus = await checkRCSubscription(userId);
+        if (rcStatus?.isPremium) {
+          const isAnnual = String(rcStatus.productIdentifier || "").includes("annual");
+          const expiry = rcStatus.expiryDate ?? (() => {
+            const d = /* @__PURE__ */ new Date();
+            isAnnual ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
+            return d;
+          })();
+          await storage.updateUserStripeInfo(userId, {
+            isPremium: true,
+            subscriptionExpiry: expiry,
+            premiumSince: /* @__PURE__ */ new Date()
+          });
+          user = { ...user, isPremium: true, subscriptionExpiry: expiry };
+          console.log(`[RC] subscription check auto-activated premium for user ${userId}`);
+        }
       }
       if (!user.stripeSubscriptionId) {
         return res.json({
@@ -3291,13 +3393,35 @@ async function registerRoutes(app2) {
       const { isSubscribed, productIdentifier } = parsed.data;
       const user = await storage.getUser(userId);
       if (!user) return res.status(404).json({ error: "User not found" });
+      const isStripePayment = String(productIdentifier || "").startsWith("stripe_");
       if (isSubscribed) {
-        const isAnnual = String(productIdentifier || "").includes("annual");
-        const expiry = /* @__PURE__ */ new Date();
-        if (isAnnual) {
-          expiry.setFullYear(expiry.getFullYear() + 1);
+        let expiry;
+        let source = "client-claim";
+        if (!isStripePayment) {
+          const rcStatus = await checkRCSubscription(userId);
+          if (rcStatus?.isPremium) {
+            expiry = rcStatus.expiryDate ?? (() => {
+              const d = /* @__PURE__ */ new Date();
+              const isAnn = String(rcStatus.productIdentifier || productIdentifier || "").includes("annual");
+              isAnn ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
+              return d;
+            })();
+            source = "RC-verified";
+          } else {
+            expiry = (() => {
+              const d = /* @__PURE__ */ new Date();
+              const isAnn = String(productIdentifier || "").includes("annual");
+              isAnn ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
+              return d;
+            })();
+          }
         } else {
-          expiry.setMonth(expiry.getMonth() + 1);
+          expiry = (() => {
+            const d = /* @__PURE__ */ new Date();
+            const isAnn = String(productIdentifier || "").includes("annual");
+            isAnn ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
+            return d;
+          })();
         }
         const wasAlreadyPremium = user.isPremium === true;
         const updateData = {
@@ -3308,11 +3432,12 @@ async function registerRoutes(app2) {
           updateData.premiumSince = /* @__PURE__ */ new Date();
         }
         await storage.updateUserStripeInfo(userId, updateData);
-        console.log(`RevenueCat sync VERIFIED: user ${userId} \u2192 isPremium=true (${isAnnual ? "annual" : "monthly"})`);
+        const isAnnual = String(productIdentifier || "").includes("annual");
+        console.log(`RevenueCat sync [${source}]: user ${userId} \u2192 isPremium=true (${isAnnual ? "annual" : "monthly"})`);
         return res.json({ isPremium: true, subscriptionExpiry: expiry });
       } else {
         await storage.updateUserStripeInfo(userId, { isPremium: false });
-        console.log(`RevenueCat sync: user ${userId} \u2192 isPremium=false`);
+        console.log(`RevenueCat sync [client-claim]: user ${userId} \u2192 isPremium=false`);
         return res.json({ isPremium: false });
       }
     } catch (error) {
@@ -4051,8 +4176,8 @@ async function seedTestUser() {
       });
       log(`\u2713 Free review account created: ${FREE_EMAIL}`);
     } else {
-      await db.update(users).set({ isPremium: false, subscriptionExpiry: null, name: "App Reviewer" }).where(eq4(users.email, FREE_EMAIL));
-      log(`\u2713 Free review account confirmed non-premium: ${FREE_EMAIL}`);
+      await db.update(users).set({ name: "App Reviewer" }).where(eq4(users.email, FREE_EMAIL));
+      log(`\u2713 Free review account verified: ${FREE_EMAIL}`);
     }
   } catch (error) {
   }
