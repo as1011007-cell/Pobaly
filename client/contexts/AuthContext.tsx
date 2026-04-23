@@ -31,6 +31,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const userRef = useRef<User | null>(null);
   const lastRefreshRef = useRef<number>(0);
+  // Timestamp of the last local premium activation — used to block server
+  // refreshes from downgrading premium status before the sync completes.
+  const premiumActivatedAt = useRef<number>(0);
 
   useEffect(() => {
     loadUser();
@@ -70,6 +73,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await response.json();
       const current = userRef.current;
       if (!current) return;
+
+      // Guard: if the user just paid (within 60s), never let a stale server
+      // response downgrade them from premium. The sync/webhook will catch up.
+      const recentlyActivated = Date.now() - premiumActivatedAt.current < 60_000;
+      if (recentlyActivated && current.isPremium && data.isPremium === false) {
+        return;
+      }
+
       const updatedUser: User = {
         ...current,
         isPremium: data.isPremium ?? current.isPremium,
@@ -94,34 +105,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           registerPushTokenWithServer(token).catch(() => {});
         }
 
-        let needsRefresh = false;
+        // On web: detect a Stripe payment that just completed and immediately
+        // activate premium without a server round-trip. The @probaly/premium_activated
+        // flag is set by checkout-success.html. WebPaymentSuccessHandler also handles
+        // the URL-param signal (?premium_activated=1) after auth is ready.
         if (Platform.OS === "web") {
           try {
             const activatedFlag = await AsyncStorage.getItem("@probaly/premium_activated");
             if (activatedFlag && !savedUser.isPremium) {
-              needsRefresh = true;
+              premiumActivatedAt.current = Date.now();
+              const activatedUser: User = {
+                ...savedUser,
+                isPremium: true,
+                subscriptionExpiry: (() => {
+                  const d = new Date();
+                  d.setFullYear(d.getFullYear() + 1);
+                  return d;
+                })(),
+              };
+              await storage.setUser(activatedUser);
+              setUserAndRef(activatedUser);
+              cancelPremiumPromoNotifications().catch(() => {});
               await AsyncStorage.removeItem("@probaly/premium_activated");
             }
           } catch {}
         }
 
-        if (needsRefresh && token) {
-          try {
-            const response = await apiRequest("GET", `/api/subscription/${savedUser.id}`);
-            const data = await response.json();
-            if (data.isPremium) {
-              const updatedUser: User = {
-                ...savedUser,
-                isPremium: true,
-                subscriptionExpiry: data.expiryDate,
-              };
-              await storage.setUser(updatedUser);
-              setUserAndRef(updatedUser);
-            }
-          } catch {}
-        }
-
-        const currentUser = needsRefresh ? (await storage.getUser()) || savedUser : savedUser;
+        const currentUser = (await storage.getUser()) || savedUser;
         if (currentUser.isPremium) {
           cancelPremiumPromoNotifications().catch(() => {});
         } else {
@@ -209,9 +219,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   // Optimistically activate premium immediately after a confirmed purchase.
-  // Called right after purchasePackage() resolves — Apple has confirmed the
-  // payment so we trust the client. The webhook + sync will confirm server-side.
+  // Called right after purchasePackage() resolves — Apple/Google/Stripe has
+  // confirmed the payment so we trust the client. The webhook + sync will
+  // confirm server-side. The premiumActivatedAt timestamp blocks any server
+  // refresh from downgrading the status before the sync completes.
   const activatePremium = async () => {
+    premiumActivatedAt.current = Date.now();
     const current = userRef.current;
     if (!current) return;
     const updatedUser: User = {

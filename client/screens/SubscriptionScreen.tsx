@@ -181,12 +181,16 @@ export default function SubscriptionScreen() {
       // so we trust the client. The server webhook will also confirm it.
       await activatePremium();
 
-      // Fire-and-forget server sync so DB stays in sync, but don't block the UI
+      // Await the server sync so the DB is updated before the app returns
+      // to the foreground and triggers a subscription refresh. Errors are
+      // swallowed — the 60s guard in AuthContext protects against downgrades.
       if (user?.id) {
-        apiRequest("POST", "/api/revenuecat/sync", {
-          isSubscribed: true,
-          productIdentifier: selectedPackage.product.identifier,
-        }).catch(() => {});
+        try {
+          await apiRequest("POST", "/api/revenuecat/sync", {
+            isSubscribed: true,
+            productIdentifier: selectedPackage.product.identifier,
+          });
+        } catch {}
       }
 
       setTimeout(() => {
