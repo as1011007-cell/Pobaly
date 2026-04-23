@@ -1,11 +1,11 @@
 {
-  "id": "548f04e5-cff8-4253-9cf0-d9d00ecd88a3",
-  "createdAt": "2026-04-23T04:30:08.140Z",
+  "id": "c002ed1e-e195-4f83-9608-cee3000bf4c5",
+  "createdAt": "2026-04-23T04:46:25.128Z",
   "runtimeVersion": "1.0.2",
   "launchAsset": {
-    "key": "bundle-1776918608140-35859",
+    "key": "bundle-1776919585128-37953",
     "contentType": "application/javascript",
-    "url": "https://probaly.net/1776918608140-35859/_expo/static/js/ios/bundle.js"
+    "url": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/1776919585128-37953/_expo/static/js/ios/bundle.js"
   },
   "assets": [],
   "metadata": {},
@@ -68,8 +68,8 @@
           "foregroundImage": "./assets/images/android-icon-foreground.png",
           "backgroundColor": "#1A237E",
           "monochromeImage": "./assets/images/android-icon-monochrome.png",
-          "foregroundImageUrl": "https://probaly.net/assets/./assets/images/android-icon-foreground.png",
-          "monochromeImageUrl": "https://probaly.net/assets/./assets/images/android-icon-monochrome.png"
+          "foregroundImageUrl": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/assets/./assets/images/android-icon-foreground.png",
+          "monochromeImageUrl": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/assets/./assets/images/android-icon-monochrome.png"
         },
         "googleServicesFile": "{\n  \"project_info\": {\n    \"project_number\": \"668848640465\",\n    \"project_id\": \"probaly-9e95b\",\n    \"storage_bucket\": \"probaly-9e95b.firebasestorage.app\"\n  },\n  \"client\": [\n    {\n      \"client_info\": {\n        \"mobilesdk_app_id\": \"1:668848640465:android:ce873c9d39eae0123b50f0\",\n        \"android_client_info\": {\n          \"package_name\": \"app.probaly.logic\"\n        }\n      },\n      \"oauth_client\": [],\n      \"api_key\": [\n        {\n          \"current_key\": \"AIzaSyCIssJd5KM62eRlk_jP5R4sz4OPRV6QHIE\"\n        }\n      ],\n      \"services\": {\n        \"appinvite_service\": {\n          \"other_platform_oauth_client\": []\n        }\n      }\n    }\n  ],\n  \"configuration_version\": \"1\"\n}\n",
         "icon": "./assets/images/probaly-logo.png",
@@ -112,7 +112,7 @@
             ]
           }
         ],
-        "iconUrl": "https://probaly.net/assets/./assets/images/probaly-logo.png"
+        "iconUrl": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/assets/./assets/images/probaly-logo.png"
       },
       "web": {
         "output": "single",
@@ -179,7 +179,7 @@
       "androidStatusBar": {
         "backgroundColor": "#1A237E"
       },
-      "iconUrl": "https://probaly.net/assets/./assets/images/probaly-logo.png",
+      "iconUrl": "https://16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/assets/./assets/images/probaly-logo.png",
       "hostUri": "16d82db2-5ccf-471a-9e77-ceeec74645db-00-tvwpazr8doau.kirk.replit.dev/ios"
     },
     "expoGo": {

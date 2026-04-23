@@ -929,13 +929,10 @@ function rateLimit(options) {
 import { createClient } from "@replit/revenuecat-sdk/client";
 import { listCustomerActiveEntitlements } from "@replit/revenuecat-sdk";
 var REVENUECAT_PROJECT_ID = process.env.REVENUECAT_PROJECT_ID || "projdf936295";
-var PREMIUM_ENTITLEMENT_LOOKUP_KEY = "premium";
 async function getRCClient() {
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
   const xReplitToken = process.env.REPL_IDENTITY ? "repl " + process.env.REPL_IDENTITY : process.env.WEB_REPL_RENEWAL ? "depl " + process.env.WEB_REPL_RENEWAL : null;
-  if (!hostname || !xReplitToken) {
-    return null;
-  }
+  if (!hostname || !xReplitToken) return null;
   try {
     const res = await fetch(
       `https://${hostname}/api/v2/connection?include_secrets=true&connector_names=revenuecat`,
@@ -962,7 +959,7 @@ async function getRCClient() {
 async function checkRCSubscription(userId) {
   const client = await getRCClient();
   if (!client) {
-    console.log("[RC] No client available \u2014 skipping server-side RC check");
+    console.log("[RC] No client available \u2014 skipping RC check");
     return null;
   }
   try {
@@ -974,21 +971,23 @@ async function checkRCSubscription(userId) {
       }
     });
     if (error) {
-      console.log(`[RC] Active entitlements lookup failed for user ${userId}:`, error);
+      console.log(`[RC] Active entitlements lookup failed for user ${userId}:`, error?.type ?? error);
       return null;
     }
-    const entitlements = data?.items ?? [];
-    const premiumEntitlement = entitlements.find(
-      (e) => e.lookup_key === PREMIUM_ENTITLEMENT_LOOKUP_KEY
-    );
-    if (!premiumEntitlement) {
+    const items = data?.items ?? [];
+    if (items.length === 0) {
       return { isPremium: false };
     }
-    const expiresDate = premiumEntitlement.expires_at ? new Date(premiumEntitlement.expires_at) : null;
+    const first = items[0];
+    const expiresAtMs = first.expires_at ?? null;
+    const expiryDate = expiresAtMs != null ? new Date(expiresAtMs) : null;
+    if (expiryDate && expiryDate <= /* @__PURE__ */ new Date()) {
+      return { isPremium: false };
+    }
+    console.log(`[RC] Active entitlement found for user ${userId}, expires: ${expiryDate?.toISOString() ?? "never"}`);
     return {
       isPremium: true,
-      expiryDate: expiresDate ?? void 0,
-      productIdentifier: premiumEntitlement.product_identifier
+      expiryDate: expiryDate ?? void 0
     };
   } catch (error) {
     console.error("[RC] checkRCSubscription error:", error);
