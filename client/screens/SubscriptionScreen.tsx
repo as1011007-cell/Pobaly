@@ -24,7 +24,7 @@ import { Button } from "@/components/Button";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/contexts/AuthContext";
 import { BorderRadius, Spacing } from "@/constants/theme";
-import { useSubscription, REVENUECAT_ENTITLEMENT_IDENTIFIER } from "@/lib/revenuecat";
+import { useSubscription, REVENUECAT_ENTITLEMENT_IDENTIFIER, fetchCustomerInfo } from "@/lib/revenuecat";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 
@@ -195,6 +195,28 @@ export default function SubscriptionScreen() {
       }, 800);
     } catch (error: any) {
       if (error?.userCancelled) return;
+
+      // The Apple "You're already subscribed" dialog causes purchasePackage to
+      // throw even though the entitlement IS active. Check RC customer info and
+      // activate premium if the entitlement is there, rather than showing an error.
+      try {
+        const info = await fetchCustomerInfo();
+        const activeEntitlement = info.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER];
+        if (activeEntitlement) {
+          await activatePremium();
+          if (user?.id) {
+            apiRequest("POST", "/api/revenuecat/sync", {
+              isSubscribed: true,
+              productIdentifier: activeEntitlement.productIdentifier,
+            }).catch(() => {});
+          }
+          setTimeout(() => {
+            if (navigation.canGoBack()) navigation.goBack();
+          }, 800);
+          return;
+        }
+      } catch {}
+
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       console.error("Purchase error:", error);
       const message =

@@ -64,12 +64,14 @@ async function seedTestUser() {
       });
       log(`✓ Free review account created: ${FREE_EMAIL}`);
     } else {
-      // Always keep this account non-premium so reviewers see the paywall
+      // Only update the display name — do NOT reset isPremium. App Store reviewers
+      // start from a fresh install (so they see the paywall), but resetting here
+      // would revoke any sandbox purchase they just made to verify the payment flow.
       await db
         .update(users)
-        .set({ isPremium: false, subscriptionExpiry: null, name: "App Reviewer" })
+        .set({ name: "App Reviewer" })
         .where(eq(users.email, FREE_EMAIL));
-      log(`✓ Free review account confirmed non-premium: ${FREE_EMAIL}`);
+      log(`✓ Free review account verified: ${FREE_EMAIL}`);
     }
   } catch (error) {
     // Silently fail if test user update fails

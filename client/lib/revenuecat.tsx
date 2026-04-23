@@ -76,6 +76,11 @@ export async function logoutRevenueCat() {
   }
 }
 
+// Thin wrapper so screens can check current entitlements without importing Purchases directly
+export async function fetchCustomerInfo() {
+  return Purchases.getCustomerInfo();
+}
+
 function useSubscriptionContext() {
   const customerInfoQuery = useQuery({
     queryKey: ["revenuecat", "customer-info"],
@@ -109,7 +114,9 @@ function useSubscriptionContext() {
   });
 
   const entitlement = customerInfoQuery.data?.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER];
-  const isSubscribed = entitlement !== undefined && (__DEV__ || !(entitlement as any).isSandbox);
+  // Trust any active entitlement from RevenueCat — sandbox purchases are valid
+  // for TestFlight/beta users and App Store reviewers, so we do not filter by isSandbox.
+  const isSubscribed = entitlement !== undefined;
 
   const currentOffering = offeringsQuery.data?.current;
   const monthlyPackage = currentOffering?.availablePackages.find(

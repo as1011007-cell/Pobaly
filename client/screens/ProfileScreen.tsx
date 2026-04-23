@@ -28,7 +28,7 @@ import { BorderRadius, Spacing } from "@/constants/theme";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { getLanguageName } from "@/lib/translations";
-import { useSubscription, REVENUECAT_ENTITLEMENT_IDENTIFIER } from "@/lib/revenuecat";
+import { useSubscription, REVENUECAT_ENTITLEMENT_IDENTIFIER, fetchCustomerInfo } from "@/lib/revenuecat";
 import { requestNotificationPermissions, sendWelcomeNotification } from "@/lib/notifications";
 
 type PlanType = "monthly" | "annual";
@@ -130,6 +130,24 @@ export default function ProfileScreen() {
       }
     } catch (error: any) {
       if (error?.userCancelled) return;
+
+      // The Apple "You're already subscribed" dialog causes purchasePackage to
+      // throw even though the entitlement IS active. Check customer info first.
+      try {
+        const info = await fetchCustomerInfo();
+        const activeEntitlement = info.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER];
+        if (activeEntitlement) {
+          await activatePremium();
+          if (user?.id) {
+            apiRequest("POST", "/api/revenuecat/sync", {
+              isSubscribed: true,
+              productIdentifier: activeEntitlement.productIdentifier,
+            }).catch(() => {});
+          }
+          return;
+        }
+      } catch {}
+
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       console.error("Purchase error:", error);
       const message =
