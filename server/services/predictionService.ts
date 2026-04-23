@@ -564,10 +564,28 @@ async function _generateDailyFreeTip(): Promise<void> {
     return;
   }
 
+  // Prefer games happening tomorrow (UTC) so the free tip is always forward-looking.
+  // Fall back to all upcoming games if tomorrow has nothing.
+  const tomorrowStart = new Date();
+  tomorrowStart.setUTCHours(0, 0, 0, 0);
+  tomorrowStart.setUTCDate(tomorrowStart.getUTCDate() + 1);
+  const tomorrowEnd = new Date(tomorrowStart);
+  tomorrowEnd.setUTCDate(tomorrowEnd.getUTCDate() + 1);
+
+  const tomorrowMatches = matches.filter(
+    m => m.matchTime >= tomorrowStart && m.matchTime < tomorrowEnd
+  );
+  const pool = tomorrowMatches.length > 0 ? tomorrowMatches : matches;
+  console.log(
+    tomorrowMatches.length > 0
+      ? `[FREE-TIP] Using ${tomorrowMatches.length} tomorrow's games (${tomorrowStart.toISOString().slice(0, 10)})`
+      : `[FREE-TIP] No tomorrow games — using all ${matches.length} upcoming games as fallback`
+  );
+
   // Reorder: preferred (low-variance) sports first, avoid (high-variance) sports last.
-  const preferred = matches.filter(m => FREE_TIP_PREFERRED_SPORTS.has(m.sport));
-  const neutral = matches.filter(m => !FREE_TIP_PREFERRED_SPORTS.has(m.sport) && !FREE_TIP_AVOID_SPORTS.has(m.sport));
-  const avoid = matches.filter(m => FREE_TIP_AVOID_SPORTS.has(m.sport));
+  const preferred = pool.filter(m => FREE_TIP_PREFERRED_SPORTS.has(m.sport));
+  const neutral = pool.filter(m => !FREE_TIP_PREFERRED_SPORTS.has(m.sport) && !FREE_TIP_AVOID_SPORTS.has(m.sport));
+  const avoid = pool.filter(m => FREE_TIP_AVOID_SPORTS.has(m.sport));
   const ordered = [...preferred, ...neutral, ...avoid];
 
   // Score up to 25 candidates in batch — pick the best across all of them
