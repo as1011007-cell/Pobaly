@@ -4,6 +4,7 @@ import { predictions, type InsertPrediction } from "@shared/schema";
 import { eq, and, gte, isNull, desc, sql, or } from "drizzle-orm";
 import { getUpcomingMatchesFromApi, getRecentCompletedGames, isUsingFallbackData, refreshUpcomingMatches, lookupGameByTeams } from "./sportsApiService";
 
+// OpenAI client — used only for the web_search Responses API (resolver Pass 2)
 let _openai: OpenAI | null = null;
 function getOpenAI(): OpenAI {
   if (!_openai) {
@@ -16,6 +17,27 @@ const openai = new Proxy({} as OpenAI, {
     return (getOpenAI() as any)[prop];
   },
 });
+
+// Groq client — free tier, OpenAI-compatible. Used for all prediction
+// generation and the batch resolver pass (no web_search needed there).
+let _groq: OpenAI | null = null;
+function getGroq(): OpenAI {
+  if (!_groq) {
+    _groq = new OpenAI({
+      apiKey: process.env.GROQ_API_KEY,
+      baseURL: "https://api.groq.com/openai/v1",
+    });
+  }
+  return _groq;
+}
+const groq = new Proxy({} as OpenAI, {
+  get(_target, prop) {
+    return (getGroq() as any)[prop];
+  },
+});
+
+// Groq model for prediction generation — comparable quality to gpt-4o-mini, free
+const GROQ_MODEL = "llama-3.3-70b-versatile";
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -306,8 +328,8 @@ Respond ONLY with this JSON object (no markdown, no extra text):
   "riskIndex": <integer 5-45, lower = safer bet>
 }`;
 
-  const response = await withOpenAIRetry(() => openai.chat.completions.create({
-    model: "gpt-4o-mini",
+  const response = await withOpenAIRetry(() => groq.chat.completions.create({
+    model: GROQ_MODEL,
     messages: [{ role: "user", content: prompt }],
     max_tokens: 900,
     temperature: 0.65,
@@ -416,8 +438,8 @@ MATCHES:
 ${matchLines}`;
 
     try {
-      const resp = await withOpenAIRetry(() => openai.chat.completions.create({
-        model: "gpt-4o-mini",
+      const resp = await withOpenAIRetry(() => groq.chat.completions.create({
+        model: GROQ_MODEL,
         messages: [{ role: "user", content: prompt }],
         max_tokens: Math.min(4500, batch.length * 800),
         temperature: 0.65,
@@ -450,7 +472,7 @@ ${matchLines}`;
       }
 
       console.log(`[BATCH-PREDICT] Batch ${Math.floor(start / batchSize) + 1}: resolved ${preds.length}/${batch.length} predictions`);
-      if (start + batchSize < items.length) await sleep(8000);
+      if (start + batchSize < items.length) await sleep(2000);
     } catch (err) {
       console.error(`[BATCH-PREDICT] Batch ${Math.floor(start / batchSize) + 1} failed:`, err instanceof Error ? err.message : err);
     }
@@ -2016,8 +2038,8 @@ Return ONLY this JSON object (no prose, no markdown):
 ]}`;
 
     try {
-      const resp = await withOpenAIRetry(() => openai.chat.completions.create({
-        model: "gpt-4o-mini",
+      const resp = await withOpenAIRetry(() => groq.chat.completions.create({
+        model: GROQ_MODEL,
         messages: [{ role: "user", content: batchPrompt }],
         max_tokens: 600,
         temperature: 0.1,

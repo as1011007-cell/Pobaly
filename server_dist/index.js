@@ -1159,6 +1159,15 @@ function getOpenAI() {
   }
   return _openai;
 }
+function getGroq() {
+  if (!_groq) {
+    _groq = new OpenAI({
+      apiKey: process.env.GROQ_API_KEY,
+      baseURL: "https://api.groq.com/openai/v1"
+    });
+  }
+  return _groq;
+}
 async function withOpenAIRetry(fn, maxRetries = 3) {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -1386,8 +1395,8 @@ MATCHES:
 
 ${matchLines}`;
     try {
-      const resp = await withOpenAIRetry(() => openai.chat.completions.create({
-        model: "gpt-4o-mini",
+      const resp = await withOpenAIRetry(() => groq.chat.completions.create({
+        model: GROQ_MODEL,
         messages: [{ role: "user", content: prompt }],
         max_tokens: Math.min(4500, batch.length * 800),
         temperature: 0.65,
@@ -1416,7 +1425,7 @@ ${matchLines}`;
         };
       }
       console.log(`[BATCH-PREDICT] Batch ${Math.floor(start / batchSize) + 1}: resolved ${preds.length}/${batch.length} predictions`);
-      if (start + batchSize < items.length) await sleep(8e3);
+      if (start + batchSize < items.length) await sleep(2e3);
     } catch (err) {
       console.error(`[BATCH-PREDICT] Batch ${Math.floor(start / batchSize) + 1} failed:`, err instanceof Error ? err.message : err);
     }
@@ -2594,8 +2603,8 @@ Return ONLY this JSON object (no prose, no markdown):
   ...
 ]}`;
     try {
-      const resp = await withOpenAIRetry(() => openai.chat.completions.create({
-        model: "gpt-4o-mini",
+      const resp = await withOpenAIRetry(() => groq.chat.completions.create({
+        model: GROQ_MODEL,
         messages: [{ role: "user", content: batchPrompt }],
         max_tokens: 600,
         temperature: 0.1,
@@ -2904,7 +2913,7 @@ function startDailyRefreshScheduler() {
     checkAndReplaceFreeTip();
   }, THIRTY_MINUTES);
 }
-var _openai, openai, sleep, isGeneratingFreeTip, FREE_TIP_PREFERRED_SPORTS, FREE_TIP_AVOID_SPORTS;
+var _openai, openai, _groq, groq, GROQ_MODEL, sleep, isGeneratingFreeTip, FREE_TIP_PREFERRED_SPORTS, FREE_TIP_AVOID_SPORTS;
 var init_predictionService = __esm({
   "server/services/predictionService.ts"() {
     "use strict";
@@ -2917,6 +2926,13 @@ var init_predictionService = __esm({
         return getOpenAI()[prop];
       }
     });
+    _groq = null;
+    groq = new Proxy({}, {
+      get(_target, prop) {
+        return getGroq()[prop];
+      }
+    });
+    GROQ_MODEL = "llama-3.3-70b-versatile";
     sleep = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
     isGeneratingFreeTip = false;
     FREE_TIP_PREFERRED_SPORTS = /* @__PURE__ */ new Set(["basketball", "football", "mma"]);
