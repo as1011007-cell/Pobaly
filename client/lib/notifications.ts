@@ -101,7 +101,7 @@ export async function requestNotificationPermissions(): Promise<boolean> {
   }
 }
 
-export async function registerPushTokenWithServer(authToken: string): Promise<string | null> {
+export async function registerPushTokenWithServer(authToken: string, userId?: string): Promise<string | null> {
   if (Platform.OS === "web") return null;
   try {
     const granted = await requestNotificationPermissions();
@@ -130,6 +130,7 @@ export async function registerPushTokenWithServer(authToken: string): Promise<st
         Authorization: `Bearer ${authToken}`,
       },
       body: JSON.stringify({
+        userId,
         token: pushToken,
         platform: Platform.OS,
       }),
@@ -143,7 +144,7 @@ export async function registerPushTokenWithServer(authToken: string): Promise<st
   }
 }
 
-export async function unregisterPushToken(authToken: string, pushToken: string): Promise<void> {
+export async function unregisterPushToken(authToken: string, pushToken: string, userId?: string): Promise<void> {
   if (Platform.OS === "web") return;
   try {
     const url = new URL("/api/push-token", getApiUrl());
@@ -153,7 +154,7 @@ export async function unregisterPushToken(authToken: string, pushToken: string):
         "Content-Type": "application/json",
         Authorization: `Bearer ${authToken}`,
       },
-      body: JSON.stringify({ token: pushToken }),
+      body: JSON.stringify({ userId, token: pushToken }),
     });
   } catch (error) {
     console.error("Error unregistering push token:", error);

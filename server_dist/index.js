@@ -3854,9 +3854,10 @@ async function registerRoutes(app2) {
       res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
-  app2.get("/api/user/preferences/:userId", requireAuth, apiReadRateLimit, async (req, res) => {
+  app2.get("/api/user/preferences/:userId", optionalAuth, apiReadRateLimit, async (req, res) => {
     try {
-      const userId = req.userId;
+      const userId = req.params.userId;
+      if (!userId) return res.status(400).json({ error: "userId required" });
       const preferences = await storage.getUserPreferences(userId);
       res.json(preferences || { notificationsEnabled: true });
     } catch (error) {
@@ -3864,30 +3865,36 @@ async function registerRoutes(app2) {
     }
   });
   const preferencesSchema = z.object({
+    userId: z.string().optional(),
     notificationsEnabled: z.boolean().optional(),
     emailNotifications: z.boolean().optional(),
-    predictionAlerts: z.boolean().optional()
+    predictionAlerts: z.boolean().optional(),
+    language: z.string().optional()
   });
-  app2.post("/api/user/preferences", requireAuth, apiWriteRateLimit, async (req, res) => {
+  app2.post("/api/user/preferences", optionalAuth, apiWriteRateLimit, async (req, res) => {
     try {
-      const userId = req.userId;
+      const userId = req.userId ?? req.body.userId;
+      if (!userId) return res.status(401).json({ error: "userId required" });
       const parsed = preferencesSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: safeErrorMessage(parsed.error) });
       }
-      const preferences = await storage.saveUserPreferences(userId, parsed.data);
+      const { userId: _uid, ...prefsOnly } = parsed.data;
+      const preferences = await storage.saveUserPreferences(userId, prefsOnly);
       res.json(preferences);
     } catch (error) {
       res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
   const pushTokenSchema = z.object({
+    userId: z.string().optional(),
     token: z.string().min(1).max(500).regex(/^ExponentPushToken\[.+\]$|^[a-zA-Z0-9_:.\-]+$/, "Invalid push token format"),
     platform: z.enum(["ios", "android", "web", "unknown"]).optional()
   });
-  app2.post("/api/push-token", requireAuth, apiWriteRateLimit, async (req, res) => {
+  app2.post("/api/push-token", optionalAuth, apiWriteRateLimit, async (req, res) => {
     try {
-      const userId = req.userId;
+      const userId = req.userId ?? req.body.userId;
+      if (!userId) return res.status(401).json({ error: "userId required" });
       const parsed = pushTokenSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid push token" });
@@ -3899,10 +3906,11 @@ async function registerRoutes(app2) {
       res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
-  app2.delete("/api/push-token", requireAuth, apiWriteRateLimit, async (req, res) => {
+  app2.delete("/api/push-token", optionalAuth, apiWriteRateLimit, async (req, res) => {
     try {
-      const userId = req.userId;
-      const parsed = z.object({ token: z.string().min(1).max(500) }).safeParse(req.body);
+      const userId = req.userId ?? req.body.userId;
+      if (!userId) return res.status(401).json({ error: "userId required" });
+      const parsed = z.object({ userId: z.string().optional(), token: z.string().min(1).max(500) }).safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid push token" });
       }
@@ -3914,9 +3922,10 @@ async function registerRoutes(app2) {
     }
   });
   const restoreRateLimit = rateLimit({ windowMs: 60 * 1e3, max: 3 });
-  app2.post("/api/restore-purchases", requireAuth, restoreRateLimit, async (req, res) => {
+  app2.post("/api/restore-purchases", optionalAuth, restoreRateLimit, async (req, res) => {
     try {
-      const userId = req.userId;
+      const userId = req.userId ?? req.body.userId;
+      if (!userId) return res.status(401).json({ error: "userId required" });
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(404).json({ error: "User not found" });

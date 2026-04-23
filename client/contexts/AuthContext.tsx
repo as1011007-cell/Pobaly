@@ -118,7 +118,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loginRevenueCat(String(savedUser.id));
         const token = await storage.getAuthToken();
         if (token) {
-          registerPushTokenWithServer(token).catch(() => {});
+          registerPushTokenWithServer(token, String(savedUser.id)).catch(() => {});
         }
 
         // On web: detect a Stripe payment that just completed and immediately
@@ -185,7 +185,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await storage.setAuthToken(data.token);
       setUserAndRef(newUser);
       loginRevenueCat(String(data.user.id));
-      registerPushTokenWithServer(data.token).catch(() => {});
+      registerPushTokenWithServer(data.token, String(data.user.id)).catch(() => {});
       if (newUser.isPremium) {
         cancelPremiumPromoNotifications().catch(() => {});
       } else {
@@ -216,7 +216,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await storage.setOnboardingComplete();
       setUserAndRef(newUser);
       loginRevenueCat(String(data.user.id));
-      registerPushTokenWithServer(data.token).catch(() => {});
+      registerPushTokenWithServer(data.token, String(data.user.id)).catch(() => {});
       schedulePremiumPromoNotifications().catch(() => {});
     } finally {
       setIsLoading(false);

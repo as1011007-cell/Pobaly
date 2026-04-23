@@ -964,10 +964,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============ User Preferences Routes ============
 
-  // Get user preferences
-  app.get("/api/user/preferences/:userId", requireAuth, apiReadRateLimit, async (req: Request, res: Response) => {
+  // Get user preferences — no auth required, userId in path
+  app.get("/api/user/preferences/:userId", optionalAuth, apiReadRateLimit, async (req: Request, res: Response) => {
     try {
-      const userId = req.userId!;
+      const userId = req.params.userId;
+      if (!userId) return res.status(400).json({ error: "userId required" });
       const preferences = await storage.getUserPreferences(userId);
       res.json(preferences || { notificationsEnabled: true });
     } catch (error: any) {
@@ -976,21 +977,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   const preferencesSchema = z.object({
+    userId: z.string().optional(),
     notificationsEnabled: z.boolean().optional(),
     emailNotifications: z.boolean().optional(),
     predictionAlerts: z.boolean().optional(),
+    language: z.string().optional(),
   });
 
-  // Save user preferences
-  app.post("/api/user/preferences", requireAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
+  // Save user preferences — userId from JWT or body
+  app.post("/api/user/preferences", optionalAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
     try {
-      const userId = req.userId!;
+      const userId = req.userId ?? req.body.userId;
+      if (!userId) return res.status(401).json({ error: "userId required" });
       const parsed = preferencesSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: safeErrorMessage(parsed.error) });
       }
 
-      const preferences = await storage.saveUserPreferences(userId, parsed.data);
+      const { userId: _uid, ...prefsOnly } = parsed.data;
+      const preferences = await storage.saveUserPreferences(userId, prefsOnly);
       res.json(preferences);
     } catch (error: any) {
       res.status(500).json({ error: safeErrorMessage(error) });
@@ -998,14 +1003,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   const pushTokenSchema = z.object({
+    userId: z.string().optional(),
     token: z.string().min(1).max(500).regex(/^ExponentPushToken\[.+\]$|^[a-zA-Z0-9_:.\-]+$/, "Invalid push token format"),
     platform: z.enum(["ios", "android", "web", "unknown"]).optional(),
   });
 
   // ============ Push Notification Token Registration ============
-  app.post("/api/push-token", requireAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
+  // userId from JWT or body — no auth required so tokens are always registered
+  app.post("/api/push-token", optionalAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
     try {
-      const userId = req.userId!;
+      const userId = req.userId ?? req.body.userId;
+      if (!userId) return res.status(401).json({ error: "userId required" });
       const parsed = pushTokenSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid push token" });
@@ -1018,10 +1026,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/push-token", requireAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
+  app.delete("/api/push-token", optionalAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
     try {
-      const userId = req.userId!;
-      const parsed = z.object({ token: z.string().min(1).max(500) }).safeParse(req.body);
+      const userId = req.userId ?? req.body.userId;
+      if (!userId) return res.status(401).json({ error: "userId required" });
+      const parsed = z.object({ userId: z.string().optional(), token: z.string().min(1).max(500) }).safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid push token" });
       }
@@ -1036,9 +1045,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============ Restore Purchases Route ============
   const restoreRateLimit = rateLimit({ windowMs: 60 * 1000, max: 3 });
 
-  app.post("/api/restore-purchases", requireAuth, restoreRateLimit, async (req: Request, res: Response) => {
+  // userId from JWT or body — no auth required
+  app.post("/api/restore-purchases", optionalAuth, restoreRateLimit, async (req: Request, res: Response) => {
     try {
-      const userId = req.userId!;
+      const userId = req.userId ?? req.body.userId;
+      if (!userId) return res.status(401).json({ error: "userId required" });
 
       const user = await storage.getUser(userId);
       if (!user) {
