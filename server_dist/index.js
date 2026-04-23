@@ -3344,22 +3344,23 @@ async function registerRoutes(app2) {
         return res.status(404).json({ error: "User not found" });
       }
       if (!user.isPremium) {
-        const rcStatus = await checkRCSubscription(userId);
-        if (rcStatus?.isPremium) {
-          const isAnnual = String(rcStatus.productIdentifier || "").includes("annual");
-          const expiry = rcStatus.expiryDate ?? (() => {
-            const d = /* @__PURE__ */ new Date();
-            isAnnual ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
-            return d;
-          })();
-          await storage.updateUserStripeInfo(userId, {
-            isPremium: true,
-            subscriptionExpiry: expiry,
-            premiumSince: /* @__PURE__ */ new Date()
-          });
-          user = { ...user, isPremium: true, subscriptionExpiry: expiry };
-          console.log(`[RC] subscription check auto-activated premium for user ${userId}`);
-        }
+        checkRCSubscription(userId).then(async (rcStatus) => {
+          if (rcStatus?.isPremium) {
+            const isAnnual = String(rcStatus.productIdentifier || "").includes("annual");
+            const expiry = rcStatus.expiryDate ?? (() => {
+              const d = /* @__PURE__ */ new Date();
+              isAnnual ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
+              return d;
+            })();
+            await storage.updateUserStripeInfo(userId, {
+              isPremium: true,
+              subscriptionExpiry: expiry,
+              premiumSince: /* @__PURE__ */ new Date()
+            });
+            console.log(`[RC] background check activated premium for user ${userId}`);
+          }
+        }).catch(() => {
+        });
       }
       if (!user.stripeSubscriptionId) {
         return res.json({

@@ -341,25 +341,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "User not found" });
       }
 
-      // If user is not premium in DB, do a live RevenueCat check to catch
-      // purchases that were never synced (e.g. old client code, webhook not configured)
+      // If user is not premium in DB, fire a background RC check to update the DB
+      // for the next refresh — we do NOT await it so this endpoint stays fast.
       if (!user.isPremium) {
-        const rcStatus = await checkRCSubscription(userId);
-        if (rcStatus?.isPremium) {
-          const isAnnual = String(rcStatus.productIdentifier || "").includes("annual");
-          const expiry = rcStatus.expiryDate ?? (() => {
-            const d = new Date();
-            isAnnual ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
-            return d;
-          })();
-          await storage.updateUserStripeInfo(userId, {
-            isPremium: true,
-            subscriptionExpiry: expiry,
-            premiumSince: new Date(),
-          });
-          user = { ...user, isPremium: true, subscriptionExpiry: expiry };
-          console.log(`[RC] subscription check auto-activated premium for user ${userId}`);
-        }
+        checkRCSubscription(userId).then(async (rcStatus) => {
+          if (rcStatus?.isPremium) {
+            const isAnnual = String(rcStatus.productIdentifier || "").includes("annual");
+            const expiry = rcStatus.expiryDate ?? (() => {
+              const d = new Date();
+              isAnnual ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
+              return d;
+            })();
+            await storage.updateUserStripeInfo(userId, {
+              isPremium: true,
+              subscriptionExpiry: expiry,
+              premiumSince: new Date(),
+            });
+            console.log(`[RC] background check activated premium for user ${userId}`);
+          }
+        }).catch(() => {});
       }
 
       // Return DB premium status regardless of how the subscription was created

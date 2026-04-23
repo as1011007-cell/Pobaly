@@ -34,6 +34,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Timestamp of the last local premium activation — used to block server
   // refreshes from downgrading premium status before the sync completes.
   const premiumActivatedAt = useRef<number>(0);
+  const PREMIUM_TRUST_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 
   useEffect(() => {
     loadUser();
@@ -74,11 +75,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const current = userRef.current;
       if (!current) return;
 
-      // Guard: if the user just paid (within 60s), never let a stale server
-      // response downgrade them from premium. The sync/webhook will catch up.
-      const recentlyActivated = Date.now() - premiumActivatedAt.current < 60_000;
+      // Guard: if the user activated premium recently, never let a server
+      // response downgrade them — the background RC check will catch up.
+      const recentlyActivated = Date.now() - premiumActivatedAt.current < PREMIUM_TRUST_WINDOW_MS;
       if (recentlyActivated && current.isPremium && data.isPremium === false) {
         return;
+      }
+
+      // Clear the persisted activation timestamp once server confirms premium
+      if (data.isPremium && premiumActivatedAt.current > 0) {
+        premiumActivatedAt.current = 0;
+        AsyncStorage.removeItem("@probaly/premium_activated_at").catch(() => {});
       }
 
       const updatedUser: User = {
@@ -96,6 +103,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const loadUser = async () => {
     try {
+      // Restore the premium activation timestamp so the protection window
+      // survives cold app restarts (e.g. user pays, force-quits, relaunches)
+      try {
+        const storedTs = await AsyncStorage.getItem("@probaly/premium_activated_at");
+        if (storedTs) {
+          premiumActivatedAt.current = Number(storedTs);
+        }
+      } catch {}
+
       const savedUser = await storage.getUser();
       if (savedUser) {
         setUserAndRef(savedUser);
@@ -230,7 +246,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // confirm server-side. The premiumActivatedAt timestamp blocks any server
   // refresh from downgrading the status before the sync completes.
   const activatePremium = async () => {
-    premiumActivatedAt.current = Date.now();
+    const now = Date.now();
+    premiumActivatedAt.current = now;
+    // Persist so protection survives cold restarts
+    AsyncStorage.setItem("@probaly/premium_activated_at", String(now)).catch(() => {});
     const current = userRef.current;
     if (!current) return;
     const updatedUser: User = {

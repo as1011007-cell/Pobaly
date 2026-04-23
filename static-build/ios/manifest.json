@@ -1,11 +1,11 @@
 {
-  "id": "150cf208-1c33-41e5-a5d8-8161dd30a73e",
-  "createdAt": "2026-04-23T04:14:27.982Z",
+  "id": "69dab139-a827-484d-bea1-8d4613047875",
+  "createdAt": "2026-04-23T04:24:55.695Z",
   "runtimeVersion": "1.0.2",
   "launchAsset": {
-    "key": "bundle-1776917667982-32895",
+    "key": "bundle-1776918295695-34356",
     "contentType": "application/javascript",
-    "url": "https://probaly.net/1776917667982-32895/_expo/static/js/ios/bundle.js"
+    "url": "https://probaly.net/1776918295695-34356/_expo/static/js/ios/bundle.js"
   },
   "assets": [],
   "metadata": {},
