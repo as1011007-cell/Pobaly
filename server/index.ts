@@ -325,27 +325,34 @@ function configureExpoAndLanding(app: express.Application) {
     res.sendFile(contactPath);
   });
 
-  // Privacy policy page (supports both /privacypolicy and /privacy-policy)
-  const servePrivacyPolicy = (_req: Request, res: Response) => {
+  // Privacy policy: canonical = /privacy-policy. All alias paths 301-redirect
+  // to avoid duplicate-content penalties in Google/Bing.
+  app.get("/privacy-policy", (_req: Request, res: Response) => {
     const policyPath = path.resolve(process.cwd(), "server", "templates", "privacy-policy.html");
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.sendFile(policyPath);
-  };
-  app.get("/privacypolicy", servePrivacyPolicy);
-  app.get("/privacy-policy", servePrivacyPolicy);
+  });
+  app.get("/privacypolicy", (_req: Request, res: Response) => {
+    res.redirect(301, "/privacy-policy");
+  });
 
-  // Terms & Conditions page (supports multiple URL variants)
-  const serveTerms = (_req: Request, res: Response) => {
+  // Terms & Conditions: canonical = /terms. All alias paths 301-redirect.
+  app.get("/terms", (_req: Request, res: Response) => {
     const termsPath = path.resolve(process.cwd(), "server", "templates", "terms.html");
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.sendFile(termsPath);
-  };
-  app.get("/term", serveTerms);
-  app.get("/terms", serveTerms);
-  app.get("/termsofservice", serveTerms);
-  app.get("/terms-of-service", serveTerms);
-  app.get("/termsandconditions", serveTerms);
-  app.get("/terms-and-conditions", serveTerms);
+  });
+  for (const alias of [
+    "/term",
+    "/termsofservice",
+    "/terms-of-service",
+    "/termsandconditions",
+    "/terms-and-conditions",
+  ]) {
+    app.get(alias, (_req: Request, res: Response) => {
+      res.redirect(301, "/terms");
+    });
+  }
 
   app.get("/checkout/success", (_req: Request, res: Response) => {
     const successPath = path.resolve(process.cwd(), "server", "templates", "checkout-success.html");
