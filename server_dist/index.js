@@ -2695,12 +2695,12 @@ async function dailyPredictionRefresh() {
     await runWithRetry(() => resolvePredictionResults(), "resolvePredictionResults");
     await runWithRetry(() => clearExpiredPredictions(), "clearExpiredPredictions");
     await runWithRetry(() => resetAndGenerateDailyFreeTip(), "resetAndGenerateDailyFreeTip");
+    await runWithRetry(() => refreshDemoPredictions(), "refreshDemoPredictions");
     try {
       await resolveStuckPredictionsViaAI();
     } catch (err) {
       console.error("[MIDNIGHT] AI fallback resolver failed:", err);
     }
-    await runWithRetry(() => refreshDemoPredictions(), "refreshDemoPredictions");
     console.log("Daily prediction refresh completed successfully");
     const { notifyDailyFreePredictionReady: notifyDailyFreePredictionReady2 } = await Promise.resolve().then(() => (init_pushNotificationService(), pushNotificationService_exports));
     await notifyDailyFreePredictionReady2();
@@ -2710,12 +2710,8 @@ async function dailyPredictionRefresh() {
   }
 }
 async function resolveStuckPredictionsViaAI(maxBatch = 50) {
-  const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1e3);
   const stuck = await db.select().from(predictions).where(
-    and(
-      sql4`(${predictions.result} IS NULL OR ${predictions.result} = 'unresolved')`,
-      sql4`${predictions.matchTime} < ${threeHoursAgo.toISOString()}::timestamp`
-    )
+    sql4`${predictions.result} = 'unresolved'`
   ).orderBy(desc2(predictions.matchTime)).limit(maxBatch);
   if (stuck.length === 0) return { correct: 0, incorrect: 0, unknown: 0 };
   console.log(`[AI-RESOLVE] Found ${stuck.length} stuck predictions. Pass 1: batch mini resolve...`);

@@ -1946,13 +1946,19 @@ export async function dailyPredictionRefresh(): Promise<void> {
     // Always reset free tip at midnight — delete previous day's tip (win or lose) then generate fresh one
     await runWithRetry(() => resetAndGenerateDailyFreeTip(), "resetAndGenerateDailyFreeTip");
 
-    // After midnight resolution, ask AI to clean up anything still stuck >24h.
+    // refreshDemoPredictions runs first: it marks NULL predictions that are
+    // 6+ hours past matchTime as 'unresolved'. The AI resolver then runs only
+    // on those 'unresolved' entries — guaranteeing every game it touches has
+    // had at least 6 hours to finish and was already checked by ESPN.
+    await runWithRetry(() => refreshDemoPredictions(), "refreshDemoPredictions");
+
+    // AI fallback resolver: only processes 'unresolved' (never NULL) so it
+    // never attempts a game that may still be in progress.
     try {
       await resolveStuckPredictionsViaAI();
     } catch (err) {
       console.error("[MIDNIGHT] AI fallback resolver failed:", err);
     }
-    await runWithRetry(() => refreshDemoPredictions(), "refreshDemoPredictions");
     
     console.log("Daily prediction refresh completed successfully");
 
@@ -1968,15 +1974,14 @@ export async function dailyPredictionRefresh(): Promise<void> {
 // ask the AI (GPT-4o) to find/recall the actual result and mark correct/incorrect.
 // Runs in small batches to control API cost.
 export async function resolveStuckPredictionsViaAI(maxBatch: number = 50): Promise<{ correct: number; incorrect: number; unknown: number }> {
-  const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000);
-
+  // Only process predictions already marked 'unresolved' — meaning:
+  //   1. ESPN already attempted resolution and found no final result
+  //   2. refreshDemoPredictions confirmed the game is 6+ hours past matchTime
+  // This guarantees we never attempt to resolve a game still in progress.
   const stuck = await db.select()
     .from(predictions)
     .where(
-      and(
-        sql`(${predictions.result} IS NULL OR ${predictions.result} = 'unresolved')`,
-        sql`${predictions.matchTime} < ${threeHoursAgo.toISOString()}::timestamp`,
-      )
+      sql`${predictions.result} = 'unresolved'`
     )
     .orderBy(desc(predictions.matchTime))
     .limit(maxBatch);
