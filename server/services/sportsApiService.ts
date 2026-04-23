@@ -192,23 +192,62 @@ async function getESPNMatches(): Promise<SportsMatch[]> {
   const currentTime = new Date();
   const seenMatchups = new Set<string>();
 
-  // Helper to parse ESPN events into SportsMatch entries
+  // Helper to extract a single SportsMatch from an ESPN "competition" object.
+  function extractFromCompetition(comp: any, fallbackDate: any, sport: string, league: string): SportsMatch | null {
+    const matchTime = new Date(comp?.date || fallbackDate);
+    if (isNaN(matchTime.getTime()) || matchTime < currentTime) return null;
+    // Tennis matches that haven't been finalized often have status STATUS_SCHEDULED;
+    // skip anything already final/in-progress regardless of date.
+    const statusName = comp?.status?.type?.name;
+    if (statusName === 'STATUS_FINAL' || statusName === 'STATUS_IN_PROGRESS') return null;
+    const competitors = comp?.competitors || [];
+    if (competitors.length < 2) return null;
+    const homeComp = competitors.find((c: any) => c.homeAway === 'home') || competitors[0];
+    const awayComp = competitors.find((c: any) => c.homeAway === 'away') || competitors[1];
+    const homeTeam = homeComp?.team?.displayName || homeComp?.athlete?.displayName || 'TBD';
+    const awayTeam = awayComp?.team?.displayName || awayComp?.athlete?.displayName || 'TBD';
+    if (homeTeam === 'TBD' || awayTeam === 'TBD') return null;
+    const key = `${homeTeam}|${awayTeam}|${sport}`;
+    if (seenMatchups.has(key)) return null;
+    seenMatchups.add(key);
+    return { homeTeam, awayTeam, sport, matchTime, league };
+  }
+
+  // Helper to parse ESPN events into SportsMatch entries.
+  // Handles two ESPN payload shapes:
+  //   1. Standard: event.competitions[0].competitors  (NBA, MLB, NHL, soccer, UFC)
+  //   2. Tennis tournaments: event.groupings[*].competitions[*].competitors
   function parseESPNEvents(events: any[], sport: string, league: string): SportsMatch[] {
     const results: SportsMatch[] = [];
-    for (const event of events.slice(0, 10)) {
-      const matchTime = new Date(event.date);
-      if (isNaN(matchTime.getTime()) || matchTime < currentTime) continue;
-      const competitors = event.competitions?.[0]?.competitors || [];
-      if (competitors.length < 2) continue;
-      const homeComp = competitors.find((c: any) => c.homeAway === 'home') || competitors[0];
-      const awayComp = competitors.find((c: any) => c.homeAway === 'away') || competitors[1];
-      const homeTeam = homeComp.team?.displayName || homeComp.athlete?.displayName || event.name?.split(' vs ')?.[0] || 'TBD';
-      const awayTeam = awayComp.team?.displayName || awayComp.athlete?.displayName || event.name?.split(' vs ')?.[1] || 'TBD';
-      if (homeTeam === 'TBD' || awayTeam === 'TBD') continue;
-      const key = `${homeTeam}|${awayTeam}|${sport}`;
-      if (seenMatchups.has(key)) continue;
-      seenMatchups.add(key);
-      results.push({ homeTeam, awayTeam, sport, matchTime, league });
+    // For tournament-style sports we need to scan many sub-matches; cap higher.
+    const eventLimit = sport === 'tennis' ? events.length : 10;
+    for (const event of events.slice(0, eventLimit)) {
+      const fallbackDate = event.date;
+
+      const tennisCapHit = () => sport === 'tennis' && results.length >= 30;
+
+      // Shape 1: top-level competition (most sports)
+      if (event.competitions?.length > 0 && !tennisCapHit()) {
+        for (const comp of event.competitions) {
+          if (tennisCapHit()) break;
+          const m = extractFromCompetition(comp, fallbackDate, sport, league);
+          if (m) results.push(m);
+        }
+      }
+
+      // Shape 2: nested groupings (tennis tournaments — each grouping is a round,
+      // each competition is one match between two athletes)
+      if (event.groupings?.length > 0 && !tennisCapHit()) {
+        for (const group of event.groupings) {
+          if (tennisCapHit()) break;
+          for (const comp of group.competitions || []) {
+            if (tennisCapHit()) break;
+            const m = extractFromCompetition(comp, fallbackDate, sport, league);
+            if (m) results.push(m);
+          }
+        }
+      }
+      if (tennisCapHit()) break;
     }
     return results;
   }
@@ -240,7 +279,9 @@ async function getESPNMatches(): Promise<SportsMatch[]> {
     { base: 'https://site.api.espn.com/apis/site/v2/sports/cricket/icc/scoreboard', sport: 'cricket', league: 'ICC' },
   ];
 
-  for (let dayOffset = 1; dayOffset <= 3; dayOffset++) {
+  // dayOffset 0 = today (ESPN's default scoreboard often returns yesterday's
+  // matchday during early UTC hours, so we explicitly query today as well).
+  for (let dayOffset = 0; dayOffset <= 3; dayOffset++) {
     const d = new Date(currentTime);
     d.setUTCDate(d.getUTCDate() + dayOffset);
     const dateStr = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
