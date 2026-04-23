@@ -9,6 +9,7 @@ import bcrypt from "bcryptjs";
 // import affiliateRoutes from "./affiliateRoutes";
 import { WebhookHandlers } from "./webhookHandlers";
 import { signToken, requireAuth, optionalAuth, requireAdmin, requireWebhookAuth, rateLimit } from "./auth";
+import { checkRCSubscription } from "./revenueCatService";
 const adminRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 30 });
 import { db } from "./db";
 import { sql, and } from "drizzle-orm";
@@ -334,10 +335,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/subscription/:userId", requireAuth, apiReadRateLimit, async (req: Request, res: Response) => {
     try {
       const userId = req.userId!;
-      const user = await storage.getUser(userId);
+      let user = await storage.getUser(userId);
 
       if (!user) {
         return res.status(404).json({ error: "User not found" });
+      }
+
+      // If user is not premium in DB, do a live RevenueCat check to catch
+      // purchases that were never synced (e.g. old client code, webhook not configured)
+      if (!user.isPremium) {
+        const rcStatus = await checkRCSubscription(userId);
+        if (rcStatus?.isPremium) {
+          const isAnnual = String(rcStatus.productIdentifier || "").includes("annual");
+          const expiry = rcStatus.expiryDate ?? (() => {
+            const d = new Date();
+            isAnnual ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
+            return d;
+          })();
+          await storage.updateUserStripeInfo(userId, {
+            isPremium: true,
+            subscriptionExpiry: expiry,
+            premiumSince: new Date(),
+          });
+          user = { ...user, isPremium: true, subscriptionExpiry: expiry };
+          console.log(`[RC] subscription check auto-activated premium for user ${userId}`);
+        }
       }
 
       // Return DB premium status regardless of how the subscription was created
@@ -382,13 +404,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getUser(userId);
       if (!user) return res.status(404).json({ error: "User not found" });
 
+      // For Stripe web payments, the productIdentifier is "stripe_web_*" —
+      // skip RC check since these users are not in RevenueCat.
+      const isStripePayment = String(productIdentifier || "").startsWith("stripe_");
+
       if (isSubscribed) {
-        const isAnnual = String(productIdentifier || "").includes("annual");
-        const expiry = new Date();
-        if (isAnnual) {
-          expiry.setFullYear(expiry.getFullYear() + 1);
+        // Try to verify with RevenueCat server-side (native purchases only).
+        // RC check failing or returning false is NOT treated as a downgrade here
+        // — the client said subscribed and the payment store confirmed it.
+        // We only use RC to get accurate expiry dates.
+        let expiry: Date;
+        let source = "client-claim";
+
+        if (!isStripePayment) {
+          const rcStatus = await checkRCSubscription(userId);
+          if (rcStatus?.isPremium) {
+            expiry = rcStatus.expiryDate ?? (() => {
+              const d = new Date();
+              const isAnn = String(rcStatus.productIdentifier || productIdentifier || "").includes("annual");
+              isAnn ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
+              return d;
+            })();
+            source = "RC-verified";
+          } else {
+            expiry = (() => {
+              const d = new Date();
+              const isAnn = String(productIdentifier || "").includes("annual");
+              isAnn ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
+              return d;
+            })();
+          }
         } else {
-          expiry.setMonth(expiry.getMonth() + 1);
+          expiry = (() => {
+            const d = new Date();
+            const isAnn = String(productIdentifier || "").includes("annual");
+            isAnn ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
+            return d;
+          })();
         }
 
         const wasAlreadyPremium = user.isPremium === true;
@@ -401,11 +453,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         await storage.updateUserStripeInfo(userId, updateData);
-        console.log(`RevenueCat sync VERIFIED: user ${userId} → isPremium=true (${isAnnual ? "annual" : "monthly"})`);
+        const isAnnual = String(productIdentifier || "").includes("annual");
+        console.log(`RevenueCat sync [${source}]: user ${userId} → isPremium=true (${isAnnual ? "annual" : "monthly"})`);
         return res.json({ isPremium: true, subscriptionExpiry: expiry });
       } else {
         await storage.updateUserStripeInfo(userId, { isPremium: false });
-        console.log(`RevenueCat sync: user ${userId} → isPremium=false`);
+        console.log(`RevenueCat sync [client-claim]: user ${userId} → isPremium=false`);
         return res.json({ isPremium: false });
       }
     } catch (error: any) {

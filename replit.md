@@ -19,6 +19,7 @@ The application features a 5-tab navigation system (Home, Live, Sports, History,
 - **Authentication**: Email/password with bcrypt for hashing and JWT for session management (30-day expiry).
 - **AI Integration**: Groq (GROQ_API_KEY, model: llama-3.3-70b-versatile) powers all prediction generation and batch resolution — free tier, OpenAI-compatible. OpenAI is not used.
 - **Payment Processing**: RevenueCat handles in-app purchases for iOS and Android. Stripe is used exclusively for affiliate payouts.
+- **Server-Side RC Verification**: `server/revenueCatService.ts` provides `checkRCSubscription(userId)` which calls RevenueCat's v1 REST API using the Replit-managed OAuth token. Called by `GET /api/subscription/:userId` (checks RC when user is not premium in DB) and `POST /api/revenuecat/sync` (verifies native purchases server-side). Stripe web payments bypass RC check (identified by `stripe_*` productIdentifier). Falls back gracefully when RC API is unavailable.
 - **Data Refresh**: A daily scheduler refreshes predictions, clears expired entries, fetches new games, and regenerates AI predictions. After refresh, push notifications are sent to all registered devices to alert users that the daily free tip is ready.
 - **Push Notifications**: Uses Expo Push Notifications API. Client registers push tokens on login/signup/app restart. Server stores tokens in `push_tokens` table and sends via Expo's push API. Respects user notification preferences.
 - **History Filtering Rules (NEVER change without explicit instruction)**:
