@@ -302,6 +302,22 @@ function configureExpoAndLanding(app: express.Application) {
     res.sendFile(verifyPath);
   });
 
+  // SEO: robots.txt
+  app.get("/robots.txt", (_req: Request, res: Response) => {
+    const robotsPath = path.resolve(process.cwd(), "server", "templates", "robots.txt");
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.sendFile(robotsPath);
+  });
+
+  // SEO: sitemap.xml
+  app.get("/sitemap.xml", (_req: Request, res: Response) => {
+    const sitemapPath = path.resolve(process.cwd(), "server", "templates", "sitemap.xml");
+    res.setHeader("Content-Type", "application/xml; charset=utf-8");
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.sendFile(sitemapPath);
+  });
+
   // Serve contact page before SPA fallback
   app.get("/contact", (_req: Request, res: Response) => {
     const contactPath = path.resolve(process.cwd(), "server", "templates", "contact.html");
