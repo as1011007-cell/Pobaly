@@ -508,15 +508,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/revenuecat/webhook", async (req: Request, res: Response) => {
     try {
       const event = req.body;
-      const eventType = event?.event?.type;
-      const appUserId = event?.event?.app_user_id;
+      const eventType: string | undefined = event?.event?.type;
       const productId = event?.event?.product_id;
       const expirationAtMs = event?.event?.expiration_at_ms;
 
-      console.log(`RevenueCat webhook received: type=${eventType} user=${appUserId} product=${productId}`);
+      // TRANSFER events use transferred_from/transferred_to arrays instead of
+      // app_user_id. Every other event type uses app_user_id directly.
+      const transferredFrom: string[] = Array.isArray(event?.event?.transferred_from)
+        ? event.event.transferred_from
+        : [];
+      const transferredTo: string[] = Array.isArray(event?.event?.transferred_to)
+        ? event.event.transferred_to
+        : [];
+      const appUserId: string | undefined =
+        event?.event?.app_user_id ||
+        (eventType === "TRANSFER" ? transferredTo[0] : undefined);
 
-      if (!appUserId || !eventType) {
-        console.warn("RevenueCat webhook: missing appUserId or eventType", JSON.stringify(event).slice(0, 200));
+      console.log(
+        `RevenueCat webhook received: type=${eventType} user=${appUserId} product=${productId}` +
+          (eventType === "TRANSFER" ? ` from=[${transferredFrom.join(",")}] to=[${transferredTo.join(",")}]` : "")
+      );
+
+      if (!eventType) {
+        console.warn("RevenueCat webhook: missing eventType", JSON.stringify(event).slice(0, 200));
+        return res.status(400).json({ error: "Invalid webhook payload" });
+      }
+
+      // TRANSFER: subscription moves between accounts. Deactivate every
+      // transferred_from user and activate the transferred_to user.
+      if (eventType === "TRANSFER") {
+        for (const fromId of transferredFrom) {
+          const fromUser = await storage.getUser(String(fromId));
+          if (fromUser) {
+            await storage.updateUserStripeInfo(String(fromId), { isPremium: false });
+            console.log(`RevenueCat webhook: TRANSFER → isPremium=false for ${fromId}`);
+          }
+        }
+        for (const toId of transferredTo) {
+          const toUser = await storage.getUser(String(toId));
+          if (!toUser) {
+            console.log(`RevenueCat webhook: TRANSFER target ${toId} not in DB (skipping activation)`);
+            continue;
+          }
+          const expiry = expirationAtMs
+            ? new Date(expirationAtMs)
+            : (() => {
+                const d = new Date();
+                String(productId || "").includes("annual")
+                  ? d.setFullYear(d.getFullYear() + 1)
+                  : d.setMonth(d.getMonth() + 1);
+                return d;
+              })();
+          const update: any = { isPremium: true, subscriptionExpiry: expiry };
+          if (!toUser.isPremium) update.premiumSince = new Date();
+          await storage.updateUserStripeInfo(String(toId), update);
+          console.log(`RevenueCat webhook: TRANSFER → isPremium=true for ${toId}`);
+        }
+        return res.json({ received: true });
+      }
+
+      if (!appUserId) {
+        console.warn("RevenueCat webhook: missing appUserId", JSON.stringify(event).slice(0, 200));
         return res.status(400).json({ error: "Invalid webhook payload" });
       }
 
@@ -526,7 +578,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ received: true });
       }
 
-      const activatingEvents = ["INITIAL_PURCHASE", "RENEWAL", "PRODUCT_CHANGE", "UNCANCELLATION", "TRANSFER"];
+      const activatingEvents = ["INITIAL_PURCHASE", "RENEWAL", "PRODUCT_CHANGE", "UNCANCELLATION"];
       const deactivatingEvents = ["CANCELLATION", "EXPIRATION", "BILLING_ISSUE"];
 
       if (activatingEvents.includes(eventType)) {
