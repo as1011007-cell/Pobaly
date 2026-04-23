@@ -3334,9 +3334,12 @@ async function registerRoutes(app2) {
       res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
-  app2.get("/api/subscription/:userId", requireAuth, apiReadRateLimit, async (req, res) => {
+  app2.get("/api/subscription/:userId", optionalAuth, apiReadRateLimit, async (req, res) => {
     try {
-      const userId = req.userId;
+      const userId = req.params.userId;
+      if (req.userId && req.userId !== userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
       let user = await storage.getUser(userId);
       if (!user) {
         return res.status(404).json({ error: "User not found" });

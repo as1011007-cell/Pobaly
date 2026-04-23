@@ -332,9 +332,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
 
-  app.get("/api/subscription/:userId", requireAuth, apiReadRateLimit, async (req: Request, res: Response) => {
+  // Uses optionalAuth so subscription status and RC background checks work
+  // even when the JWT has expired (e.g. 30-day token from old builds).
+  // The userId comes from the path param; auth userId is cross-checked when present.
+  app.get("/api/subscription/:userId", optionalAuth, apiReadRateLimit, async (req: Request, res: Response) => {
     try {
-      const userId = req.userId!;
+      const userId = req.params.userId;
+      // If authenticated, reject mismatched userId to prevent enumeration
+      if (req.userId && req.userId !== userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
       let user = await storage.getUser(userId);
 
       if (!user) {
