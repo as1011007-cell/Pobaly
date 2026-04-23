@@ -2887,7 +2887,6 @@ function startDailyRefreshScheduler() {
       console.log("[8AM CATCHUP] Running morning resolution pass for overnight game results...");
       try {
         await resolvePredictionResults();
-        await resolveStuckPredictionsViaAI();
         await logDailyResolutionSummary();
       } catch (err) {
         console.error("[8AM CATCHUP] Resolution failed:", err);
@@ -2902,21 +2901,8 @@ function startDailyRefreshScheduler() {
     } catch (err) {
       console.error("Intraday resolution check failed:", err);
     }
-    try {
-      await resolveStuckPredictionsViaAI(50);
-    } catch (err) {
-      console.error("Intraday AI fallback resolver failed:", err);
-    }
     checkAndReplaceFreeTip();
   }, THIRTY_MINUTES);
-  (async () => {
-    try {
-      await new Promise((resolve2) => setTimeout(resolve2, 6e4));
-      await resolveStuckPredictionsViaAI(50);
-    } catch (err) {
-      console.error("Startup AI fallback resolver failed:", err);
-    }
-  })();
 }
 var _openai, openai, sleep, isGeneratingFreeTip, FREE_TIP_PREFERRED_SPORTS, FREE_TIP_AVOID_SPORTS;
 var init_predictionService = __esm({

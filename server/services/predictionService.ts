@@ -2392,8 +2392,6 @@ export function startDailyRefreshScheduler(): void {
       console.log("[8AM CATCHUP] Running morning resolution pass for overnight game results...");
       try {
         await resolvePredictionResults();
-        // After API resolver, ask AI to clean up anything still stuck >24h.
-        await resolveStuckPredictionsViaAI();
         await logDailyResolutionSummary();
       } catch (err) {
         console.error("[8AM CATCHUP] Resolution failed:", err);
@@ -2403,31 +2401,14 @@ export function startDailyRefreshScheduler(): void {
   }
   schedule8amResolution();
 
-  // Every 30 minutes: resolve newly completed games (API + AI fallback) and
-  // replace any incorrect free tip. This ensures every prediction — premium
-  // or free — gets a correct/incorrect verdict within ~30 minutes of game end.
+  // Every 30 minutes: resolve newly completed games via ESPN/API and replace
+  // any incorrect free tip. AI resolver runs at midnight only (inside dailyPredictionRefresh).
   setInterval(async () => {
     try {
       await resolvePredictionResults();
     } catch (err) {
       console.error("Intraday resolution check failed:", err);
     }
-    try {
-      await resolveStuckPredictionsViaAI(50);
-    } catch (err) {
-      console.error("Intraday AI fallback resolver failed:", err);
-    }
     checkAndReplaceFreeTip();
   }, THIRTY_MINUTES);
-
-  // Run once on startup to clean up anything already stuck.
-  (async () => {
-    try {
-      // Wait for the initial API resolution pass to finish first.
-      await new Promise(resolve => setTimeout(resolve, 60_000));
-      await resolveStuckPredictionsViaAI(50);
-    } catch (err) {
-      console.error("Startup AI fallback resolver failed:", err);
-    }
-  })();
 }
