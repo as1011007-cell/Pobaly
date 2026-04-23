@@ -1811,8 +1811,26 @@ ${matchLines}`;
       for (const p of preds) {
         const localIdx = typeof p.index === "number" ? p.index : -1;
         if (localIdx < 0 || localIdx >= batch.length || !p.predictedOutcome) continue;
+        const { match, betType } = batch[localIdx];
+        const outcome = String(p.predictedOutcome).trim();
+        if (betType === "overunder") {
+          if (!/^(Over|Under)\s+\d+(\.\d+)?/i.test(outcome)) {
+            console.warn(`[BATCH-PREDICT] Cross-match rejected (O/U mismatch) idx=${localIdx}: "${outcome}" for ${match.homeTeam} vs ${match.awayTeam}`);
+            continue;
+          }
+        } else {
+          const teamWords = (name) => name.toLowerCase().split(/\s+/).filter((w) => w.length >= 3);
+          const homeWords = teamWords(match.homeTeam);
+          const awayWords = teamWords(match.awayTeam);
+          const outcomeLower = outcome.toLowerCase();
+          const hasTeamRef = outcomeLower.includes("draw") || homeWords.some((w) => outcomeLower.includes(w)) || awayWords.some((w) => outcomeLower.includes(w));
+          if (!hasTeamRef) {
+            console.warn(`[BATCH-PREDICT] Cross-match rejected (team mismatch) idx=${localIdx}: "${outcome}" for ${match.homeTeam} vs ${match.awayTeam}`);
+            continue;
+          }
+        }
         results[start + localIdx] = {
-          predictedOutcome: p.predictedOutcome,
+          predictedOutcome: outcome,
           probability: Math.min(95, Math.max(50, Number(p.probability) || 60)),
           confidence: p.confidence || "medium",
           explanation: p.explanation || "Based on current form and historical performance.",
