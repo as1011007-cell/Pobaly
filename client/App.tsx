@@ -1,5 +1,5 @@
 import React, { useEffect } from "react";
-import { StyleSheet } from "react-native";
+import { Platform, StyleSheet } from "react-native";
 import { NavigationContainer, LinkingOptions } from "@react-navigation/native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -12,7 +12,7 @@ import { queryClient } from "@/lib/query-client";
 
 import RootStackNavigator from "@/navigation/RootStackNavigator";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { AuthProvider } from "@/contexts/AuthContext";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { SubscriptionProvider, initializeRevenueCat } from "@/lib/revenuecat";
@@ -34,6 +34,53 @@ const linking: LinkingOptions<RootStackParamList> = {
 // Initialize RevenueCat at startup
 initializeRevenueCat();
 
+// Detects successful Stripe checkout on web and activates premium immediately
+// without a server round-trip. The checkout-success.html page sets a
+// localStorage flag and links to /app?premium_activated=1 — this component
+// reads both signals and calls activatePremium() the moment the user returns.
+function WebPaymentSuccessHandler() {
+  const { activatePremium, isAuthenticated } = useAuth();
+
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    if (!isAuthenticated) return;
+
+    // Signal 1: URL param set by the "Open Probaly" button in checkout-success.html
+    const params = new URLSearchParams(window.location.search);
+    const fromUrl = params.get("premium_activated") === "1";
+
+    // Signal 2: localStorage set by checkout-success.html immediately on page load
+    let fromStorage = false;
+    try {
+      const stored = localStorage.getItem("@probaly/premium_activated");
+      if (stored) {
+        const elapsed = Date.now() - parseInt(stored, 10);
+        fromStorage = elapsed < 5 * 60 * 1000; // within last 5 minutes
+      }
+    } catch {}
+
+    if (fromUrl || fromStorage) {
+      activatePremium();
+
+      // Clean up localStorage so it doesn't fire again on refresh
+      try {
+        localStorage.removeItem("@probaly/premium_activated");
+      } catch {}
+
+      // Clean up URL param so it doesn't stay in browser history
+      if (fromUrl) {
+        params.delete("premium_activated");
+        const newSearch = params.toString();
+        const newUrl =
+          window.location.pathname + (newSearch ? "?" + newSearch : "");
+        window.history.replaceState({}, "", newUrl);
+      }
+    }
+  }, [isAuthenticated]);
+
+  return null;
+}
+
 export default function App() {
   useEffect(() => {
     // Set up notification listeners after native bridge is ready
@@ -45,6 +92,7 @@ export default function App() {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
+          <WebPaymentSuccessHandler />
           <LanguageProvider>
             <ThemeProvider>
               <SafeAreaProvider>
