@@ -97,18 +97,24 @@ export default function ProfileScreen() {
 
   const handleSubscribe = async () => {
     if (isPurchasing) return;
+    // Platform-aware copy so Android users don't see "App Store / TestFlight"
+    const isAndroid = Platform.OS === "android";
+    const STORE_NAME = isAndroid ? "Play Store" : "App Store";
+    const STORE_BUILD_HINT = isAndroid
+      ? "an internal testing or Play Store build"
+      : "a TestFlight or App Store build";
     if (!selectedPackage) {
       const isExpoGo = Constants.executionEnvironment === "storeClient";
       if (isExpoGo) {
         Alert.alert(
           "Expo Go limitation",
-          "In-app purchases require a TestFlight or App Store build. Build with 'eas build --profile preview' to test real purchases.",
+          `In-app purchases require ${STORE_BUILD_HINT}. Build with 'eas build --profile preview' to test real purchases.`,
           [{ text: "OK" }]
         );
       } else if (!rcLoading) {
         Alert.alert(
           "Prices unavailable",
-          "Could not connect to the App Store. Please check your connection and try again.",
+          `Could not connect to the ${STORE_NAME}. Please check your connection and try again.`,
           [{ text: "OK" }]
         );
       }
@@ -120,7 +126,7 @@ export default function ProfileScreen() {
       await purchase(selectedPackage);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-      // Immediately mark premium in the app — Apple confirmed the payment
+      // Immediately mark premium in the app — the store confirmed the payment
       await activatePremium();
       refetchCustomerInfo().catch(() => {});
 
@@ -145,8 +151,9 @@ export default function ProfileScreen() {
     } catch (error: any) {
       if (error?.userCancelled) return;
 
-      // The Apple "You're already subscribed" dialog causes purchasePackage to
-      // throw even though the entitlement IS active. Check customer info first.
+      // The store's "You're already subscribed" dialog (Apple or Google Play)
+      // causes purchasePackage to throw even though the entitlement IS active.
+      // Check customer info first before showing an error.
       try {
         const info = await fetchCustomerInfo();
         const activeEntitlement = info.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER];
@@ -175,7 +182,7 @@ export default function ProfileScreen() {
       console.error("Purchase error:", error);
       const message =
         error?.message?.includes("browser") || error?.message?.includes("mock")
-          ? "Payments require a native build (TestFlight or App Store). Expo Go simulates purchases only."
+          ? `Payments require a native build (${STORE_BUILD_HINT.replace(/^an? /, "")}). Expo Go simulates purchases only.`
           : error?.message || "Something went wrong. Please try again.";
       Alert.alert("Purchase failed", message, [{ text: "OK" }]);
     }
@@ -201,7 +208,7 @@ export default function ProfileScreen() {
         }
         Alert.alert("Purchases Restored", "Your subscription has been restored successfully.", [{ text: "OK" }]);
       } else {
-        Alert.alert("No Purchases Found", "We could not find any previous purchases on this Apple ID.", [{ text: "OK" }]);
+        Alert.alert("No Purchases Found", Platform.OS === "android" ? "We could not find any previous purchases on this Google account." : "We could not find any previous purchases on this Apple ID.", [{ text: "OK" }]);
       }
     } catch (error: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);

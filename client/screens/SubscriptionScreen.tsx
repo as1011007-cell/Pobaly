@@ -111,6 +111,14 @@ export default function SubscriptionScreen() {
   // Detect Expo Go so we can show appropriate messaging
   const isExpoGo = Constants.executionEnvironment === "storeClient";
 
+  // Platform-aware copy so Android users don't see "App Store / TestFlight" text
+  const isAndroid = Platform.OS === "android";
+  const STORE_NAME = isAndroid ? "Play Store" : "App Store";
+  const STORE_BUILD_HINT = isAndroid
+    ? "an internal testing or Play Store build"
+    : "a TestFlight or App Store build";
+  const STORE_CONFIRMED_BY = isAndroid ? "Google Play" : "Apple";
+
   const { data: billingConfig } = useQuery<{ prices: { monthly: string | null; annual: string | null } }>({
     queryKey: ["/api/billing/config"],
     staleTime: 5 * 60 * 1000,
@@ -158,13 +166,13 @@ export default function SubscriptionScreen() {
       if (isExpoGo) {
         Alert.alert(
           "Expo Go limitation",
-          "In-app purchases require a TestFlight or App Store build. Build with 'eas build --profile preview' to test real purchases.",
+          `In-app purchases require ${STORE_BUILD_HINT}. Build with 'eas build --profile preview' to test real purchases.`,
           [{ text: "OK" }]
         );
       } else {
         Alert.alert(
           "Prices unavailable",
-          "Could not connect to the App Store. Please check your connection and try again.",
+          `Could not connect to the ${STORE_NAME}. Please check your connection and try again.`,
           [
             { text: "Retry", onPress: () => refetchOfferings() },
             { text: "Cancel", style: "cancel" },
@@ -179,7 +187,7 @@ export default function SubscriptionScreen() {
       await purchase(selectedPackage);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-      // Immediately mark premium in the app — Apple confirmed the payment,
+      // Immediately mark premium in the app — the store confirmed the payment,
       // so we trust the client. The server webhook will also confirm it.
       await activatePremium();
       // Force RC customerInfo refetch so isSubscribed flips true on this tick
@@ -212,9 +220,9 @@ export default function SubscriptionScreen() {
     } catch (error: any) {
       if (error?.userCancelled) return;
 
-      // The Apple "You're already subscribed" dialog causes purchasePackage to
-      // throw even though the entitlement IS active. Check RC customer info and
-      // activate premium if the entitlement is there, rather than showing an error.
+      // The store's "You're already subscribed" dialog (Apple or Google Play)
+      // causes purchasePackage to throw even though the entitlement IS active.
+      // Check RC customer info and activate premium rather than showing an error.
       try {
         const info = await fetchCustomerInfo();
         const activeEntitlement = info.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER];
@@ -250,7 +258,7 @@ export default function SubscriptionScreen() {
       console.error("Purchase error:", error);
       const message =
         error?.message?.includes("browser") || error?.message?.includes("mock")
-          ? "Payments are simulated in Expo Go. Install via TestFlight or the App Store to make a real purchase."
+          ? `Payments are simulated in Expo Go. Install via ${STORE_BUILD_HINT.replace(/^an? /, "")} to make a real purchase.`
           : error?.message || "Something went wrong. Please try again.";
       Alert.alert("Purchase failed", message, [{ text: "OK" }]);
     }
@@ -334,14 +342,14 @@ export default function SubscriptionScreen() {
           <View style={[styles.testModeBanner, { backgroundColor: `${theme.warning}20`, borderColor: theme.warning }]}>
             <Feather name="info" size={16} color={theme.warning} />
             <ThemedText type="small" style={{ color: theme.warning, marginLeft: Spacing.xs, flex: 1, lineHeight: 18 }}>
-              Purchases require a TestFlight or App Store build. Prices shown are the configured amounts — real billing activates in the native build.
+              Purchases require {STORE_BUILD_HINT}. Prices shown are the configured amounts — real billing activates in the native build.
             </ThemedText>
           </View>
         ) : offeringsError ? (
           <View style={[styles.testModeBanner, { backgroundColor: `${theme.accent}15`, borderColor: theme.accent }]}>
             <Feather name="wifi-off" size={16} color={theme.accent} />
             <ThemedText type="small" style={{ color: theme.accent, marginLeft: Spacing.xs, flex: 1 }}>
-              Could not connect to the App Store.
+              Could not connect to the {STORE_NAME}.
             </ThemedText>
             <Pressable onPress={() => refetchOfferings()} style={{ marginLeft: Spacing.sm }}>
               <ThemedText type="small" style={{ color: theme.accent, fontWeight: "700" }}>Retry</ThemedText>
