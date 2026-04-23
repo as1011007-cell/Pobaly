@@ -127,6 +127,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               setUserAndRef(activatedUser);
               cancelPremiumPromoNotifications().catch(() => {});
               await AsyncStorage.removeItem("@probaly/premium_activated");
+              // Immediately push premium status to server so any page reload
+              // returns isPremium=true before the Stripe webhook has a chance to land.
+              apiRequest("POST", "/api/revenuecat/sync", {
+                isSubscribed: true,
+                productIdentifier: "stripe_web_annual",
+              }).catch(() => {});
             }
           } catch {}
         }

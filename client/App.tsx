@@ -47,36 +47,44 @@ initializeRevenueCat();
 function RevenueCatSyncHandler() {
   const { isSubscribed, customerInfo } = useSubscription();
   const { user, activatePremium, isPremium } = useAuth();
-  // Track last synced key to avoid redundant server calls
+  // Throttle server syncs — only one per user+product per session
   const lastSyncedKey = useRef<string | null>(null);
+  const syncInFlight = useRef(false);
 
   useEffect(() => {
     if (Platform.OS === "web") return;
     if (!isSubscribed || !user?.id) return;
 
-    const entitlement =
-      customerInfo?.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER];
-    const productId = entitlement?.productIdentifier ?? "unknown";
-
-    // Only sync once per user+product combination per session
-    const syncKey = `${user.id}:${productId}`;
-    if (lastSyncedKey.current === syncKey) return;
-    lastSyncedKey.current = syncKey;
-
-    // Activate client state immediately if not already premium
+    // RevenueCat confirms an active subscription — ensure the client state
+    // reflects this immediately, even if a background refresh just downgraded it.
     if (!isPremium) {
       activatePremium();
     }
 
-    // Persist to server so DB stays current for future logins/refreshes
+    const entitlement =
+      customerInfo?.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER];
+    const productId = entitlement?.productIdentifier ?? "unknown";
+
+    // Throttle server sync to once per user+product per session.
+    // On failure the key resets so the next render retries automatically.
+    const syncKey = `${user.id}:${productId}`;
+    if (lastSyncedKey.current === syncKey || syncInFlight.current) return;
+    lastSyncedKey.current = syncKey;
+    syncInFlight.current = true;
+
     apiRequest("POST", "/api/revenuecat/sync", {
       isSubscribed: true,
       productIdentifier: productId,
-    }).catch(() => {
-      // Reset key so next render retries the sync
-      lastSyncedKey.current = null;
-    });
-  }, [isSubscribed, user?.id, customerInfo]);
+    })
+      .then(() => {
+        syncInFlight.current = false;
+      })
+      .catch(() => {
+        // Reset both flags so the next re-render retries
+        lastSyncedKey.current = null;
+        syncInFlight.current = false;
+      });
+  }, [isSubscribed, user?.id, customerInfo, isPremium]);
 
   return null;
 }
@@ -108,6 +116,13 @@ function WebPaymentSuccessHandler() {
 
     if (fromUrl || fromStorage) {
       activatePremium();
+
+      // Immediately persist to server — Stripe webhook fires quickly but this
+      // eliminates any race window where a page refresh returns isPremium=false.
+      apiRequest("POST", "/api/revenuecat/sync", {
+        isSubscribed: true,
+        productIdentifier: "stripe_web_annual",
+      }).catch(() => {});
 
       // Clean up localStorage so it doesn't fire again on refresh
       try {
