@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import { db } from "../db";
 import { predictions, type InsertPrediction } from "@shared/schema";
-import { eq, and, gte, isNull, desc, sql, or } from "drizzle-orm";
+import { eq, and, gte, isNull, desc, asc, sql, or } from "drizzle-orm";
 import { getUpcomingMatchesFromApi, getRecentCompletedGames, isUsingFallbackData, refreshUpcomingMatches, lookupGameByTeams } from "./sportsApiService";
 
 // Groq client — free tier, OpenAI-compatible. Used for all prediction
@@ -1436,8 +1436,12 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
         sql`${predictions.expiresAt} > ${predictions.matchTime}`
       )
     )
-    // isPremium DESC so premium picks are preferred over free tips in dedup
-    .orderBy(desc(predictions.matchTime), desc(predictions.isPremium));
+    // isPremium ASC so the FREE TIP row wins dedup when the same game has both
+    // a free-tip row and a premium row. This keeps history consistent with what
+    // the user actually saw on the home card — the free tip uses the boosted
+    // displayProbability (≥71%) and "high" confidence per generateFreeTip(),
+    // whereas the premium duplicate stores the AI's raw lower probability.
+    .orderBy(desc(predictions.matchTime), asc(predictions.isPremium));
 
   // Dedup by team pair + date so different games between same teams on different
   // days both appear (e.g. playoff series), while true duplicates are collapsed.
