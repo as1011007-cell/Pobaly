@@ -75,6 +75,16 @@ const fixMigratedSchema = z.object({
   ids: z.array(z.number().int().positive()).min(1).max(500),
 });
 
+// Detects whether a RevenueCat product identifier represents an annual plan.
+// Case-insensitive and accepts the common variants used by Apple App Store and
+// Google Play Console naming conventions: "annual", "yearly", "year".
+// Examples that match: probaly_premium_annual, probaly_annual:annual,
+// probaly_premium_yearly, probaly_premium_year, Probaly_Premium_ANNUAL.
+function isAnnualProduct(productId: unknown): boolean {
+  const id = String(productId || "").toLowerCase();
+  return id.includes("annual") || id.includes("yearly") || /(^|[^a-z])year([^a-z]|$)/.test(id);
+}
+
 function safeErrorMessage(error: any, fallback = "An unexpected error occurred"): string {
   if (error instanceof z.ZodError) {
     return error.errors.map(e => e.message).join(", ");
@@ -359,7 +369,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
           ]);
           if (rcStatus?.isPremium) {
-            const isAnnual = String(rcStatus.productIdentifier || "").includes("annual");
+            const isAnnual = isAnnualProduct(rcStatus.productIdentifier);
             const expiry = rcStatus.expiryDate ?? (() => {
               const d = new Date();
               isAnnual ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
@@ -448,7 +458,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (rcStatus?.isPremium) {
             expiry = rcStatus.expiryDate ?? (() => {
               const d = new Date();
-              const isAnn = String(productIdentifier || "").includes("annual");
+              const isAnn = isAnnualProduct(productIdentifier);
               isAnn ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
               return d;
             })();
@@ -461,7 +471,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             // JWT authenticated but RC not confirmed yet — trust the client claim
             expiry = (() => {
               const d = new Date();
-              const isAnn = String(productIdentifier || "").includes("annual");
+              const isAnn = isAnnualProduct(productIdentifier);
               isAnn ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
               return d;
             })();
@@ -469,7 +479,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } else {
           expiry = (() => {
             const d = new Date();
-            const isAnn = String(productIdentifier || "").includes("annual");
+            const isAnn = isAnnualProduct(productIdentifier);
             isAnn ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
             return d;
           })();
@@ -485,7 +495,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         await storage.updateUserStripeInfo(userId, updateData);
-        const isAnnual = String(productIdentifier || "").includes("annual");
+        const isAnnual = isAnnualProduct(productIdentifier);
         console.log(`RevenueCat sync [${source}]: user ${userId} → isPremium=true (${isAnnual ? "annual" : "monthly"})`);
         return res.json({ isPremium: true, subscriptionExpiry: expiry });
       } else {
@@ -554,7 +564,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             ? new Date(expirationAtMs)
             : (() => {
                 const d = new Date();
-                String(productId || "").includes("annual")
+                isAnnualProduct(productId)
                   ? d.setFullYear(d.getFullYear() + 1)
                   : d.setMonth(d.getMonth() + 1);
                 return d;
@@ -587,7 +597,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           expiry = new Date(expirationAtMs);
         } else {
           expiry = new Date();
-          const isAnnual = String(productId || "").includes("annual");
+          const isAnnual = isAnnualProduct(productId);
           isAnnual
             ? expiry.setFullYear(expiry.getFullYear() + 1)
             : expiry.setMonth(expiry.getMonth() + 1);
