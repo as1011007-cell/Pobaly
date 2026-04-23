@@ -27,7 +27,7 @@ const GROQ_MODEL = "llama-3.3-70b-versatile";
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-async function withOpenAIRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+async function withGroqRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
@@ -39,14 +39,14 @@ async function withOpenAIRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise
           if (ra) return Number(ra) * (ra.toString().length <= 3 ? 1000 : 1);
           return (attempt + 1) * 22000;
         })();
-        console.warn(`[OpenAI] Rate limited — retrying in ${Math.round(retryAfterMs / 1000)}s (attempt ${attempt + 1}/${maxRetries})`);
+        console.warn(`[Groq] Rate limited — retrying in ${Math.round(retryAfterMs / 1000)}s (attempt ${attempt + 1}/${maxRetries})`);
         await sleep(retryAfterMs);
         continue;
       }
       throw err;
     }
   }
-  throw new Error("withOpenAIRetry: exhausted retries");
+  throw new Error("withGroqRetry: exhausted retries");
 }
 
 interface SportsMatch {
@@ -314,7 +314,7 @@ Respond ONLY with this JSON object (no markdown, no extra text):
   "riskIndex": <integer 5-45, lower = safer bet>
 }`;
 
-  const response = await withOpenAIRetry(() => groq.chat.completions.create({
+  const response = await withGroqRetry(() => groq.chat.completions.create({
     model: GROQ_MODEL,
     messages: [{ role: "user", content: prompt }],
     max_tokens: 900,
@@ -428,7 +428,7 @@ MATCHES:
 ${matchLines}`;
 
     try {
-      const resp = await withOpenAIRetry(() => groq.chat.completions.create({
+      const resp = await withGroqRetry(() => groq.chat.completions.create({
         model: GROQ_MODEL,
         messages: [{ role: "user", content: prompt }],
         max_tokens: Math.min(4500, batch.length * 800),
@@ -2081,7 +2081,7 @@ Return ONLY this JSON object (no prose, no markdown):
 ]}`;
 
     try {
-      const resp = await withOpenAIRetry(() => groq.chat.completions.create({
+      const resp = await withGroqRetry(() => groq.chat.completions.create({
         model: GROQ_MODEL,
         messages: [{ role: "user", content: batchPrompt }],
         max_tokens: 600,
