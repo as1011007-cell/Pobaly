@@ -408,11 +408,15 @@ Key factors to weigh: ${sportFactorGuide[match.sport] || 'current form, head-to-
 
 Analyze each match below and provide a high-quality prediction. Be specific — cite team-level stats, streaks, and tactical dynamics. Do NOT name individual players (injury/trade risk).
 
-RULES:
+CRITICAL INDEX RULE — read carefully:
+Each match below is labeled [0], [1], [2], etc. Your JSON response MUST include one entry per match, and each entry's "index" field MUST equal the exact number in that match's label. Do NOT reorder, skip, or mix up indices. Entry with "index":0 must be the prediction for the match labeled [0], entry with "index":1 for [1], and so on. Mixing indices is a critical error that corrupts data.
+
+PREDICTION RULES:
 - Probability must be precise: use 67, 73, 81 — NEVER round numbers like 70/75/80
 - Confidence: "high" ≥75%, "low" ≤59%, otherwise "medium"
 - Exactly 5 factors per match, each with a specific stat or tactical insight
-- For O/U bets use the format and line range given for that sport
+- For O/U bets: predictedOutcome MUST be "Over X.5" or "Under X.5" using the line range given
+- For winner bets: predictedOutcome MUST be exactly one of the team names from that match followed by " Win", or "Draw" for football
 
 Return ONLY this JSON object (no markdown, no extra text):
 {"predictions":[
