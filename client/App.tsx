@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { Platform, StyleSheet } from "react-native";
 import { NavigationContainer, LinkingOptions } from "@react-navigation/native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -8,14 +8,19 @@ import { StatusBar } from "expo-status-bar";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 import { QueryClientProvider } from "@tanstack/react-query";
-import { queryClient } from "@/lib/query-client";
+import { queryClient, apiRequest } from "@/lib/query-client";
 
 import RootStackNavigator from "@/navigation/RootStackNavigator";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
-import { SubscriptionProvider, initializeRevenueCat } from "@/lib/revenuecat";
+import {
+  SubscriptionProvider,
+  initializeRevenueCat,
+  useSubscription,
+  REVENUECAT_ENTITLEMENT_IDENTIFIER,
+} from "@/lib/revenuecat";
 import { setupNotificationHandlers } from "@/lib/notifications";
 
 // Deep link configuration — handles probaly:// URLs (e.g., affiliate referrals)
@@ -33,6 +38,48 @@ const linking: LinkingOptions<RootStackParamList> = {
 
 // Initialize RevenueCat at startup
 initializeRevenueCat();
+
+// Watches RevenueCat's confirmed subscription state and keeps the server DB
+// in sync. Runs on every app launch and every time customerInfo refreshes
+// (e.g. right after a purchase). This is the definitive source of truth for
+// native iOS/Android payments — if RevenueCat says subscribed, we trust it
+// and immediately activate premium both client-side and server-side.
+function RevenueCatSyncHandler() {
+  const { isSubscribed, customerInfo } = useSubscription();
+  const { user, activatePremium, isPremium } = useAuth();
+  // Track last synced key to avoid redundant server calls
+  const lastSyncedKey = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    if (!isSubscribed || !user?.id) return;
+
+    const entitlement =
+      customerInfo?.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER];
+    const productId = entitlement?.productIdentifier ?? "unknown";
+
+    // Only sync once per user+product combination per session
+    const syncKey = `${user.id}:${productId}`;
+    if (lastSyncedKey.current === syncKey) return;
+    lastSyncedKey.current = syncKey;
+
+    // Activate client state immediately if not already premium
+    if (!isPremium) {
+      activatePremium();
+    }
+
+    // Persist to server so DB stays current for future logins/refreshes
+    apiRequest("POST", "/api/revenuecat/sync", {
+      isSubscribed: true,
+      productIdentifier: productId,
+    }).catch(() => {
+      // Reset key so next render retries the sync
+      lastSyncedKey.current = null;
+    });
+  }, [isSubscribed, user?.id, customerInfo]);
+
+  return null;
+}
 
 // Detects successful Stripe checkout on web and activates premium immediately
 // without a server round-trip. The checkout-success.html page sets a
@@ -99,6 +146,8 @@ export default function App() {
                 <GestureHandlerRootView style={styles.root}>
                   <KeyboardProvider>
                     <SubscriptionProvider>
+                      {/* Syncs RevenueCat subscription state to server on every launch/purchase */}
+                      <RevenueCatSyncHandler />
                       <NavigationContainer linking={linking}>
                         <RootStackNavigator />
                       </NavigationContainer>

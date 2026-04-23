@@ -181,16 +181,13 @@ export default function SubscriptionScreen() {
       // so we trust the client. The server webhook will also confirm it.
       await activatePremium();
 
-      // Await the server sync so the DB is updated before the app returns
-      // to the foreground and triggers a subscription refresh. Errors are
-      // swallowed — the 60s guard in AuthContext protects against downgrades.
+      // Fire-and-forget — RevenueCatSyncHandler in App.tsx provides the
+      // reliable retry path (it syncs on every launch/customerInfo refresh).
       if (user?.id) {
-        try {
-          await apiRequest("POST", "/api/revenuecat/sync", {
-            isSubscribed: true,
-            productIdentifier: selectedPackage.product.identifier,
-          });
-        } catch {}
+        apiRequest("POST", "/api/revenuecat/sync", {
+          isSubscribed: true,
+          productIdentifier: selectedPackage.product.identifier,
+        }).catch(() => {});
       }
 
       setTimeout(() => {
