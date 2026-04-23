@@ -213,6 +213,42 @@ async function getESPNMatches(): Promise<SportsMatch[]> {
     return { homeTeam, awayTeam, sport, matchTime, league };
   }
 
+  // Golf is a tournament sport, not head-to-head: ESPN returns one event with
+  // 50+ competitors marked homeAway:"unknown". To fit the existing home/away
+  // prediction model, synthesize matchups by pairing the top leaderboard
+  // contenders (by ESPN's "order" field, which reflects current standing).
+  // Use the tournament's endDate so 4-day events stay valid mid-week.
+  function extractGolfMatchups(event: any, league: string): SportsMatch[] {
+    const out: SportsMatch[] = [];
+    const comp = event?.competitions?.[0];
+    if (!comp) return out;
+    // Allow STATUS_IN_PROGRESS for golf — bets on tournament outcome are still
+    // meaningful while the event is being played. Only reject if final.
+    if (comp?.status?.type?.name === 'STATUS_FINAL') return out;
+    const endDate = new Date(event?.endDate || comp?.endDate || event?.date);
+    if (isNaN(endDate.getTime()) || endDate < currentTime) return out;
+    const competitors = (comp?.competitors || []) as any[];
+    if (competitors.length < 2) return out;
+    const ordered = [...competitors].sort(
+      (a, b) => (a?.order ?? 999) - (b?.order ?? 999)
+    );
+    // Pair top contenders 2-at-a-time: (1v2), (3v4), (5v6) — at most 3 matchups
+    // per tournament to stay within the per-sport target without overloading AI.
+    const pairCount = Math.min(3, Math.floor(ordered.length / 2));
+    for (let i = 0; i < pairCount; i++) {
+      const a = ordered[i * 2];
+      const b = ordered[i * 2 + 1];
+      const homeTeam = a?.team?.displayName || a?.athlete?.displayName;
+      const awayTeam = b?.team?.displayName || b?.athlete?.displayName;
+      if (!homeTeam || !awayTeam) continue;
+      const key = `${homeTeam}|${awayTeam}|golf`;
+      if (seenMatchups.has(key)) continue;
+      seenMatchups.add(key);
+      out.push({ homeTeam, awayTeam, sport: 'golf', matchTime: endDate, league });
+    }
+    return out;
+  }
+
   // Helper to parse ESPN events into SportsMatch entries.
   // Handles two ESPN payload shapes:
   //   1. Standard: event.competitions[0].competitors  (NBA, MLB, NHL, soccer, UFC)
@@ -223,6 +259,13 @@ async function getESPNMatches(): Promise<SportsMatch[]> {
     const eventLimit = sport === 'tennis' ? events.length : 10;
     for (const event of events.slice(0, eventLimit)) {
       const fallbackDate = event.date;
+
+      // Golf: tournament-level handling — synthesize matchups between top
+      // contenders rather than treating the field as one head-to-head match.
+      if (sport === 'golf') {
+        for (const m of extractGolfMatchups(event, league)) results.push(m);
+        continue;
+      }
 
       const tennisCapHit = () => sport === 'tennis' && results.length >= 30;
 
