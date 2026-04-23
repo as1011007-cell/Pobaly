@@ -75,6 +75,7 @@ function RevenueCatSyncHandler() {
     apiRequest("POST", "/api/revenuecat/sync", {
       isSubscribed: true,
       productIdentifier: productId,
+      userId: user.id,
     })
       .then(() => {
         syncInFlight.current = false;

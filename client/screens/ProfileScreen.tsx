@@ -126,6 +126,7 @@ export default function ProfileScreen() {
         apiRequest("POST", "/api/revenuecat/sync", {
           isSubscribed: true,
           productIdentifier: selectedPackage.product.identifier,
+          userId: user.id,
         }).catch(() => {});
       }
     } catch (error: any) {
@@ -142,6 +143,7 @@ export default function ProfileScreen() {
             apiRequest("POST", "/api/revenuecat/sync", {
               isSubscribed: true,
               productIdentifier: activeEntitlement.productIdentifier,
+              userId: user.id,
             }).catch(() => {});
           }
           return;
@@ -173,6 +175,7 @@ export default function ProfileScreen() {
           apiRequest("POST", "/api/revenuecat/sync", {
             isSubscribed: true,
             productIdentifier: entitlement?.productIdentifier,
+            userId: user.id,
           }).catch(() => {});
         }
         Alert.alert("Purchases Restored", "Your subscription has been restored successfully.", [{ text: "OK" }]);

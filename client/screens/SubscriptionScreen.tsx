@@ -187,6 +187,7 @@ export default function SubscriptionScreen() {
         apiRequest("POST", "/api/revenuecat/sync", {
           isSubscribed: true,
           productIdentifier: selectedPackage.product.identifier,
+          userId: user.id,
         }).catch(() => {});
       }
 
@@ -206,6 +207,7 @@ export default function SubscriptionScreen() {
             apiRequest("POST", "/api/revenuecat/sync", {
               isSubscribed: true,
               productIdentifier: activeEntitlement.productIdentifier,
+              userId: user.id,
             }).catch(() => {});
           }
           navigation.navigate("Main", { screen: "ProfileTab" });
@@ -242,6 +244,7 @@ export default function SubscriptionScreen() {
         apiRequest("POST", "/api/revenuecat/sync", {
           isSubscribed: true,
           productIdentifier: entitlement?.productIdentifier,
+          userId: user.id,
         }).catch(() => {});
       }
 

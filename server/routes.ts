@@ -388,18 +388,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const revenueCatSyncSchema = z.object({
     isSubscribed: z.boolean(),
     productIdentifier: z.string().max(200).optional(),
+    // userId sent by client as fallback when auth token is expired
+    userId: z.string().uuid().optional(),
   });
 
   const syncRateLimit = rateLimit({ windowMs: 60 * 1000, max: 5 });
 
-  app.post("/api/revenuecat/sync", requireAuth, syncRateLimit, async (req: Request, res: Response) => {
+  // Uses optionalAuth so an expired JWT doesn't silently drop the request.
+  // When the JWT is missing/expired, userId must be in the body and the
+  // purchase is verified server-side with RevenueCat before marking premium.
+  app.post("/api/revenuecat/sync", optionalAuth, syncRateLimit, async (req: Request, res: Response) => {
     try {
-      const userId = req.userId!;
       const parsed = revenueCatSyncSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: safeErrorMessage(parsed.error) });
       }
-      const { isSubscribed, productIdentifier } = parsed.data;
+      const { isSubscribed, productIdentifier, userId: bodyUserId } = parsed.data;
+
+      // Prefer the JWT-authenticated userId; fall back to body userId.
+      const userId = req.userId ?? bodyUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      // When userId came from the body (no valid JWT), require RevenueCat to
+      // confirm the subscription server-side — prevents anyone from posting a
+      // random userId and claiming premium without a real purchase.
+      const jwtAuthenticated = !!req.userId;
 
       const user = await storage.getUser(userId);
       if (!user) return res.status(404).json({ error: "User not found" });
@@ -409,10 +424,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const isStripePayment = String(productIdentifier || "").startsWith("stripe_");
 
       if (isSubscribed) {
-        // Try to verify with RevenueCat server-side (native purchases only).
-        // RC check failing or returning false is NOT treated as a downgrade here
-        // — the client said subscribed and the payment store confirmed it.
-        // We only use RC to get accurate expiry dates.
         let expiry: Date;
         let source = "client-claim";
 
@@ -421,12 +432,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (rcStatus?.isPremium) {
             expiry = rcStatus.expiryDate ?? (() => {
               const d = new Date();
-              const isAnn = String(rcStatus.productIdentifier || productIdentifier || "").includes("annual");
+              const isAnn = String(productIdentifier || "").includes("annual");
               isAnn ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
               return d;
             })();
             source = "RC-verified";
+          } else if (!jwtAuthenticated) {
+            // No JWT + RC didn't confirm = reject (can't trust body-only claim)
+            console.log(`RevenueCat sync: unauthenticated claim rejected for user ${userId} — RC did not confirm`);
+            return res.status(403).json({ error: "Could not verify subscription. Please try again." });
           } else {
+            // JWT authenticated but RC not confirmed yet — trust the client claim
             expiry = (() => {
               const d = new Date();
               const isAnn = String(productIdentifier || "").includes("annual");
@@ -457,8 +473,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`RevenueCat sync [${source}]: user ${userId} → isPremium=true (${isAnnual ? "annual" : "monthly"})`);
         return res.json({ isPremium: true, subscriptionExpiry: expiry });
       } else {
-        await storage.updateUserStripeInfo(userId, { isPremium: false });
-        console.log(`RevenueCat sync [client-claim]: user ${userId} → isPremium=false`);
+        // Only allow a downgrade if the request was JWT-authenticated
+        if (jwtAuthenticated) {
+          await storage.updateUserStripeInfo(userId, { isPremium: false });
+          console.log(`RevenueCat sync [client-claim]: user ${userId} → isPremium=false`);
+        }
         return res.json({ isPremium: false });
       }
     } catch (error: any) {

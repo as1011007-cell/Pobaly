@@ -13,7 +13,7 @@ function getJwtSecret(): string {
   return "fallback-dev-secret-not-for-production";
 }
 
-const JWT_EXPIRY = "30d";
+const JWT_EXPIRY = "365d";
 
 export function signToken(userId: string): string {
   return jwt.sign({ sub: userId }, getJwtSecret(), { expiresIn: JWT_EXPIRY });

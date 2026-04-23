@@ -833,7 +833,7 @@ function getJwtSecret() {
   }
   return "fallback-dev-secret-not-for-production";
 }
-var JWT_EXPIRY = "30d";
+var JWT_EXPIRY = "365d";
 function signToken(userId) {
   return jwt.sign({ sub: userId }, getJwtSecret(), { expiresIn: JWT_EXPIRY });
 }
@@ -3379,17 +3379,23 @@ async function registerRoutes(app2) {
   });
   const revenueCatSyncSchema = z.object({
     isSubscribed: z.boolean(),
-    productIdentifier: z.string().max(200).optional()
+    productIdentifier: z.string().max(200).optional(),
+    // userId sent by client as fallback when auth token is expired
+    userId: z.string().uuid().optional()
   });
   const syncRateLimit = rateLimit({ windowMs: 60 * 1e3, max: 5 });
-  app2.post("/api/revenuecat/sync", requireAuth, syncRateLimit, async (req, res) => {
+  app2.post("/api/revenuecat/sync", optionalAuth, syncRateLimit, async (req, res) => {
     try {
-      const userId = req.userId;
       const parsed = revenueCatSyncSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: safeErrorMessage(parsed.error) });
       }
-      const { isSubscribed, productIdentifier } = parsed.data;
+      const { isSubscribed, productIdentifier, userId: bodyUserId } = parsed.data;
+      const userId = req.userId ?? bodyUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      const jwtAuthenticated = !!req.userId;
       const user = await storage.getUser(userId);
       if (!user) return res.status(404).json({ error: "User not found" });
       const isStripePayment = String(productIdentifier || "").startsWith("stripe_");
@@ -3401,11 +3407,14 @@ async function registerRoutes(app2) {
           if (rcStatus?.isPremium) {
             expiry = rcStatus.expiryDate ?? (() => {
               const d = /* @__PURE__ */ new Date();
-              const isAnn = String(rcStatus.productIdentifier || productIdentifier || "").includes("annual");
+              const isAnn = String(productIdentifier || "").includes("annual");
               isAnn ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
               return d;
             })();
             source = "RC-verified";
+          } else if (!jwtAuthenticated) {
+            console.log(`RevenueCat sync: unauthenticated claim rejected for user ${userId} \u2014 RC did not confirm`);
+            return res.status(403).json({ error: "Could not verify subscription. Please try again." });
           } else {
             expiry = (() => {
               const d = /* @__PURE__ */ new Date();
@@ -3435,8 +3444,10 @@ async function registerRoutes(app2) {
         console.log(`RevenueCat sync [${source}]: user ${userId} \u2192 isPremium=true (${isAnnual ? "annual" : "monthly"})`);
         return res.json({ isPremium: true, subscriptionExpiry: expiry });
       } else {
-        await storage.updateUserStripeInfo(userId, { isPremium: false });
-        console.log(`RevenueCat sync [client-claim]: user ${userId} \u2192 isPremium=false`);
+        if (jwtAuthenticated) {
+          await storage.updateUserStripeInfo(userId, { isPremium: false });
+          console.log(`RevenueCat sync [client-claim]: user ${userId} \u2192 isPremium=false`);
+        }
         return res.json({ isPremium: false });
       }
     } catch (error) {
