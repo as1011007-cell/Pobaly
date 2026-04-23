@@ -34,7 +34,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Timestamp of the last local premium activation — used to block server
   // refreshes from downgrading premium status before the sync completes.
   const premiumActivatedAt = useRef<number>(0);
-  const PREMIUM_TRUST_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+  const PREMIUM_TRUST_WINDOW_MS = 12 * 60 * 60 * 1000; // 12 hours
 
   useEffect(() => {
     loadUser();
