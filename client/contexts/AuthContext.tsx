@@ -75,6 +75,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await response.json();
       const current = userRef.current;
       if (!current) return;
+      if (current.isPremium && data.isPremium === false) return;
 
       // Guard: if the user activated premium recently, never let a server
       // response downgrade them — the background RC check will catch up.
