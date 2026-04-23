@@ -22,6 +22,7 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
   activatePremium: () => Promise<void>;
+  armPurchaseWindow: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -240,9 +241,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await refreshUserById(userRef.current.id);
   };
 
-  // Optimistically activate premium immediately after a confirmed purchase.
-  // Called right after purchasePackage() resolves — Apple/Google/Stripe has
-  // confirmed the payment so we trust the client. The webhook + sync will
+  // Call this BEFORE purchase() starts so the trust window is already armed
+  // when iOS fires the AppState "active" event as the payment sheet closes.
+  // This prevents the AppState refresh from seeing isPremium=false before
+  // purchase() resolves and activatePremium() runs.
+  const armPurchaseWindow = () => {
+    premiumActivatedAt.current = Date.now();
+    AsyncStorage.setItem("@probaly/premium_activated_at", String(premiumActivatedAt.current)).catch(() => {});
+  };
+
   // confirm server-side. The premiumActivatedAt timestamp blocks any server
   // refresh from downgrading the status before the sync completes.
   const activatePremium = async () => {
@@ -278,6 +285,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signOut,
         refreshUser,
         activatePremium,
+        armPurchaseWindow,
       }}
     >
       {children}

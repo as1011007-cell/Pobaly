@@ -78,7 +78,7 @@ export default function SubscriptionScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
-  const { user, isPremium, refreshUser, activatePremium } = useAuth();
+  const { user, isPremium, refreshUser, activatePremium, armPurchaseWindow } = useAuth();
   const [selectedPlan, setSelectedPlan] = useState<PlanType>("annual");
 
   const {
@@ -173,6 +173,7 @@ export default function SubscriptionScreen() {
       return;
     }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    armPurchaseWindow();
     try {
       await purchase(selectedPackage);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
