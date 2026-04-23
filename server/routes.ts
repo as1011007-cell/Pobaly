@@ -348,10 +348,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "User not found" });
       }
 
-      // If user is not premium in DB, fire a background RC check to update the DB
-      // for the next refresh — we do NOT await it so this endpoint stays fast.
+      // If user is not premium in DB, AWAIT the RC check and reflect the
+      // result in this same response. This is the safety net that catches
+      // purchases when the RC webhook is missed (e.g. webhook added after
+      // purchase, network hiccup, App Store build without OTA fixes).
       if (!user.isPremium) {
-        checkRCSubscription(userId).then(async (rcStatus) => {
+        try {
+          const rcStatus = await Promise.race([
+            checkRCSubscription(userId),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
+          ]);
           if (rcStatus?.isPremium) {
             const isAnnual = String(rcStatus.productIdentifier || "").includes("annual");
             const expiry = rcStatus.expiryDate ?? (() => {
@@ -364,9 +370,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
               subscriptionExpiry: expiry,
               premiumSince: new Date(),
             });
-            console.log(`[RC] background check activated premium for user ${userId}`);
+            user = { ...user, isPremium: true, subscriptionExpiry: expiry } as typeof user;
+            console.log(`[RC] sync check activated premium for user ${userId}`);
           }
-        }).catch(() => {});
+        } catch (err) {
+          console.error(`[RC] sync check failed for user ${userId}:`, err);
+        }
       }
 
       // Return DB premium status regardless of how the subscription was created
