@@ -302,6 +302,17 @@ function configureExpoAndLanding(app: express.Application) {
     res.sendFile(verifyPath);
   });
 
+  // SEO: Google Search Console HTML-file domain verification.
+  // Google requests https://probaly.net/google<TOKEN>.html and expects the
+  // exact body it provided. Do not delete after verification — Google
+  // re-checks periodically and will revoke access if missing.
+  app.get("/google6b694df7940e1f88.html", (_req: Request, res: Response) => {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(
+      '<html>\n    <head>\n        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">\n    </head>\n    <body>Verification: 6b694df7940e1f88</body>\n</html>'
+    );
+  });
+
   // SEO: robots.txt
   app.get("/robots.txt", (_req: Request, res: Response) => {
     const robotsPath = path.resolve(process.cwd(), "server", "templates", "robots.txt");
