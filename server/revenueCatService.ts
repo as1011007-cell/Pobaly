@@ -1,10 +1,10 @@
-let cachedToken: { value: string; expiresAt: number } | null = null;
+import { createClient } from "@replit/revenuecat-sdk/client";
+import { listCustomerActiveEntitlements } from "@replit/revenuecat-sdk";
 
-async function getRCAccessToken(): Promise<string | null> {
-  if (cachedToken && Date.now() < cachedToken.expiresAt - 60_000) {
-    return cachedToken.value;
-  }
+const REVENUECAT_PROJECT_ID = process.env.REVENUECAT_PROJECT_ID || "projdf936295";
+const PREMIUM_ENTITLEMENT_LOOKUP_KEY = "premium";
 
+async function getRCClient() {
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
   const xReplitToken = process.env.REPL_IDENTITY
     ? "repl " + process.env.REPL_IDENTITY
@@ -30,18 +30,16 @@ async function getRCAccessToken(): Promise<string | null> {
     if (!res.ok) return null;
     const data = await res.json();
     const conn = data.items?.[0];
-    const token =
+    const accessToken =
       conn?.settings?.access_token ||
       conn?.settings?.oauth?.credentials?.access_token;
 
-    if (!token) return null;
+    if (!accessToken) return null;
 
-    const expiresAt = conn?.settings?.expires_at
-      ? new Date(conn.settings.expires_at).getTime()
-      : Date.now() + 10 * 60 * 1000;
-
-    cachedToken = { value: token, expiresAt };
-    return token;
+    return createClient({
+      baseUrl: "https://api.revenuecat.com/v2",
+      headers: { Authorization: "Bearer " + accessToken },
+    });
   } catch {
     return null;
   }
@@ -56,47 +54,44 @@ export interface RCSubscriptionStatus {
 export async function checkRCSubscription(
   userId: string
 ): Promise<RCSubscriptionStatus | null> {
-  const token = await getRCAccessToken();
-  if (!token) {
-    console.log("[RC] No access token — skipping server-side RC check");
+  const client = await getRCClient();
+  if (!client) {
+    console.log("[RC] No client available — skipping server-side RC check");
     return null;
   }
 
   try {
-    const url = `https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(userId)}`;
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
+    const { data, error } = await listCustomerActiveEntitlements({
+      client,
+      path: {
+        project_id: REVENUECAT_PROJECT_ID,
+        customer_id: userId,
       },
     });
 
-    if (!res.ok) {
-      console.log(`[RC] Subscriber lookup returned HTTP ${res.status} for user ${userId}`);
+    if (error) {
+      console.log(`[RC] Active entitlements lookup failed for user ${userId}:`, error);
       return null;
     }
 
-    const body = await res.json();
-    const entitlement = body?.subscriber?.entitlements?.premium;
+    const entitlements = data?.items ?? [];
+    const premiumEntitlement = entitlements.find(
+      (e: any) => e.lookup_key === PREMIUM_ENTITLEMENT_LOOKUP_KEY
+    );
 
-    if (!entitlement) {
+    if (!premiumEntitlement) {
       return { isPremium: false };
     }
 
-    const expiresDate = entitlement.expires_date
-      ? new Date(entitlement.expires_date)
+    const expiresDate = (premiumEntitlement as any).expires_at
+      ? new Date((premiumEntitlement as any).expires_at)
       : null;
-    const isActive = !expiresDate || expiresDate > new Date();
 
-    if (isActive) {
-      return {
-        isPremium: true,
-        expiryDate: expiresDate ?? undefined,
-        productIdentifier: entitlement.product_identifier,
-      };
-    }
-
-    return { isPremium: false };
+    return {
+      isPremium: true,
+      expiryDate: expiresDate ?? undefined,
+      productIdentifier: (premiumEntitlement as any).product_identifier,
+    };
   } catch (error) {
     console.error("[RC] checkRCSubscription error:", error);
     return null;
