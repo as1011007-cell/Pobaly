@@ -190,9 +190,7 @@ export default function SubscriptionScreen() {
         }).catch(() => {});
       }
 
-      setTimeout(() => {
-        if (navigation.canGoBack()) navigation.goBack();
-      }, 800);
+      navigation.navigate("Main", { screen: "ProfileTab" });
     } catch (error: any) {
       if (error?.userCancelled) return;
 
@@ -210,9 +208,7 @@ export default function SubscriptionScreen() {
               productIdentifier: activeEntitlement.productIdentifier,
             }).catch(() => {});
           }
-          setTimeout(() => {
-            if (navigation.canGoBack()) navigation.goBack();
-          }, 800);
+          navigation.navigate("Main", { screen: "ProfileTab" });
           return;
         }
       } catch {}
@@ -250,7 +246,7 @@ export default function SubscriptionScreen() {
       }
 
       if (hasActiveSubscription) {
-        Alert.alert("Purchases restored", "Your subscription has been restored successfully.", [{ text: "OK" }]);
+        navigation.navigate("Main", { screen: "ProfileTab" });
       } else {
         Alert.alert("No purchases found", Platform.OS === "android" ? "We could not find any previous purchases on this Google account." : "We could not find any previous purchases on this Apple ID.", [{ text: "OK" }]);
       }

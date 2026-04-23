@@ -1,8 +1,9 @@
 import React from "react";
 import { ActivityIndicator, View } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { NavigatorScreenParams } from "@react-navigation/native";
 
-import MainTabNavigator from "@/navigation/MainTabNavigator";
+import MainTabNavigator, { MainTabParamList } from "@/navigation/MainTabNavigator";
 import AuthStackNavigator from "@/navigation/AuthStackNavigator";
 import PredictionDetailScreen from "@/screens/PredictionDetailScreen";
 import SportDetailScreen from "@/screens/SportDetailScreen";
@@ -20,7 +21,7 @@ import { Sport } from "@/types";
 
 export type RootStackParamList = {
   Auth: undefined;
-  Main: undefined;
+  Main: NavigatorScreenParams<MainTabParamList> | undefined;
   PredictionDetail: { predictionId: string };
   SportDetail: { sport: Sport };
   Subscription: undefined;
