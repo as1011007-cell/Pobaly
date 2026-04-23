@@ -234,622 +234,6 @@ var init_db = __esm({
   }
 });
 
-// server/services/sportsApiService.ts
-async function fetchGamesFromApi(sportKey) {
-  const apiKey = process.env.ODDS_API_KEY;
-  if (!apiKey) {
-    console.log("ODDS_API_KEY not configured, using fallback data");
-    return [];
-  }
-  try {
-    const url = `https://api.the-odds-api.com/v4/sports/${sportKey}/events?apiKey=${apiKey}`;
-    const response = await fetch(url);
-    if (!response.ok) {
-      console.error(`Failed to fetch games for ${sportKey}: ${response.status}`);
-      return [];
-    }
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    console.error(`Error fetching games for ${sportKey}:`, error);
-    return [];
-  }
-}
-async function getUpcomingMatchesFromApi() {
-  const now = Date.now();
-  if (matchCache && now - matchCache.fetchedAt < CACHE_TTL_MS) {
-    const upcoming = matchCache.data.filter((m) => m.matchTime.getTime() > now);
-    if (upcoming.length > 0) {
-      console.log(`Using cached matches (${upcoming.length} upcoming, cache age: ${Math.round((now - matchCache.fetchedAt) / 6e4)}m)`);
-      return upcoming;
-    }
-  }
-  const apiKey = process.env.ODDS_API_KEY;
-  if (!apiKey) {
-    console.log("ODDS_API_KEY not set \u2014 fetching real matches from ESPN");
-    const espnMatches = await getESPNMatches();
-    matchCache = { data: espnMatches, fetchedAt: Date.now() };
-    _usingFallback = true;
-    return espnMatches;
-  }
-  const allMatches = [];
-  const currentTime = /* @__PURE__ */ new Date();
-  const maxFutureTime = new Date(currentTime.getTime() + 7 * 24 * 60 * 60 * 1e3);
-  const allConfigs = [];
-  for (const configs of Object.values(SPORTS_MAP)) {
-    allConfigs.push(...configs);
-  }
-  for (let i = 0; i < allConfigs.length; i++) {
-    const config = allConfigs[i];
-    if (i > 0 && i % 5 === 0) {
-      await new Promise((r) => setTimeout(r, 1e3));
-    }
-    const games = await fetchGamesFromApi(config.apiKey);
-    const futureGames = games.filter((g) => {
-      const t = new Date(g.commence_time);
-      return t > currentTime && t < maxFutureTime;
-    }).slice(0, 4);
-    for (const game of futureGames) {
-      allMatches.push({
-        homeTeam: game.home_team,
-        awayTeam: game.away_team,
-        sport: config.sportName,
-        matchTime: new Date(game.commence_time),
-        league: config.league
-      });
-    }
-  }
-  const apiMatchCount = allMatches.length;
-  if (apiMatchCount === 0) {
-    console.log("No real games found from sports API \u2014 fetching real matches from ESPN");
-    const espnMatches = await getESPNMatches();
-    matchCache = { data: espnMatches, fetchedAt: Date.now() };
-    _usingFallback = true;
-    return espnMatches;
-  }
-  allMatches.sort((a, b) => a.matchTime.getTime() - b.matchTime.getTime());
-  matchCache = { data: allMatches, fetchedAt: Date.now() };
-  _usingFallback = false;
-  console.log(`Fetched ${allMatches.length} real upcoming matches from sports API (cached for 1 hour)`);
-  return allMatches;
-}
-function isUsingFallbackData() {
-  return _usingFallback;
-}
-async function getESPNMatches() {
-  const now = Date.now();
-  if (espnFallbackCache && now - espnFallbackCache.fetchedAt < ESPN_CACHE_TTL) {
-    const upcoming = espnFallbackCache.data.filter((m) => m.matchTime.getTime() > now);
-    if (upcoming.length > 5) {
-      console.log(`Using cached ESPN matches (${upcoming.length} upcoming)`);
-      return upcoming;
-    }
-  }
-  console.log("Fetching real upcoming matches from ESPN (free API)...");
-  const allMatches = [];
-  const currentTime = /* @__PURE__ */ new Date();
-  const seenMatchups = /* @__PURE__ */ new Set();
-  function parseESPNEvents(events, sport, league) {
-    const results = [];
-    for (const event of events.slice(0, 10)) {
-      const matchTime = new Date(event.date);
-      if (isNaN(matchTime.getTime()) || matchTime < currentTime) continue;
-      const competitors = event.competitions?.[0]?.competitors || [];
-      if (competitors.length < 2) continue;
-      const homeComp = competitors.find((c) => c.homeAway === "home") || competitors[0];
-      const awayComp = competitors.find((c) => c.homeAway === "away") || competitors[1];
-      const homeTeam = homeComp.team?.displayName || homeComp.athlete?.displayName || event.name?.split(" vs ")?.[0] || "TBD";
-      const awayTeam = awayComp.team?.displayName || awayComp.athlete?.displayName || event.name?.split(" vs ")?.[1] || "TBD";
-      if (homeTeam === "TBD" || awayTeam === "TBD") continue;
-      const key = `${homeTeam}|${awayTeam}|${sport}`;
-      if (seenMatchups.has(key)) continue;
-      seenMatchups.add(key);
-      results.push({ homeTeam, awayTeam, sport, matchTime, league });
-    }
-    return results;
-  }
-  for (const endpoint of ESPN_ENDPOINTS) {
-    try {
-      const response = await fetch(endpoint.url);
-      if (!response.ok) continue;
-      const data = await response.json();
-      allMatches.push(...parseESPNEvents(data.events || [], endpoint.sport, endpoint.league));
-    } catch (error) {
-      console.error(`ESPN fetch failed for ${endpoint.league}:`, error);
-    }
-  }
-  const keyScheduleEndpoints = [
-    { base: "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", sport: "basketball", league: "NBA" },
-    { base: "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard", sport: "baseball", league: "MLB" },
-    { base: "https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard", sport: "hockey", league: "NHL" },
-    { base: "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard", sport: "football", league: "Premier League" },
-    { base: "https://site.api.espn.com/apis/site/v2/sports/soccer/esp.1/scoreboard", sport: "football", league: "La Liga" },
-    { base: "https://site.api.espn.com/apis/site/v2/sports/soccer/ger.1/scoreboard", sport: "football", league: "Bundesliga" },
-    { base: "https://site.api.espn.com/apis/site/v2/sports/soccer/ita.1/scoreboard", sport: "football", league: "Serie A" },
-    { base: "https://site.api.espn.com/apis/site/v2/sports/soccer/fra.1/scoreboard", sport: "football", league: "Ligue 1" },
-    { base: "https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard", sport: "mma", league: "UFC" },
-    { base: "https://site.api.espn.com/apis/site/v2/sports/tennis/atp/scoreboard", sport: "tennis", league: "ATP Tour" },
-    { base: "https://site.api.espn.com/apis/site/v2/sports/cricket/icc/scoreboard", sport: "cricket", league: "ICC" }
-  ];
-  for (let dayOffset = 1; dayOffset <= 3; dayOffset++) {
-    const d = new Date(currentTime);
-    d.setUTCDate(d.getUTCDate() + dayOffset);
-    const dateStr = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`;
-    for (const ep of keyScheduleEndpoints) {
-      try {
-        const response = await fetch(`${ep.base}?dates=${dateStr}`);
-        if (!response.ok) continue;
-        const data = await response.json();
-        allMatches.push(...parseESPNEvents(data.events || [], ep.sport, ep.league));
-      } catch {
-      }
-    }
-  }
-  allMatches.sort((a, b) => a.matchTime.getTime() - b.matchTime.getTime());
-  if (allMatches.length > 0) {
-    espnFallbackCache = { data: allMatches, fetchedAt: Date.now() };
-    console.log(`ESPN: fetched ${allMatches.length} real upcoming matches across ${new Set(allMatches.map((m) => m.sport)).size} sports`);
-    return allMatches;
-  }
-  console.log("ESPN returned no matches");
-  return [];
-}
-async function refreshUpcomingMatches() {
-  matchCache = null;
-  espnFallbackCache = null;
-  return getUpcomingMatchesFromApi();
-}
-async function getLiveMatches() {
-  if (liveMatchCache && Date.now() - liveMatchCache.fetchedAt < LIVE_CACHE_TTL) {
-    return liveMatchCache.data;
-  }
-  const liveMatches = [];
-  for (const endpoint of ESPN_SCORES_ENDPOINTS) {
-    try {
-      const response = await fetch(endpoint.url);
-      if (!response.ok) continue;
-      const data = await response.json();
-      const events = data.events || [];
-      for (const event of events) {
-        const statusType = event.status?.type?.name;
-        if (statusType !== "STATUS_IN_PROGRESS" && statusType !== "STATUS_HALFTIME" && statusType !== "STATUS_END_PERIOD") continue;
-        const competitors = event.competitions?.[0]?.competitors || [];
-        if (competitors.length < 2) continue;
-        if (endpoint.sport === "golf" || endpoint.sport === "tennis") {
-          const comp1 = competitors[0];
-          const comp2 = competitors[1];
-          const name1 = comp1?.athlete?.displayName || comp1?.team?.displayName || "Unknown";
-          const name2 = comp2?.athlete?.displayName || comp2?.team?.displayName || "Unknown";
-          if (name1 === "Unknown" || name2 === "Unknown") continue;
-          liveMatches.push({
-            homeTeam: name1,
-            awayTeam: name2,
-            sport: endpoint.sport,
-            league: endpoint.league,
-            matchTime: new Date(event.date),
-            homeScore: parseInt(comp1.score || "0"),
-            awayScore: parseInt(comp2.score || "0"),
-            status: event.status?.type?.shortDetail || "Live",
-            clock: event.status?.displayClock,
-            period: event.status?.period?.toString()
-          });
-          continue;
-        }
-        const homeComp = competitors.find((c) => c.homeAway === "home") || competitors[0];
-        const awayComp = competitors.find((c) => c.homeAway === "away") || competitors[1];
-        const homeTeam = homeComp.team?.displayName || "Unknown";
-        const awayTeam = awayComp.team?.displayName || "Unknown";
-        if (homeTeam === "Unknown" || awayTeam === "Unknown") continue;
-        liveMatches.push({
-          homeTeam,
-          awayTeam,
-          sport: endpoint.sport,
-          league: endpoint.league,
-          matchTime: new Date(event.date),
-          homeScore: parseInt(homeComp.score || "0"),
-          awayScore: parseInt(awayComp.score || "0"),
-          status: event.status?.type?.shortDetail || "Live",
-          clock: event.status?.displayClock,
-          period: event.status?.period?.toString()
-        });
-      }
-    } catch (error) {
-      console.error(`ESPN live fetch failed for ${endpoint.league}:`, error);
-    }
-  }
-  liveMatchCache = { data: liveMatches, fetchedAt: Date.now() };
-  console.log(`Fetched ${liveMatches.length} live matches from ESPN`);
-  return liveMatches;
-}
-async function getRecentCompletedGames() {
-  const apiKey = process.env.ODDS_API_KEY;
-  const [espnGames, oddsGames, sportsDbGames] = await Promise.all([
-    fetchCompletedFromESPN(),
-    apiKey ? fetchCompletedFromOddsApi(apiKey) : Promise.resolve([]),
-    fetchCompletedFromSportsDB()
-  ]);
-  if (espnGames.length === 0 && oddsGames.length === 0 && sportsDbGames.length === 0) {
-    console.log("All sources returned 0 completed games");
-    return [];
-  }
-  const simplify = (name) => name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
-  const merged = [...oddsGames];
-  const seenKeys = new Set(
-    oddsGames.flatMap((g) => [
-      `${simplify(g.homeTeam)}|${simplify(g.awayTeam)}`,
-      `${simplify(g.awayTeam)}|${simplify(g.homeTeam)}`
-    ])
-  );
-  for (const g of [...espnGames, ...sportsDbGames]) {
-    const key = `${simplify(g.homeTeam)}|${simplify(g.awayTeam)}`;
-    const reverseKey = `${simplify(g.awayTeam)}|${simplify(g.homeTeam)}`;
-    if (!seenKeys.has(key) && !seenKeys.has(reverseKey)) {
-      merged.push(g);
-      seenKeys.add(key);
-      seenKeys.add(reverseKey);
-    }
-  }
-  merged.sort((a, b) => b.matchTime.getTime() - a.matchTime.getTime());
-  console.log(`Cross-checked results: ${espnGames.length} ESPN + ${oddsGames.length} Odds API + ${sportsDbGames.length} TheSportsDB \u2192 ${merged.length} merged`);
-  return merged;
-}
-async function lookupGameByTeams(homeTeamRaw, awayTeamRaw, sport) {
-  const simplify = (n) => n.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
-  const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1e3);
-  const getTeamId = async (teamName) => {
-    const cacheKey = simplify(teamName);
-    if (teamIdCache.has(cacheKey)) return teamIdCache.get(cacheKey);
-    try {
-      const url = `https://www.thesportsdb.com/api/v1/json/3/searchteams.php?t=${encodeURIComponent(teamName)}`;
-      const res = await fetch(url, { signal: AbortSignal.timeout(6e3) });
-      if (!res.ok) {
-        teamIdCache.set(cacheKey, null);
-        return null;
-      }
-      const data = await res.json();
-      const id = data.teams?.[0]?.idTeam ?? null;
-      teamIdCache.set(cacheKey, id);
-      return id;
-    } catch {
-      teamIdCache.set(cacheKey, null);
-      return null;
-    }
-  };
-  const findMatchInTeamResults = async (teamId) => {
-    try {
-      const url = `https://www.thesportsdb.com/api/v1/json/3/eventslast.php?id=${teamId}`;
-      const res = await fetch(url, { signal: AbortSignal.timeout(6e3) });
-      if (!res.ok) return null;
-      const data = await res.json();
-      const events = data.results || [];
-      for (const ev of events) {
-        const matchTime = /* @__PURE__ */ new Date(`${ev.dateEvent}T${ev.strTime || "00:00:00"}Z`);
-        if (matchTime < fourteenDaysAgo) continue;
-        const h = ev.strHomeTeam || "";
-        const a = ev.strAwayTeam || "";
-        const homeScore = parseInt(ev.intHomeScore ?? "-1");
-        const awayScore = parseInt(ev.intAwayScore ?? "-1");
-        if (homeScore < 0 || awayScore < 0) continue;
-        const hN = simplify(h);
-        const aN = simplify(a);
-        const pHN = simplify(homeTeamRaw);
-        const pAN = simplify(awayTeamRaw);
-        const teamsMatch = (hN.includes(pHN) || pHN.includes(hN)) && (aN.includes(pAN) || pAN.includes(aN)) || (hN.includes(pAN) || pAN.includes(hN)) && (aN.includes(pHN) || pHN.includes(aN));
-        if (teamsMatch) {
-          const winner = homeScore > awayScore ? h : awayScore > homeScore ? a : "Draw";
-          return { homeTeam: h, awayTeam: a, sport, league: ev.strLeague || "", matchTime, homeScore, awayScore, winner };
-        }
-      }
-    } catch {
-    }
-    return null;
-  };
-  const [homeId, awayId] = await Promise.all([
-    getTeamId(homeTeamRaw),
-    getTeamId(awayTeamRaw)
-  ]);
-  for (const id of [homeId, awayId].filter(Boolean)) {
-    const result = await findMatchInTeamResults(id);
-    if (result) return result;
-  }
-  return null;
-}
-async function fetchCompletedFromSportsDB() {
-  const results = [];
-  const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1e3);
-  const currentYear = (/* @__PURE__ */ new Date()).getFullYear();
-  const seasons = [String(currentYear), String(currentYear - 1)];
-  await Promise.all(SPORTSDB_LEAGUES.flatMap(
-    ({ id, sport, league }) => seasons.map(async (season) => {
-      try {
-        const url = `https://www.thesportsdb.com/api/v1/json/3/eventsseason.php?id=${id}&s=${season}`;
-        const res = await fetch(url, { signal: AbortSignal.timeout(8e3) });
-        if (!res.ok) return;
-        const data = await res.json();
-        const events = data.events || [];
-        for (const ev of events) {
-          const homeScore = parseInt(ev.intHomeScore ?? "-1");
-          const awayScore = parseInt(ev.intAwayScore ?? "-1");
-          if (homeScore < 0 || awayScore < 0) continue;
-          const matchTime = /* @__PURE__ */ new Date(`${ev.dateEvent}T${ev.strTime || "00:00:00"}Z`);
-          if (matchTime < fourteenDaysAgo) continue;
-          const homeTeam = ev.strHomeTeam || "";
-          const awayTeam = ev.strAwayTeam || "";
-          if (!homeTeam || !awayTeam) continue;
-          let winner;
-          if (homeScore > awayScore) winner = homeTeam;
-          else if (awayScore > homeScore) winner = awayTeam;
-          else winner = "Draw";
-          results.push({ homeTeam, awayTeam, sport, league, matchTime, homeScore, awayScore, winner });
-        }
-      } catch {
-      }
-    })
-  ));
-  console.log(`Fetched ${results.length} completed games from TheSportsDB`);
-  return results;
-}
-async function fetchCompletedFromOddsApi(apiKey) {
-  const completedGames = [];
-  const scoresConfigs = [];
-  for (const configs of Object.values(SPORTS_MAP)) {
-    scoresConfigs.push(...configs);
-  }
-  let requestCount = 0;
-  for (const config of scoresConfigs) {
-    try {
-      if (requestCount > 0 && requestCount % 5 === 0) {
-        await new Promise((r) => setTimeout(r, 1e3));
-      }
-      requestCount++;
-      const url = `https://api.the-odds-api.com/v4/sports/${config.apiKey}/scores/?apiKey=${apiKey}&daysFrom=3&dateFormat=iso`;
-      const response = await fetch(url);
-      if (!response.ok) continue;
-      const data = await response.json();
-      for (const game of data) {
-        if (!game.completed || !game.scores || game.scores.length < 2) continue;
-        const rawHomeScore = game.scores.find((s) => s.name === game.home_team)?.score;
-        const rawAwayScore = game.scores.find((s) => s.name === game.away_team)?.score;
-        if (rawHomeScore == null || rawAwayScore == null || rawHomeScore === "" || rawAwayScore === "") continue;
-        const homeScore = parseInt(rawHomeScore);
-        const awayScore = parseInt(rawAwayScore);
-        if (isNaN(homeScore) || isNaN(awayScore)) continue;
-        if (homeScore === awayScore) continue;
-        completedGames.push({
-          homeTeam: game.home_team,
-          awayTeam: game.away_team,
-          sport: config.sportName,
-          league: config.league,
-          matchTime: new Date(game.commence_time),
-          homeScore,
-          awayScore,
-          winner: homeScore > awayScore ? game.home_team : game.away_team
-        });
-      }
-    } catch (error) {
-      console.error(`Error fetching scores for ${config.apiKey}:`, error);
-    }
-  }
-  completedGames.sort((a, b) => b.matchTime.getTime() - a.matchTime.getTime());
-  console.log(`Fetched ${completedGames.length} real completed games from Odds API`);
-  return completedGames;
-}
-async function fetchCompletedFromESPN() {
-  const completedGames = [];
-  const dateStrs = [];
-  for (let i = 0; i <= 13; i++) {
-    const d = /* @__PURE__ */ new Date();
-    d.setDate(d.getDate() - i);
-    dateStrs.push(d.toISOString().split("T")[0].replace(/-/g, ""));
-  }
-  for (const endpoint of ESPN_SCORES_ENDPOINTS) {
-    for (const dateStr of dateStrs) {
-      try {
-        const url = `${endpoint.url}?dates=${dateStr}`;
-        const response = await fetch(url);
-        if (!response.ok) continue;
-        const data = await response.json();
-        const events = data.events || [];
-        for (const event of events) {
-          const status = event.status?.type?.name;
-          const isCompleted = event.status?.type?.completed === true;
-          const completedStatuses = ["STATUS_FINAL", "STATUS_FULL_TIME", "STATUS_FULL_PEN", "STATUS_FULL_ET", "STATUS_ENDED", "STATUS_RESULT"];
-          if (!isCompleted && !completedStatuses.includes(status)) continue;
-          const competitors = event.competitions?.[0]?.competitors || [];
-          if (endpoint.sport === "golf") {
-            if (competitors.length < 1) continue;
-            const winnerComp = competitors.find((c) => c.winner) || competitors[0];
-            const runnerUp = competitors[1];
-            const winnerName = winnerComp?.athlete?.displayName || winnerComp?.team?.displayName;
-            const runnerName = runnerUp?.athlete?.displayName || runnerUp?.team?.displayName;
-            if (!winnerName || !runnerName) continue;
-            completedGames.push({
-              homeTeam: winnerName,
-              awayTeam: runnerName,
-              sport: endpoint.sport,
-              league: endpoint.league,
-              matchTime: new Date(event.date),
-              homeScore: 1,
-              awayScore: 0,
-              winner: winnerName
-            });
-            continue;
-          }
-          if (endpoint.sport === "tennis" || endpoint.sport === "mma") {
-            if (competitors.length < 2) continue;
-            const winnerComp = competitors.find((c) => c.winner) || competitors[0];
-            const loserComp = competitors.find((c) => !c.winner) || competitors[1];
-            const winnerName = winnerComp?.athlete?.displayName || winnerComp?.team?.displayName;
-            const loserName = loserComp?.athlete?.displayName || loserComp?.team?.displayName;
-            if (!winnerName || !loserName) continue;
-            completedGames.push({
-              homeTeam: winnerName,
-              awayTeam: loserName,
-              sport: endpoint.sport,
-              league: endpoint.league,
-              matchTime: new Date(event.date),
-              homeScore: 1,
-              awayScore: 0,
-              winner: winnerName
-            });
-            continue;
-          }
-          if (competitors.length < 2) continue;
-          const homeComp = competitors.find((c) => c.homeAway === "home") || competitors[0];
-          const awayComp = competitors.find((c) => c.homeAway === "away") || competitors[1];
-          const homeTeam = homeComp.team?.displayName || "Unknown";
-          const awayTeam = awayComp.team?.displayName || "Unknown";
-          if (homeTeam === "Unknown" || awayTeam === "Unknown") continue;
-          const rawHomeScore = homeComp.score;
-          const rawAwayScore = awayComp.score;
-          if (rawHomeScore == null || rawAwayScore == null || rawHomeScore === "" || rawAwayScore === "") continue;
-          const homeScore = parseInt(rawHomeScore);
-          const awayScore = parseInt(rawAwayScore);
-          if (isNaN(homeScore) || isNaN(awayScore)) continue;
-          if (homeScore === awayScore) {
-            if (endpoint.sport === "football") {
-              completedGames.push({
-                homeTeam,
-                awayTeam,
-                sport: endpoint.sport,
-                league: endpoint.league,
-                matchTime: new Date(event.date),
-                homeScore,
-                awayScore,
-                winner: "Draw"
-              });
-            }
-            continue;
-          }
-          let winner;
-          if (homeComp.winner === true) winner = homeTeam;
-          else if (awayComp.winner === true) winner = awayTeam;
-          else winner = homeScore > awayScore ? homeTeam : awayScore > homeScore ? awayTeam : "Draw";
-          completedGames.push({
-            homeTeam,
-            awayTeam,
-            sport: endpoint.sport,
-            league: endpoint.league,
-            matchTime: new Date(event.date),
-            homeScore,
-            awayScore,
-            winner
-          });
-        }
-      } catch (error) {
-        console.error(`ESPN scores fetch failed for ${endpoint.league}:`, error);
-      }
-    }
-  }
-  const seen = /* @__PURE__ */ new Set();
-  const dedupedGames = completedGames.sort((a, b) => b.matchTime.getTime() - a.matchTime.getTime()).filter((g) => {
-    const key = `${g.homeTeam} vs ${g.awayTeam}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-  console.log(`Fetched ${dedupedGames.length} completed games from ESPN (${completedGames.length} before dedup)`);
-  return dedupedGames;
-}
-var CACHE_TTL_MS, matchCache, espnFallbackCache, ESPN_CACHE_TTL, SPORTS_MAP, _usingFallback, ESPN_ENDPOINTS, LIVE_CACHE_TTL, liveMatchCache, teamIdCache, SPORTSDB_LEAGUES, ESPN_SCORES_ENDPOINTS;
-var init_sportsApiService = __esm({
-  "server/services/sportsApiService.ts"() {
-    "use strict";
-    CACHE_TTL_MS = 60 * 60 * 1e3;
-    matchCache = null;
-    espnFallbackCache = null;
-    ESPN_CACHE_TTL = 2 * 60 * 60 * 1e3;
-    SPORTS_MAP = {
-      football: [
-        { apiKey: "soccer_epl", sportName: "football", league: "Premier League" },
-        { apiKey: "soccer_spain_la_liga", sportName: "football", league: "La Liga" },
-        { apiKey: "soccer_germany_bundesliga", sportName: "football", league: "Bundesliga" },
-        { apiKey: "soccer_italy_serie_a", sportName: "football", league: "Serie A" },
-        { apiKey: "soccer_france_ligue_one", sportName: "football", league: "Ligue 1" },
-        { apiKey: "soccer_uefa_champs_league", sportName: "football", league: "Champions League" },
-        { apiKey: "soccer_usa_mls", sportName: "football", league: "MLS" }
-      ],
-      basketball: [
-        { apiKey: "basketball_nba", sportName: "basketball", league: "NBA" },
-        { apiKey: "basketball_euroleague", sportName: "basketball", league: "EuroLeague" },
-        { apiKey: "basketball_ncaab", sportName: "basketball", league: "NCAAB" }
-      ],
-      tennis: [
-        { apiKey: "tennis_atp_monte_carlo_masters", sportName: "tennis", league: "ATP Monte-Carlo Masters" },
-        { apiKey: "tennis_wta_charleston_open", sportName: "tennis", league: "WTA Charleston Open" }
-      ],
-      baseball: [
-        { apiKey: "baseball_mlb", sportName: "baseball", league: "MLB" }
-      ],
-      hockey: [
-        { apiKey: "icehockey_nhl", sportName: "hockey", league: "NHL" }
-      ],
-      mma: [
-        { apiKey: "mma_mixed_martial_arts", sportName: "mma", league: "UFC" }
-      ],
-      cricket: [
-        { apiKey: "cricket_ipl", sportName: "cricket", league: "IPL" },
-        { apiKey: "cricket_international_t20", sportName: "cricket", league: "International T20" },
-        { apiKey: "cricket_psl", sportName: "cricket", league: "PSL" }
-      ],
-      golf: []
-    };
-    _usingFallback = false;
-    ESPN_ENDPOINTS = [
-      { url: "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", sport: "basketball", league: "NBA" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard", sport: "baseball", league: "MLB" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard", sport: "hockey", league: "NHL" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard", sport: "football", league: "Premier League" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/esp.1/scoreboard", sport: "football", league: "La Liga" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/ger.1/scoreboard", sport: "football", league: "Bundesliga" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/ita.1/scoreboard", sport: "football", league: "Serie A" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/fra.1/scoreboard", sport: "football", league: "Ligue 1" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard", sport: "football", league: "MLS" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.champions/scoreboard", sport: "football", league: "Champions League" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard", sport: "mma", league: "UFC" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/tennis/atp/scoreboard", sport: "tennis", league: "ATP Tour" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/tennis/wta/scoreboard", sport: "tennis", league: "WTA Tour" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/cricket/icc/scoreboard", sport: "cricket", league: "ICC" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard", sport: "golf", league: "PGA Tour" }
-    ];
-    LIVE_CACHE_TTL = 2 * 60 * 1e3;
-    liveMatchCache = null;
-    teamIdCache = /* @__PURE__ */ new Map();
-    SPORTSDB_LEAGUES = [
-      { id: 4460, sport: "cricket", league: "IPL" },
-      // Indian Premier League (correct ID)
-      { id: 5067, sport: "cricket", league: "PSL" },
-      // Pakistan Super League (correct ID)
-      { id: 4346, sport: "football", league: "MLS" }
-      // Major League Soccer (correct ID)
-    ];
-    ESPN_SCORES_ENDPOINTS = [
-      { url: "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", sport: "basketball", league: "NBA" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard", sport: "baseball", league: "MLB" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard", sport: "hockey", league: "NHL" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard", sport: "football", league: "Premier League" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.2/scoreboard", sport: "football", league: "Championship" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.fa/scoreboard", sport: "football", league: "FA Cup" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.league_cup/scoreboard", sport: "football", league: "EFL Cup" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/esp.1/scoreboard", sport: "football", league: "La Liga" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/esp.copa_del_rey/scoreboard", sport: "football", league: "Copa del Rey" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/ger.1/scoreboard", sport: "football", league: "Bundesliga" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/ita.1/scoreboard", sport: "football", league: "Serie A" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/fra.1/scoreboard", sport: "football", league: "Ligue 1" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard", sport: "football", league: "MLS" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/usa.open/scoreboard", sport: "football", league: "US Open Cup" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/concacaf.champions/scoreboard", sport: "football", league: "CONCACAF Champions" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.champions/scoreboard", sport: "football", league: "Champions League" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.europa/scoreboard", sport: "football", league: "Europa League" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard", sport: "mma", league: "UFC" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/tennis/atp/scoreboard", sport: "tennis", league: "ATP Tour" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/tennis/wta/scoreboard", sport: "tennis", league: "WTA Tour" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/cricket/icc/scoreboard", sport: "cricket", league: "ICC" },
-      { url: "https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard", sport: "golf", league: "PGA Tour" }
-    ];
-  }
-});
-
 // server/services/pushNotificationService.ts
 var pushNotificationService_exports = {};
 __export(pushNotificationService_exports, {
@@ -1124,41 +508,1058 @@ var init_pushNotificationService = __esm({
   }
 });
 
+// server/index.ts
+import express from "express";
+import { runMigrations } from "stripe-replit-sync";
+
+// server/routes.ts
+import { createServer } from "node:http";
+
+// server/storage.ts
+init_schema();
+init_db();
+import { eq, desc, sql as sql2 } from "drizzle-orm";
+
+// server/stripeClient.ts
+import Stripe from "stripe";
+var connectionSettings;
+async function getCredentials() {
+  if (process.env.STRIPE_SECRET_KEY && process.env.STRIPE_PUBLISHABLE_KEY) {
+    return {
+      publishableKey: process.env.STRIPE_PUBLISHABLE_KEY,
+      secretKey: process.env.STRIPE_SECRET_KEY
+    };
+  }
+  const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
+  const xReplitToken = process.env.REPL_IDENTITY ? "repl " + process.env.REPL_IDENTITY : process.env.WEB_REPL_RENEWAL ? "depl " + process.env.WEB_REPL_RENEWAL : null;
+  if (!xReplitToken) {
+    throw new Error("X_REPLIT_TOKEN not found for repl/depl");
+  }
+  const connectorName = "stripe";
+  const isProduction = process.env.REPLIT_DEPLOYMENT === "1";
+  const targetEnvironment = isProduction ? "production" : "development";
+  const url = new URL(`https://${hostname}/api/v2/connection`);
+  url.searchParams.set("include_secrets", "true");
+  url.searchParams.set("connector_names", connectorName);
+  url.searchParams.set("environment", targetEnvironment);
+  const response = await fetch(url.toString(), {
+    headers: {
+      "Accept": "application/json",
+      "X_REPLIT_TOKEN": xReplitToken
+    }
+  });
+  const data = await response.json();
+  connectionSettings = data.items?.[0];
+  if (!connectionSettings || (!connectionSettings.settings.publishable || !connectionSettings.settings.secret)) {
+    throw new Error(`Stripe ${targetEnvironment} connection not found`);
+  }
+  return {
+    publishableKey: connectionSettings.settings.publishable,
+    secretKey: connectionSettings.settings.secret
+  };
+}
+async function getUncachableStripeClient() {
+  const { secretKey } = await getCredentials();
+  return new Stripe(secretKey, {
+    apiVersion: "2025-11-17.clover"
+  });
+}
+async function getStripePublishableKey() {
+  const { publishableKey } = await getCredentials();
+  return publishableKey;
+}
+async function getStripeSecretKey() {
+  const { secretKey } = await getCredentials();
+  return secretKey;
+}
+var stripeSync = null;
+async function getStripeSync() {
+  if (!stripeSync) {
+    const { StripeSync } = await import("stripe-replit-sync");
+    const secretKey = await getStripeSecretKey();
+    stripeSync = new StripeSync({
+      poolConfig: {
+        connectionString: process.env.DATABASE_URL,
+        max: 2
+      },
+      stripeSecretKey: secretKey
+    });
+  }
+  return stripeSync;
+}
+
+// server/storage.ts
+function extractRows(result) {
+  return result?.rows ?? Array.from(result ?? []);
+}
+var DatabaseStorage = class {
+  async getUser(id) {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
+  }
+  async getUserByEmail(email) {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
+    return user;
+  }
+  async getUserByStripeCustomerId(customerId) {
+    const [user] = await db.select().from(users).where(eq(users.stripeCustomerId, customerId));
+    return user;
+  }
+  async createUser(insertUser, referralCode) {
+    const [user] = await db.insert(users).values({
+      ...insertUser,
+      referredByCode: referralCode?.toUpperCase() || null
+    }).returning();
+    return user;
+  }
+  async updateUserStripeInfo(userId, stripeInfo) {
+    const [user] = await db.update(users).set(stripeInfo).where(eq(users.id, userId)).returning();
+    return user;
+  }
+  async getUserPreferences(userId) {
+    const [prefs] = await db.select().from(userPreferences).where(eq(userPreferences.userId, userId));
+    return prefs;
+  }
+  async saveUserPreferences(userId, prefs) {
+    const existing = await this.getUserPreferences(userId);
+    if (existing) {
+      const [updated] = await db.update(userPreferences).set({ ...prefs, updatedAt: /* @__PURE__ */ new Date() }).where(eq(userPreferences.userId, userId)).returning();
+      return updated;
+    } else {
+      const [created] = await db.insert(userPreferences).values({ userId, ...prefs }).returning();
+      return created;
+    }
+  }
+  async getProduct(productId) {
+    const result = await db.execute(
+      sql2`SELECT * FROM stripe.products WHERE id = ${productId}`
+    );
+    return extractRows(result)[0] || null;
+  }
+  async listProducts(active = true, limit = 20, offset = 0) {
+    const result = await db.execute(
+      sql2`SELECT * FROM stripe.products WHERE active = ${active} LIMIT ${limit} OFFSET ${offset}`
+    );
+    return extractRows(result);
+  }
+  async listProductsWithPrices(active = true, limit = 20, offset = 0) {
+    const result = await db.execute(
+      sql2`
+        WITH paginated_products AS (
+          SELECT id, name, description, metadata, active
+          FROM stripe.products
+          WHERE active = ${active}
+          ORDER BY id
+          LIMIT ${limit} OFFSET ${offset}
+        )
+        SELECT 
+          p.id as product_id,
+          p.name as product_name,
+          p.description as product_description,
+          p.active as product_active,
+          p.metadata as product_metadata,
+          pr.id as price_id,
+          pr.unit_amount,
+          pr.currency,
+          pr.recurring,
+          pr.active as price_active,
+          pr.metadata as price_metadata
+        FROM paginated_products p
+        LEFT JOIN stripe.prices pr ON pr.product = p.id AND pr.active = true
+        ORDER BY p.id, pr.unit_amount
+      `
+    );
+    const rows = extractRows(result);
+    if (rows.length === 0) {
+      try {
+        const stripe = await getUncachableStripeClient();
+        const products = await stripe.products.list({ active: true, limit: 20 });
+        const productsWithPrices = [];
+        for (const product of products.data) {
+          const prices = await stripe.prices.list({ product: product.id, active: true });
+          if (prices.data.length === 0) {
+            productsWithPrices.push({
+              product_id: product.id,
+              product_name: product.name,
+              product_description: product.description,
+              product_active: product.active,
+              product_metadata: product.metadata,
+              price_id: null,
+              unit_amount: null,
+              currency: null,
+              recurring: null,
+              price_active: null
+            });
+          } else {
+            for (const price of prices.data) {
+              productsWithPrices.push({
+                product_id: product.id,
+                product_name: product.name,
+                product_description: product.description,
+                product_active: product.active,
+                product_metadata: product.metadata,
+                price_id: price.id,
+                unit_amount: price.unit_amount,
+                currency: price.currency,
+                recurring: price.recurring,
+                price_active: price.active,
+                price_metadata: price.metadata
+              });
+            }
+          }
+        }
+        return productsWithPrices;
+      } catch (error) {
+        console.error("Failed to fetch from Stripe API:", error);
+        return [];
+      }
+    }
+    return rows;
+  }
+  async getPrice(priceId) {
+    const result = await db.execute(
+      sql2`SELECT * FROM stripe.prices WHERE id = ${priceId}`
+    );
+    return extractRows(result)[0] || null;
+  }
+  async listPrices(active = true, limit = 20, offset = 0) {
+    const result = await db.execute(
+      sql2`SELECT * FROM stripe.prices WHERE active = ${active} LIMIT ${limit} OFFSET ${offset}`
+    );
+    return extractRows(result);
+  }
+  async getPricesForProduct(productId) {
+    const result = await db.execute(
+      sql2`SELECT * FROM stripe.prices WHERE product = ${productId} AND active = true`
+    );
+    return extractRows(result);
+  }
+  async getSubscription(subscriptionId) {
+    const result = await db.execute(
+      sql2`SELECT * FROM stripe.subscriptions WHERE id = ${subscriptionId}`
+    );
+    return extractRows(result)[0] || null;
+  }
+  async createContactSubmission(data) {
+    const result = await db.insert(contactSubmissions).values(data).returning();
+    return result[0];
+  }
+  async getContactSubmissions(status) {
+    if (status) {
+      return db.select().from(contactSubmissions).where(eq(contactSubmissions.status, status)).orderBy(desc(contactSubmissions.createdAt));
+    }
+    return db.select().from(contactSubmissions).orderBy(desc(contactSubmissions.createdAt));
+  }
+  // Anonymize user data to satisfy Apple's account deletion requirement.
+  // Keeps the row (preserving referential integrity with referrals/affiliates)
+  // but scrubs all personal information and revokes access.
+  async deleteUser(userId) {
+    await db.update(users).set({
+      email: `deleted_${userId}@deleted.invalid`,
+      password: "DELETED",
+      name: null,
+      stripeCustomerId: null,
+      stripeSubscriptionId: null,
+      isPremium: false,
+      subscriptionExpiry: null
+    }).where(eq(users.id, userId));
+  }
+};
+var storage = new DatabaseStorage();
+
+// server/stripeService.ts
+var StripeService = class {
+  async createCustomer(email, userId) {
+    const stripe = await getUncachableStripeClient();
+    return await stripe.customers.create({
+      email,
+      metadata: { userId }
+    });
+  }
+  async getCustomer(customerId) {
+    const stripe = await getUncachableStripeClient();
+    return await stripe.customers.retrieve(customerId);
+  }
+  async createCheckoutSession(customerId, priceId, successUrl, cancelUrl) {
+    const stripe = await getUncachableStripeClient();
+    return await stripe.checkout.sessions.create({
+      customer: customerId,
+      payment_method_types: ["card"],
+      line_items: [{ price: priceId, quantity: 1 }],
+      mode: "subscription",
+      success_url: successUrl,
+      cancel_url: cancelUrl
+    });
+  }
+  async createCustomerPortalSession(customerId, returnUrl) {
+    const stripe = await getUncachableStripeClient();
+    return await stripe.billingPortal.sessions.create({
+      customer: customerId,
+      return_url: returnUrl
+    });
+  }
+  async getProduct(productId) {
+    return await storage.getProduct(productId);
+  }
+  async getSubscription(subscriptionId) {
+    return await storage.getSubscription(subscriptionId);
+  }
+  async getActiveSubscription(customerId) {
+    const stripe = await getUncachableStripeClient();
+    const subscriptions = await stripe.subscriptions.list({
+      customer: customerId,
+      status: "active",
+      limit: 1
+    });
+    return subscriptions.data[0] || null;
+  }
+};
+var stripeService = new StripeService();
+
+// server/routes.ts
+import { z } from "zod";
+import bcrypt from "bcryptjs";
+
+// server/auth.ts
+import jwt from "jsonwebtoken";
+import { createHash } from "crypto";
+function getJwtSecret() {
+  if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
+  if (process.env.REPLIT_DEPLOYMENT === "1") {
+    throw new Error("JWT_SECRET must be set in production");
+  }
+  if (process.env.DATABASE_URL) {
+    return createHash("sha256").update(process.env.DATABASE_URL).digest("hex");
+  }
+  return "fallback-dev-secret-not-for-production";
+}
+var JWT_EXPIRY = "30d";
+function signToken(userId) {
+  return jwt.sign({ sub: userId }, getJwtSecret(), { expiresIn: JWT_EXPIRY });
+}
+function verifyToken(token) {
+  try {
+    return jwt.verify(token, getJwtSecret());
+  } catch {
+    return null;
+  }
+}
+function requireAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Authentication required" });
+  }
+  const token = authHeader.slice(7);
+  const payload = verifyToken(token);
+  if (!payload?.sub) {
+    return res.status(401).json({ error: "Invalid or expired token" });
+  }
+  req.userId = payload.sub;
+  next();
+}
+function optionalAuth(req, _res, next) {
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith("Bearer ")) {
+    const token = authHeader.slice(7);
+    const payload = verifyToken(token);
+    if (payload?.sub) {
+      req.userId = payload.sub;
+    }
+  }
+  next();
+}
+function timingSafeEqual(a, b) {
+  if (a.length !== b.length) return false;
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  try {
+    const { timingSafeEqual: tse } = __require("crypto");
+    return tse(bufA, bufB);
+  } catch {
+    let result = 0;
+    for (let i = 0; i < bufA.length; i++) {
+      result |= bufA[i] ^ bufB[i];
+    }
+    return result === 0;
+  }
+}
+function requireAdmin(req, res, next) {
+  const adminKey = process.env.ADMIN_API_KEY;
+  if (!adminKey) {
+    return res.status(503).json({ error: "Admin access not configured" });
+  }
+  const providedKey = req.headers["x-admin-key"];
+  if (!providedKey || !timingSafeEqual(providedKey, adminKey)) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  next();
+}
+var rateLimitStore = /* @__PURE__ */ new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of rateLimitStore) {
+    if (now > value.resetTime) {
+      rateLimitStore.delete(key);
+    }
+  }
+}, 6e4);
+var rateLimitCounter = 0;
+function rateLimit(options) {
+  const scope = `rl_${++rateLimitCounter}`;
+  return (req, res, next) => {
+    const ip = options.keyGenerator ? options.keyGenerator(req) : req.ip || req.headers["x-forwarded-for"] || "unknown";
+    const key = `${scope}:${ip}`;
+    const now = Date.now();
+    const entry = rateLimitStore.get(key);
+    if (!entry || now > entry.resetTime) {
+      rateLimitStore.set(key, { count: 1, resetTime: now + options.windowMs });
+      return next();
+    }
+    entry.count++;
+    if (entry.count > options.max) {
+      const retryAfter = Math.ceil((entry.resetTime - now) / 1e3);
+      res.set("Retry-After", String(retryAfter));
+      return res.status(429).json({ error: "Too many requests. Please try again later." });
+    }
+    next();
+  };
+}
+
+// server/routes.ts
+init_db();
+init_schema();
+import { sql as sql5, and as and2 } from "drizzle-orm";
+
 // server/services/predictionService.ts
-var predictionService_exports = {};
-__export(predictionService_exports, {
-  clearExpiredPredictions: () => clearExpiredPredictions,
-  dailyPredictionRefresh: () => dailyPredictionRefresh,
-  forceNewFreeTip: () => forceNewFreeTip,
-  forceRefreshHistory: () => forceRefreshHistory,
-  generateDailyFreePrediction: () => generateDailyFreePrediction,
-  generateDailyPredictions: () => generateDailyPredictions,
-  generateDemoPredictions: () => generateDemoPredictions,
-  generatePremiumHistory: () => generatePremiumHistory,
-  generatePremiumPredictionsForUser: () => generatePremiumPredictionsForUser,
-  generateYesterdayHistory: () => generateYesterdayHistory,
-  getActivePredictions: () => getActivePredictions,
-  getFreeTip: () => getFreeTip,
-  getHistoryPredictions: () => getHistoryPredictions,
-  getLivePredictions: () => getLivePredictions,
-  getPredictionById: () => getPredictionById,
-  getPredictionsBySport: () => getPredictionsBySport,
-  getPremiumPredictions: () => getPremiumPredictions,
-  getSportPredictionCounts: () => getSportPredictionCounts,
-  markPredictionResult: () => markPredictionResult,
-  replaceFreeTip: () => replaceFreeTip,
-  resolvePredictionResults: () => resolvePredictionResults,
-  resolveStuckPredictionsViaAI: () => resolveStuckPredictionsViaAI,
-  startDailyRefreshScheduler: () => startDailyRefreshScheduler
-});
+init_db();
+init_schema();
 import OpenAI from "openai";
 import { eq as eq2, and, gte, isNull, desc as desc2, sql as sql4, or } from "drizzle-orm";
+
+// server/services/sportsApiService.ts
+var CACHE_TTL_MS = 60 * 60 * 1e3;
+var matchCache = null;
+var espnFallbackCache = null;
+var ESPN_CACHE_TTL = 2 * 60 * 60 * 1e3;
+var SPORTS_MAP = {
+  football: [
+    { apiKey: "soccer_epl", sportName: "football", league: "Premier League" },
+    { apiKey: "soccer_spain_la_liga", sportName: "football", league: "La Liga" },
+    { apiKey: "soccer_germany_bundesliga", sportName: "football", league: "Bundesliga" },
+    { apiKey: "soccer_italy_serie_a", sportName: "football", league: "Serie A" },
+    { apiKey: "soccer_france_ligue_one", sportName: "football", league: "Ligue 1" },
+    { apiKey: "soccer_uefa_champs_league", sportName: "football", league: "Champions League" },
+    { apiKey: "soccer_usa_mls", sportName: "football", league: "MLS" }
+  ],
+  basketball: [
+    { apiKey: "basketball_nba", sportName: "basketball", league: "NBA" },
+    { apiKey: "basketball_euroleague", sportName: "basketball", league: "EuroLeague" },
+    { apiKey: "basketball_ncaab", sportName: "basketball", league: "NCAAB" }
+  ],
+  tennis: [
+    { apiKey: "tennis_atp_monte_carlo_masters", sportName: "tennis", league: "ATP Monte-Carlo Masters" },
+    { apiKey: "tennis_wta_charleston_open", sportName: "tennis", league: "WTA Charleston Open" }
+  ],
+  baseball: [
+    { apiKey: "baseball_mlb", sportName: "baseball", league: "MLB" }
+  ],
+  hockey: [
+    { apiKey: "icehockey_nhl", sportName: "hockey", league: "NHL" }
+  ],
+  mma: [
+    { apiKey: "mma_mixed_martial_arts", sportName: "mma", league: "UFC" }
+  ],
+  cricket: [
+    { apiKey: "cricket_ipl", sportName: "cricket", league: "IPL" },
+    { apiKey: "cricket_international_t20", sportName: "cricket", league: "International T20" },
+    { apiKey: "cricket_psl", sportName: "cricket", league: "PSL" }
+  ],
+  golf: []
+};
+async function fetchGamesFromApi(sportKey) {
+  const apiKey = process.env.ODDS_API_KEY;
+  if (!apiKey) {
+    console.log("ODDS_API_KEY not configured, using fallback data");
+    return [];
+  }
+  try {
+    const url = `https://api.the-odds-api.com/v4/sports/${sportKey}/events?apiKey=${apiKey}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      console.error(`Failed to fetch games for ${sportKey}: ${response.status}`);
+      return [];
+    }
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error(`Error fetching games for ${sportKey}:`, error);
+    return [];
+  }
+}
+async function getUpcomingMatchesFromApi() {
+  const now = Date.now();
+  if (matchCache && now - matchCache.fetchedAt < CACHE_TTL_MS) {
+    const upcoming = matchCache.data.filter((m) => m.matchTime.getTime() > now);
+    if (upcoming.length > 0) {
+      console.log(`Using cached matches (${upcoming.length} upcoming, cache age: ${Math.round((now - matchCache.fetchedAt) / 6e4)}m)`);
+      return upcoming;
+    }
+  }
+  const apiKey = process.env.ODDS_API_KEY;
+  if (!apiKey) {
+    console.log("ODDS_API_KEY not set \u2014 fetching real matches from ESPN");
+    const espnMatches = await getESPNMatches();
+    matchCache = { data: espnMatches, fetchedAt: Date.now() };
+    _usingFallback = true;
+    return espnMatches;
+  }
+  const allMatches = [];
+  const currentTime = /* @__PURE__ */ new Date();
+  const maxFutureTime = new Date(currentTime.getTime() + 7 * 24 * 60 * 60 * 1e3);
+  const allConfigs = [];
+  for (const configs of Object.values(SPORTS_MAP)) {
+    allConfigs.push(...configs);
+  }
+  for (let i = 0; i < allConfigs.length; i++) {
+    const config = allConfigs[i];
+    if (i > 0 && i % 5 === 0) {
+      await new Promise((r) => setTimeout(r, 1e3));
+    }
+    const games = await fetchGamesFromApi(config.apiKey);
+    const futureGames = games.filter((g) => {
+      const t = new Date(g.commence_time);
+      return t > currentTime && t < maxFutureTime;
+    }).slice(0, 4);
+    for (const game of futureGames) {
+      allMatches.push({
+        homeTeam: game.home_team,
+        awayTeam: game.away_team,
+        sport: config.sportName,
+        matchTime: new Date(game.commence_time),
+        league: config.league
+      });
+    }
+  }
+  const apiMatchCount = allMatches.length;
+  if (apiMatchCount === 0) {
+    console.log("No real games found from sports API \u2014 fetching real matches from ESPN");
+    const espnMatches = await getESPNMatches();
+    matchCache = { data: espnMatches, fetchedAt: Date.now() };
+    _usingFallback = true;
+    return espnMatches;
+  }
+  allMatches.sort((a, b) => a.matchTime.getTime() - b.matchTime.getTime());
+  matchCache = { data: allMatches, fetchedAt: Date.now() };
+  _usingFallback = false;
+  console.log(`Fetched ${allMatches.length} real upcoming matches from sports API (cached for 1 hour)`);
+  return allMatches;
+}
+var _usingFallback = false;
+function isUsingFallbackData() {
+  return _usingFallback;
+}
+var ESPN_ENDPOINTS = [
+  { url: "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", sport: "basketball", league: "NBA" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard", sport: "baseball", league: "MLB" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard", sport: "hockey", league: "NHL" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard", sport: "football", league: "Premier League" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/esp.1/scoreboard", sport: "football", league: "La Liga" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/ger.1/scoreboard", sport: "football", league: "Bundesliga" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/ita.1/scoreboard", sport: "football", league: "Serie A" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/fra.1/scoreboard", sport: "football", league: "Ligue 1" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard", sport: "football", league: "MLS" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.champions/scoreboard", sport: "football", league: "Champions League" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard", sport: "mma", league: "UFC" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/tennis/atp/scoreboard", sport: "tennis", league: "ATP Tour" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/tennis/wta/scoreboard", sport: "tennis", league: "WTA Tour" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/cricket/icc/scoreboard", sport: "cricket", league: "ICC" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard", sport: "golf", league: "PGA Tour" }
+];
+async function getESPNMatches() {
+  const now = Date.now();
+  if (espnFallbackCache && now - espnFallbackCache.fetchedAt < ESPN_CACHE_TTL) {
+    const upcoming = espnFallbackCache.data.filter((m) => m.matchTime.getTime() > now);
+    if (upcoming.length > 5) {
+      console.log(`Using cached ESPN matches (${upcoming.length} upcoming)`);
+      return upcoming;
+    }
+  }
+  console.log("Fetching real upcoming matches from ESPN (free API)...");
+  const allMatches = [];
+  const currentTime = /* @__PURE__ */ new Date();
+  const seenMatchups = /* @__PURE__ */ new Set();
+  function parseESPNEvents(events, sport, league) {
+    const results = [];
+    for (const event of events.slice(0, 10)) {
+      const matchTime = new Date(event.date);
+      if (isNaN(matchTime.getTime()) || matchTime < currentTime) continue;
+      const competitors = event.competitions?.[0]?.competitors || [];
+      if (competitors.length < 2) continue;
+      const homeComp = competitors.find((c) => c.homeAway === "home") || competitors[0];
+      const awayComp = competitors.find((c) => c.homeAway === "away") || competitors[1];
+      const homeTeam = homeComp.team?.displayName || homeComp.athlete?.displayName || event.name?.split(" vs ")?.[0] || "TBD";
+      const awayTeam = awayComp.team?.displayName || awayComp.athlete?.displayName || event.name?.split(" vs ")?.[1] || "TBD";
+      if (homeTeam === "TBD" || awayTeam === "TBD") continue;
+      const key = `${homeTeam}|${awayTeam}|${sport}`;
+      if (seenMatchups.has(key)) continue;
+      seenMatchups.add(key);
+      results.push({ homeTeam, awayTeam, sport, matchTime, league });
+    }
+    return results;
+  }
+  for (const endpoint of ESPN_ENDPOINTS) {
+    try {
+      const response = await fetch(endpoint.url);
+      if (!response.ok) continue;
+      const data = await response.json();
+      allMatches.push(...parseESPNEvents(data.events || [], endpoint.sport, endpoint.league));
+    } catch (error) {
+      console.error(`ESPN fetch failed for ${endpoint.league}:`, error);
+    }
+  }
+  const keyScheduleEndpoints = [
+    { base: "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", sport: "basketball", league: "NBA" },
+    { base: "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard", sport: "baseball", league: "MLB" },
+    { base: "https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard", sport: "hockey", league: "NHL" },
+    { base: "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard", sport: "football", league: "Premier League" },
+    { base: "https://site.api.espn.com/apis/site/v2/sports/soccer/esp.1/scoreboard", sport: "football", league: "La Liga" },
+    { base: "https://site.api.espn.com/apis/site/v2/sports/soccer/ger.1/scoreboard", sport: "football", league: "Bundesliga" },
+    { base: "https://site.api.espn.com/apis/site/v2/sports/soccer/ita.1/scoreboard", sport: "football", league: "Serie A" },
+    { base: "https://site.api.espn.com/apis/site/v2/sports/soccer/fra.1/scoreboard", sport: "football", league: "Ligue 1" },
+    { base: "https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard", sport: "mma", league: "UFC" },
+    { base: "https://site.api.espn.com/apis/site/v2/sports/tennis/atp/scoreboard", sport: "tennis", league: "ATP Tour" },
+    { base: "https://site.api.espn.com/apis/site/v2/sports/cricket/icc/scoreboard", sport: "cricket", league: "ICC" }
+  ];
+  for (let dayOffset = 1; dayOffset <= 3; dayOffset++) {
+    const d = new Date(currentTime);
+    d.setUTCDate(d.getUTCDate() + dayOffset);
+    const dateStr = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`;
+    for (const ep of keyScheduleEndpoints) {
+      try {
+        const response = await fetch(`${ep.base}?dates=${dateStr}`);
+        if (!response.ok) continue;
+        const data = await response.json();
+        allMatches.push(...parseESPNEvents(data.events || [], ep.sport, ep.league));
+      } catch {
+      }
+    }
+  }
+  allMatches.sort((a, b) => a.matchTime.getTime() - b.matchTime.getTime());
+  if (allMatches.length > 0) {
+    espnFallbackCache = { data: allMatches, fetchedAt: Date.now() };
+    console.log(`ESPN: fetched ${allMatches.length} real upcoming matches across ${new Set(allMatches.map((m) => m.sport)).size} sports`);
+    return allMatches;
+  }
+  console.log("ESPN returned no matches");
+  return [];
+}
+async function refreshUpcomingMatches() {
+  matchCache = null;
+  espnFallbackCache = null;
+  return getUpcomingMatchesFromApi();
+}
+var LIVE_CACHE_TTL = 2 * 60 * 1e3;
+var liveMatchCache = null;
+async function getLiveMatches() {
+  if (liveMatchCache && Date.now() - liveMatchCache.fetchedAt < LIVE_CACHE_TTL) {
+    return liveMatchCache.data;
+  }
+  const liveMatches = [];
+  for (const endpoint of ESPN_SCORES_ENDPOINTS) {
+    try {
+      const response = await fetch(endpoint.url);
+      if (!response.ok) continue;
+      const data = await response.json();
+      const events = data.events || [];
+      for (const event of events) {
+        const statusType = event.status?.type?.name;
+        if (statusType !== "STATUS_IN_PROGRESS" && statusType !== "STATUS_HALFTIME" && statusType !== "STATUS_END_PERIOD") continue;
+        const competitors = event.competitions?.[0]?.competitors || [];
+        if (competitors.length < 2) continue;
+        if (endpoint.sport === "golf" || endpoint.sport === "tennis") {
+          const comp1 = competitors[0];
+          const comp2 = competitors[1];
+          const name1 = comp1?.athlete?.displayName || comp1?.team?.displayName || "Unknown";
+          const name2 = comp2?.athlete?.displayName || comp2?.team?.displayName || "Unknown";
+          if (name1 === "Unknown" || name2 === "Unknown") continue;
+          liveMatches.push({
+            homeTeam: name1,
+            awayTeam: name2,
+            sport: endpoint.sport,
+            league: endpoint.league,
+            matchTime: new Date(event.date),
+            homeScore: parseInt(comp1.score || "0"),
+            awayScore: parseInt(comp2.score || "0"),
+            status: event.status?.type?.shortDetail || "Live",
+            clock: event.status?.displayClock,
+            period: event.status?.period?.toString()
+          });
+          continue;
+        }
+        const homeComp = competitors.find((c) => c.homeAway === "home") || competitors[0];
+        const awayComp = competitors.find((c) => c.homeAway === "away") || competitors[1];
+        const homeTeam = homeComp.team?.displayName || "Unknown";
+        const awayTeam = awayComp.team?.displayName || "Unknown";
+        if (homeTeam === "Unknown" || awayTeam === "Unknown") continue;
+        liveMatches.push({
+          homeTeam,
+          awayTeam,
+          sport: endpoint.sport,
+          league: endpoint.league,
+          matchTime: new Date(event.date),
+          homeScore: parseInt(homeComp.score || "0"),
+          awayScore: parseInt(awayComp.score || "0"),
+          status: event.status?.type?.shortDetail || "Live",
+          clock: event.status?.displayClock,
+          period: event.status?.period?.toString()
+        });
+      }
+    } catch (error) {
+      console.error(`ESPN live fetch failed for ${endpoint.league}:`, error);
+    }
+  }
+  liveMatchCache = { data: liveMatches, fetchedAt: Date.now() };
+  console.log(`Fetched ${liveMatches.length} live matches from ESPN`);
+  return liveMatches;
+}
+async function getRecentCompletedGames() {
+  const apiKey = process.env.ODDS_API_KEY;
+  const [espnGames, oddsGames, sportsDbGames] = await Promise.all([
+    fetchCompletedFromESPN(),
+    apiKey ? fetchCompletedFromOddsApi(apiKey) : Promise.resolve([]),
+    fetchCompletedFromSportsDB()
+  ]);
+  if (espnGames.length === 0 && oddsGames.length === 0 && sportsDbGames.length === 0) {
+    console.log("All sources returned 0 completed games");
+    return [];
+  }
+  const simplify = (name) => name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+  const merged = [...oddsGames];
+  const seenKeys = new Set(
+    oddsGames.flatMap((g) => [
+      `${simplify(g.homeTeam)}|${simplify(g.awayTeam)}`,
+      `${simplify(g.awayTeam)}|${simplify(g.homeTeam)}`
+    ])
+  );
+  for (const g of [...espnGames, ...sportsDbGames]) {
+    const key = `${simplify(g.homeTeam)}|${simplify(g.awayTeam)}`;
+    const reverseKey = `${simplify(g.awayTeam)}|${simplify(g.homeTeam)}`;
+    if (!seenKeys.has(key) && !seenKeys.has(reverseKey)) {
+      merged.push(g);
+      seenKeys.add(key);
+      seenKeys.add(reverseKey);
+    }
+  }
+  merged.sort((a, b) => b.matchTime.getTime() - a.matchTime.getTime());
+  console.log(`Cross-checked results: ${espnGames.length} ESPN + ${oddsGames.length} Odds API + ${sportsDbGames.length} TheSportsDB \u2192 ${merged.length} merged`);
+  return merged;
+}
+var teamIdCache = /* @__PURE__ */ new Map();
+async function lookupGameByTeams(homeTeamRaw, awayTeamRaw, sport) {
+  const simplify = (n) => n.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+  const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1e3);
+  const getTeamId = async (teamName) => {
+    const cacheKey = simplify(teamName);
+    if (teamIdCache.has(cacheKey)) return teamIdCache.get(cacheKey);
+    try {
+      const url = `https://www.thesportsdb.com/api/v1/json/3/searchteams.php?t=${encodeURIComponent(teamName)}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(6e3) });
+      if (!res.ok) {
+        teamIdCache.set(cacheKey, null);
+        return null;
+      }
+      const data = await res.json();
+      const id = data.teams?.[0]?.idTeam ?? null;
+      teamIdCache.set(cacheKey, id);
+      return id;
+    } catch {
+      teamIdCache.set(cacheKey, null);
+      return null;
+    }
+  };
+  const findMatchInTeamResults = async (teamId) => {
+    try {
+      const url = `https://www.thesportsdb.com/api/v1/json/3/eventslast.php?id=${teamId}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(6e3) });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const events = data.results || [];
+      for (const ev of events) {
+        const matchTime = /* @__PURE__ */ new Date(`${ev.dateEvent}T${ev.strTime || "00:00:00"}Z`);
+        if (matchTime < fourteenDaysAgo) continue;
+        const h = ev.strHomeTeam || "";
+        const a = ev.strAwayTeam || "";
+        const homeScore = parseInt(ev.intHomeScore ?? "-1");
+        const awayScore = parseInt(ev.intAwayScore ?? "-1");
+        if (homeScore < 0 || awayScore < 0) continue;
+        const hN = simplify(h);
+        const aN = simplify(a);
+        const pHN = simplify(homeTeamRaw);
+        const pAN = simplify(awayTeamRaw);
+        const teamsMatch = (hN.includes(pHN) || pHN.includes(hN)) && (aN.includes(pAN) || pAN.includes(aN)) || (hN.includes(pAN) || pAN.includes(hN)) && (aN.includes(pHN) || pHN.includes(aN));
+        if (teamsMatch) {
+          const winner = homeScore > awayScore ? h : awayScore > homeScore ? a : "Draw";
+          return { homeTeam: h, awayTeam: a, sport, league: ev.strLeague || "", matchTime, homeScore, awayScore, winner };
+        }
+      }
+    } catch {
+    }
+    return null;
+  };
+  const [homeId, awayId] = await Promise.all([
+    getTeamId(homeTeamRaw),
+    getTeamId(awayTeamRaw)
+  ]);
+  for (const id of [homeId, awayId].filter(Boolean)) {
+    const result = await findMatchInTeamResults(id);
+    if (result) return result;
+  }
+  return null;
+}
+var SPORTSDB_LEAGUES = [
+  { id: 4460, sport: "cricket", league: "IPL" },
+  // Indian Premier League (correct ID)
+  { id: 5067, sport: "cricket", league: "PSL" },
+  // Pakistan Super League (correct ID)
+  { id: 4346, sport: "football", league: "MLS" }
+  // Major League Soccer (correct ID)
+];
+async function fetchCompletedFromSportsDB() {
+  const results = [];
+  const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1e3);
+  const currentYear = (/* @__PURE__ */ new Date()).getFullYear();
+  const seasons = [String(currentYear), String(currentYear - 1)];
+  await Promise.all(SPORTSDB_LEAGUES.flatMap(
+    ({ id, sport, league }) => seasons.map(async (season) => {
+      try {
+        const url = `https://www.thesportsdb.com/api/v1/json/3/eventsseason.php?id=${id}&s=${season}`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(8e3) });
+        if (!res.ok) return;
+        const data = await res.json();
+        const events = data.events || [];
+        for (const ev of events) {
+          const homeScore = parseInt(ev.intHomeScore ?? "-1");
+          const awayScore = parseInt(ev.intAwayScore ?? "-1");
+          if (homeScore < 0 || awayScore < 0) continue;
+          const matchTime = /* @__PURE__ */ new Date(`${ev.dateEvent}T${ev.strTime || "00:00:00"}Z`);
+          if (matchTime < fourteenDaysAgo) continue;
+          const homeTeam = ev.strHomeTeam || "";
+          const awayTeam = ev.strAwayTeam || "";
+          if (!homeTeam || !awayTeam) continue;
+          let winner;
+          if (homeScore > awayScore) winner = homeTeam;
+          else if (awayScore > homeScore) winner = awayTeam;
+          else winner = "Draw";
+          results.push({ homeTeam, awayTeam, sport, league, matchTime, homeScore, awayScore, winner });
+        }
+      } catch {
+      }
+    })
+  ));
+  console.log(`Fetched ${results.length} completed games from TheSportsDB`);
+  return results;
+}
+async function fetchCompletedFromOddsApi(apiKey) {
+  const completedGames = [];
+  const scoresConfigs = [];
+  for (const configs of Object.values(SPORTS_MAP)) {
+    scoresConfigs.push(...configs);
+  }
+  let requestCount = 0;
+  for (const config of scoresConfigs) {
+    try {
+      if (requestCount > 0 && requestCount % 5 === 0) {
+        await new Promise((r) => setTimeout(r, 1e3));
+      }
+      requestCount++;
+      const url = `https://api.the-odds-api.com/v4/sports/${config.apiKey}/scores/?apiKey=${apiKey}&daysFrom=3&dateFormat=iso`;
+      const response = await fetch(url);
+      if (!response.ok) continue;
+      const data = await response.json();
+      for (const game of data) {
+        if (!game.completed || !game.scores || game.scores.length < 2) continue;
+        const rawHomeScore = game.scores.find((s) => s.name === game.home_team)?.score;
+        const rawAwayScore = game.scores.find((s) => s.name === game.away_team)?.score;
+        if (rawHomeScore == null || rawAwayScore == null || rawHomeScore === "" || rawAwayScore === "") continue;
+        const homeScore = parseInt(rawHomeScore);
+        const awayScore = parseInt(rawAwayScore);
+        if (isNaN(homeScore) || isNaN(awayScore)) continue;
+        if (homeScore === awayScore) continue;
+        completedGames.push({
+          homeTeam: game.home_team,
+          awayTeam: game.away_team,
+          sport: config.sportName,
+          league: config.league,
+          matchTime: new Date(game.commence_time),
+          homeScore,
+          awayScore,
+          winner: homeScore > awayScore ? game.home_team : game.away_team
+        });
+      }
+    } catch (error) {
+      console.error(`Error fetching scores for ${config.apiKey}:`, error);
+    }
+  }
+  completedGames.sort((a, b) => b.matchTime.getTime() - a.matchTime.getTime());
+  console.log(`Fetched ${completedGames.length} real completed games from Odds API`);
+  return completedGames;
+}
+var ESPN_SCORES_ENDPOINTS = [
+  { url: "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", sport: "basketball", league: "NBA" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard", sport: "baseball", league: "MLB" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard", sport: "hockey", league: "NHL" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard", sport: "football", league: "Premier League" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.2/scoreboard", sport: "football", league: "Championship" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.fa/scoreboard", sport: "football", league: "FA Cup" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.league_cup/scoreboard", sport: "football", league: "EFL Cup" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/esp.1/scoreboard", sport: "football", league: "La Liga" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/esp.copa_del_rey/scoreboard", sport: "football", league: "Copa del Rey" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/ger.1/scoreboard", sport: "football", league: "Bundesliga" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/ita.1/scoreboard", sport: "football", league: "Serie A" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/fra.1/scoreboard", sport: "football", league: "Ligue 1" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard", sport: "football", league: "MLS" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/usa.open/scoreboard", sport: "football", league: "US Open Cup" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/concacaf.champions/scoreboard", sport: "football", league: "CONCACAF Champions" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.champions/scoreboard", sport: "football", league: "Champions League" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.europa/scoreboard", sport: "football", league: "Europa League" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard", sport: "mma", league: "UFC" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/tennis/atp/scoreboard", sport: "tennis", league: "ATP Tour" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/tennis/wta/scoreboard", sport: "tennis", league: "WTA Tour" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/cricket/icc/scoreboard", sport: "cricket", league: "ICC" },
+  { url: "https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard", sport: "golf", league: "PGA Tour" }
+];
+async function fetchCompletedFromESPN() {
+  const completedGames = [];
+  const dateStrs = [];
+  for (let i = 0; i <= 13; i++) {
+    const d = /* @__PURE__ */ new Date();
+    d.setDate(d.getDate() - i);
+    dateStrs.push(d.toISOString().split("T")[0].replace(/-/g, ""));
+  }
+  for (const endpoint of ESPN_SCORES_ENDPOINTS) {
+    for (const dateStr of dateStrs) {
+      try {
+        const url = `${endpoint.url}?dates=${dateStr}`;
+        const response = await fetch(url);
+        if (!response.ok) continue;
+        const data = await response.json();
+        const events = data.events || [];
+        for (const event of events) {
+          const status = event.status?.type?.name;
+          const isCompleted = event.status?.type?.completed === true;
+          const completedStatuses = ["STATUS_FINAL", "STATUS_FULL_TIME", "STATUS_FULL_PEN", "STATUS_FULL_ET", "STATUS_ENDED", "STATUS_RESULT"];
+          if (!isCompleted && !completedStatuses.includes(status)) continue;
+          const competitors = event.competitions?.[0]?.competitors || [];
+          if (endpoint.sport === "golf") {
+            if (competitors.length < 1) continue;
+            const winnerComp = competitors.find((c) => c.winner) || competitors[0];
+            const runnerUp = competitors[1];
+            const winnerName = winnerComp?.athlete?.displayName || winnerComp?.team?.displayName;
+            const runnerName = runnerUp?.athlete?.displayName || runnerUp?.team?.displayName;
+            if (!winnerName || !runnerName) continue;
+            completedGames.push({
+              homeTeam: winnerName,
+              awayTeam: runnerName,
+              sport: endpoint.sport,
+              league: endpoint.league,
+              matchTime: new Date(event.date),
+              homeScore: 1,
+              awayScore: 0,
+              winner: winnerName
+            });
+            continue;
+          }
+          if (endpoint.sport === "tennis" || endpoint.sport === "mma") {
+            if (competitors.length < 2) continue;
+            const winnerComp = competitors.find((c) => c.winner) || competitors[0];
+            const loserComp = competitors.find((c) => !c.winner) || competitors[1];
+            const winnerName = winnerComp?.athlete?.displayName || winnerComp?.team?.displayName;
+            const loserName = loserComp?.athlete?.displayName || loserComp?.team?.displayName;
+            if (!winnerName || !loserName) continue;
+            completedGames.push({
+              homeTeam: winnerName,
+              awayTeam: loserName,
+              sport: endpoint.sport,
+              league: endpoint.league,
+              matchTime: new Date(event.date),
+              homeScore: 1,
+              awayScore: 0,
+              winner: winnerName
+            });
+            continue;
+          }
+          if (competitors.length < 2) continue;
+          const homeComp = competitors.find((c) => c.homeAway === "home") || competitors[0];
+          const awayComp = competitors.find((c) => c.homeAway === "away") || competitors[1];
+          const homeTeam = homeComp.team?.displayName || "Unknown";
+          const awayTeam = awayComp.team?.displayName || "Unknown";
+          if (homeTeam === "Unknown" || awayTeam === "Unknown") continue;
+          const rawHomeScore = homeComp.score;
+          const rawAwayScore = awayComp.score;
+          if (rawHomeScore == null || rawAwayScore == null || rawHomeScore === "" || rawAwayScore === "") continue;
+          const homeScore = parseInt(rawHomeScore);
+          const awayScore = parseInt(rawAwayScore);
+          if (isNaN(homeScore) || isNaN(awayScore)) continue;
+          if (homeScore === awayScore) {
+            if (endpoint.sport === "football") {
+              completedGames.push({
+                homeTeam,
+                awayTeam,
+                sport: endpoint.sport,
+                league: endpoint.league,
+                matchTime: new Date(event.date),
+                homeScore,
+                awayScore,
+                winner: "Draw"
+              });
+            }
+            continue;
+          }
+          let winner;
+          if (homeComp.winner === true) winner = homeTeam;
+          else if (awayComp.winner === true) winner = awayTeam;
+          else winner = homeScore > awayScore ? homeTeam : awayScore > homeScore ? awayTeam : "Draw";
+          completedGames.push({
+            homeTeam,
+            awayTeam,
+            sport: endpoint.sport,
+            league: endpoint.league,
+            matchTime: new Date(event.date),
+            homeScore,
+            awayScore,
+            winner
+          });
+        }
+      } catch (error) {
+        console.error(`ESPN scores fetch failed for ${endpoint.league}:`, error);
+      }
+    }
+  }
+  const seen = /* @__PURE__ */ new Set();
+  const dedupedGames = completedGames.sort((a, b) => b.matchTime.getTime() - a.matchTime.getTime()).filter((g) => {
+    const key = `${g.homeTeam} vs ${g.awayTeam}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  console.log(`Fetched ${dedupedGames.length} completed games from ESPN (${completedGames.length} before dedup)`);
+  return dedupedGames;
+}
+
+// server/services/predictionService.ts
+var _openai = null;
 function getOpenAI() {
   if (!_openai) {
     _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   }
   return _openai;
 }
+var openai = new Proxy({}, {
+  get(_target, prop) {
+    return getOpenAI()[prop];
+  }
+});
+var _groq = null;
 function getGroq() {
   if (!_groq) {
     _groq = new OpenAI({
@@ -1168,6 +1569,13 @@ function getGroq() {
   }
   return _groq;
 }
+var groq = new Proxy({}, {
+  get(_target, prop) {
+    return getGroq()[prop];
+  }
+});
+var GROQ_MODEL = "llama-3.3-70b-versatile";
+var sleep = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
 async function withOpenAIRetry(fn, maxRetries = 3) {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -1449,6 +1857,7 @@ async function getTodaysActiveFreePrediction() {
   ).orderBy(desc2(predictions.createdAt)).limit(1);
   return tip || null;
 }
+var isGeneratingFreeTip = false;
 async function generateDailyFreePrediction() {
   if (isGeneratingFreeTip) {
     console.log("Free tip generation already in progress, skipping");
@@ -1466,6 +1875,8 @@ async function generateDailyFreePrediction() {
     isGeneratingFreeTip = false;
   }
 }
+var FREE_TIP_PREFERRED_SPORTS = /* @__PURE__ */ new Set(["basketball", "football", "mma"]);
+var FREE_TIP_AVOID_SPORTS = /* @__PURE__ */ new Set(["baseball", "hockey", "tennis", "cricket", "golf"]);
 async function _generateDailyFreeTip() {
   console.log("Generating daily free prediction \u2014 batch scoring all candidates...");
   const matches = await getUpcomingMatches();
@@ -1601,250 +2012,6 @@ async function generatePremiumPredictionsForUser(userId) {
 }
 async function generateDailyPredictions() {
   await generateDailyFreePrediction();
-}
-async function generateYesterdayHistory() {
-  console.log("Generating history from real completed games...");
-  const fiveDaysAgo = /* @__PURE__ */ new Date();
-  fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
-  await db.delete(predictions).where(
-    and(
-      isNull(predictions.userId),
-      eq2(predictions.isPremium, false),
-      sql4`${predictions.result} IS NOT NULL`,
-      sql4`${predictions.matchTime} < ${fiveDaysAgo.toISOString()}::timestamp`
-    )
-  );
-  const existingHistory = await db.select({ matchTitle: predictions.matchTitle }).from(predictions).where(
-    and(
-      isNull(predictions.userId),
-      eq2(predictions.isPremium, false),
-      sql4`${predictions.result} IS NOT NULL`
-    )
-  );
-  const realAiPredictions = await db.select({ matchTitle: predictions.matchTitle }).from(predictions).where(
-    and(
-      isNull(predictions.userId),
-      sql4`${predictions.expiresAt} > ${predictions.matchTime}`
-    )
-  );
-  const allExistingTitles = [
-    ...existingHistory.map((e) => e.matchTitle),
-    ...realAiPredictions.map((e) => e.matchTitle)
-  ];
-  const completedGames = await getRecentCompletedGames();
-  if (completedGames.length === 0) {
-    console.log("No real completed games found from API \u2014 keeping existing history");
-    return;
-  }
-  const normalizeMatchup = (t) => {
-    const clean = t.replace(" (O/U)", "");
-    return clean.split(" vs ").map((s) => s.trim()).sort().join("|");
-  };
-  const existingNormalized = /* @__PURE__ */ new Set();
-  for (const t of allExistingTitles) {
-    existingNormalized.add(normalizeMatchup(t));
-  }
-  const selectedGames = [];
-  const seenMatchups = /* @__PURE__ */ new Set();
-  for (const game of completedGames) {
-    if (selectedGames.length >= 30) break;
-    if (!game.winner || !game.homeTeam || !game.awayTeam) continue;
-    if (game.homeScore === void 0 || game.awayScore === void 0) continue;
-    if (game.homeScore === 0 && game.awayScore === 0) continue;
-    const now = /* @__PURE__ */ new Date();
-    if (new Date(game.matchTime).getTime() > now.getTime() - 3 * 60 * 60 * 1e3) continue;
-    const sportCount = selectedGames.filter((g) => g.sport === game.sport).length;
-    if (sportCount >= 6) continue;
-    const title = `${game.homeTeam} vs ${game.awayTeam}`;
-    const normalized = normalizeMatchup(title);
-    if (existingNormalized.has(normalized)) continue;
-    if (seenMatchups.has(normalized)) continue;
-    seenMatchups.add(normalized);
-    selectedGames.push(game);
-  }
-  if (selectedGames.length === 0) {
-    console.log(`No new completed games to add (${existingHistory.length} existing history entries kept)`);
-    return;
-  }
-  const basketballGames = selectedGames.filter((g) => g.sport === "basketball");
-  const ouIndices = /* @__PURE__ */ new Set();
-  const bballIndices = basketballGames.map((_, i) => i);
-  const shuffled = bballIndices.sort(() => Math.random() - 0.5);
-  for (let i = 0; i < Math.min(3, shuffled.length); i++) {
-    ouIndices.add(shuffled[i]);
-  }
-  let inserted = 0;
-  let bballIdx = 0;
-  for (const game of selectedGames) {
-    const createdBefore = new Date(game.matchTime);
-    const isBasketball = game.sport === "basketball";
-    const isOU = isBasketball && ouIndices.has(bballIdx);
-    if (isBasketball) bballIdx++;
-    if (isOU) {
-      const totalScore = game.homeScore + game.awayScore;
-      const line = totalScore + (Math.random() > 0.5 ? -5.5 : 5.5);
-      const direction = totalScore > line ? "Over" : "Under";
-      const ouProb = Math.floor(Math.random() * 15) + 68;
-      const ouConf = ouProb >= 75 ? "high" : "medium";
-      await db.insert(predictions).values({
-        userId: null,
-        matchTitle: `${game.homeTeam} vs ${game.awayTeam} (O/U)`,
-        sport: game.sport,
-        matchTime: game.matchTime,
-        predictedOutcome: `${direction} ${line}`,
-        probability: ouProb,
-        confidence: ouConf,
-        explanation: `Final score: ${game.homeScore}-${game.awayScore} (Total: ${totalScore}, Line: ${line}). Our AI correctly predicted the ${direction.toLowerCase()}.`,
-        factors: [{ title: "Result", description: `Total ${totalScore} went ${direction.toLowerCase()} ${line}`, impact: "positive" }],
-        riskIndex: ouProb >= 75 ? 2 : 3,
-        isLive: false,
-        isPremium: false,
-        result: "correct",
-        createdAt: createdBefore,
-        expiresAt: game.matchTime
-      });
-      inserted++;
-    } else {
-      const prob = Math.floor(Math.random() * 20) + 65;
-      const conf = prob >= 75 ? "high" : "medium";
-      const scoreLine = `${game.winner} won ${game.homeScore}-${game.awayScore}`;
-      await db.insert(predictions).values({
-        userId: null,
-        matchTitle: `${game.homeTeam} vs ${game.awayTeam}`,
-        sport: game.sport,
-        matchTime: game.matchTime,
-        predictedOutcome: `${game.winner} Win`,
-        probability: prob,
-        confidence: conf,
-        explanation: `${scoreLine}. Our AI correctly predicted this outcome.`,
-        factors: [{ title: "Result", description: scoreLine, impact: "positive" }],
-        riskIndex: prob >= 75 ? 2 : 3,
-        isLive: false,
-        isPremium: false,
-        result: "correct",
-        createdAt: createdBefore,
-        expiresAt: game.matchTime
-      });
-      inserted++;
-    }
-  }
-  console.log(`History: added ${inserted} new entries, ${existingHistory.length} existing kept`);
-}
-async function generatePremiumHistory() {
-  console.log("Generating premium history from real completed games...");
-  const fiveDaysAgo = /* @__PURE__ */ new Date();
-  fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
-  await db.delete(predictions).where(
-    and(
-      isNull(predictions.userId),
-      eq2(predictions.isPremium, true),
-      sql4`${predictions.result} IS NOT NULL`,
-      sql4`${predictions.matchTime} < ${fiveDaysAgo.toISOString()}::timestamp`
-    )
-  );
-  const existingPremiumHistory = await db.select({ matchTitle: predictions.matchTitle }).from(predictions).where(
-    and(
-      isNull(predictions.userId),
-      eq2(predictions.isPremium, true),
-      sql4`${predictions.result} IS NOT NULL`
-    )
-  );
-  const existingTitles = new Set(existingPremiumHistory.map((e) => e.matchTitle));
-  const completedGames = await getRecentCompletedGames();
-  if (completedGames.length === 0) {
-    console.log("No completed games for premium history");
-    return;
-  }
-  const normalizeMatchup = (t) => {
-    const clean = t.replace(" (O/U)", "");
-    return clean.split(" vs ").map((s) => s.trim()).sort().join("|");
-  };
-  const existingNormalized = /* @__PURE__ */ new Set();
-  for (const t of existingTitles) {
-    existingNormalized.add(normalizeMatchup(t));
-  }
-  const selectedGames = [];
-  const seenMatchups = /* @__PURE__ */ new Set();
-  for (const game of completedGames) {
-    if (selectedGames.length >= 40) break;
-    if (!game.winner || !game.homeTeam || !game.awayTeam) continue;
-    if (game.homeScore === void 0 || game.awayScore === void 0) continue;
-    if (game.homeScore === 0 && game.awayScore === 0) continue;
-    const now = /* @__PURE__ */ new Date();
-    if (new Date(game.matchTime).getTime() > now.getTime() - 3 * 60 * 60 * 1e3) continue;
-    const title = `${game.homeTeam} vs ${game.awayTeam}`;
-    const normalized = normalizeMatchup(title);
-    if (existingNormalized.has(normalized)) continue;
-    if (seenMatchups.has(normalized)) continue;
-    seenMatchups.add(normalized);
-    selectedGames.push(game);
-  }
-  if (selectedGames.length === 0) {
-    console.log(`Premium history: no new games (${existingPremiumHistory.length} existing kept)`);
-    return;
-  }
-  const basketballGames = selectedGames.filter((g) => g.sport === "basketball");
-  const ouIndices = /* @__PURE__ */ new Set();
-  const shuffled = basketballGames.map((_, i) => i).sort(() => Math.random() - 0.5);
-  for (let i = 0; i < Math.min(4, shuffled.length); i++) {
-    ouIndices.add(shuffled[i]);
-  }
-  let inserted = 0;
-  let bballIdx = 0;
-  for (const game of selectedGames) {
-    const createdBefore = new Date(game.matchTime);
-    const isBasketball = game.sport === "basketball";
-    const isOU = isBasketball && ouIndices.has(bballIdx);
-    if (isBasketball) bballIdx++;
-    if (isOU) {
-      const totalScore = game.homeScore + game.awayScore;
-      const line = totalScore + (Math.random() > 0.5 ? -5.5 : 5.5);
-      const direction = totalScore > line ? "Over" : "Under";
-      const prob = Math.floor(Math.random() * 15) + 72;
-      const conf = prob >= 78 ? "high" : "medium";
-      await db.insert(predictions).values({
-        userId: null,
-        matchTitle: `${game.homeTeam} vs ${game.awayTeam} (O/U)`,
-        sport: game.sport,
-        matchTime: game.matchTime,
-        predictedOutcome: `${direction} ${line}`,
-        probability: prob,
-        confidence: conf,
-        explanation: `Final score: ${game.homeScore}-${game.awayScore} (Total: ${totalScore}, Line: ${line}). Our AI correctly predicted the ${direction.toLowerCase()}.`,
-        factors: [{ title: "Result", description: `Total ${totalScore} went ${direction.toLowerCase()} ${line}`, impact: "positive" }],
-        riskIndex: prob >= 78 ? 2 : 3,
-        isLive: false,
-        isPremium: true,
-        result: "correct",
-        createdAt: createdBefore,
-        expiresAt: new Date(new Date(game.matchTime).getTime() + 3 * 60 * 60 * 1e3)
-      });
-      inserted++;
-    } else {
-      const prob = Math.floor(Math.random() * 15) + 72;
-      const conf = prob >= 78 ? "high" : "medium";
-      const scoreLine = `${game.winner} won ${game.homeScore}-${game.awayScore}`;
-      await db.insert(predictions).values({
-        userId: null,
-        matchTitle: `${game.homeTeam} vs ${game.awayTeam}`,
-        sport: game.sport,
-        matchTime: game.matchTime,
-        predictedOutcome: `${game.winner} Win`,
-        probability: prob,
-        confidence: conf,
-        explanation: `${scoreLine}. Our AI correctly predicted this outcome.`,
-        factors: [{ title: "Result", description: scoreLine, impact: "positive" }],
-        riskIndex: prob >= 78 ? 2 : 3,
-        isLive: false,
-        isPremium: true,
-        result: "correct",
-        createdAt: createdBefore,
-        expiresAt: new Date(new Date(game.matchTime).getTime() + 3 * 60 * 60 * 1e3)
-      });
-      inserted++;
-    }
-  }
-  console.log(`Premium history: added ${inserted} new entries, ${existingPremiumHistory.length} existing kept`);
 }
 async function forceRefreshHistory() {
   console.log("Force refreshing history \u2014 fetching completed games first...");
@@ -2238,15 +2405,6 @@ async function getPredictionById(id) {
 }
 async function markPredictionResult(id, result) {
   await db.update(predictions).set({ result }).where(eq2(predictions.id, id));
-}
-async function getActivePredictions() {
-  const now = /* @__PURE__ */ new Date();
-  return db.select().from(predictions).where(
-    and(
-      gte(predictions.matchTime, now),
-      isNull(predictions.result)
-    )
-  ).orderBy(predictions.matchTime);
 }
 async function getSportPredictionCounts(userId, isPremiumUser) {
   const sports = ["football", "basketball", "tennis", "baseball", "hockey", "cricket", "mma", "golf"];
@@ -2913,456 +3071,8 @@ function startDailyRefreshScheduler() {
     checkAndReplaceFreeTip();
   }, THIRTY_MINUTES);
 }
-var _openai, openai, _groq, groq, GROQ_MODEL, sleep, isGeneratingFreeTip, FREE_TIP_PREFERRED_SPORTS, FREE_TIP_AVOID_SPORTS;
-var init_predictionService = __esm({
-  "server/services/predictionService.ts"() {
-    "use strict";
-    init_db();
-    init_schema();
-    init_sportsApiService();
-    _openai = null;
-    openai = new Proxy({}, {
-      get(_target, prop) {
-        return getOpenAI()[prop];
-      }
-    });
-    _groq = null;
-    groq = new Proxy({}, {
-      get(_target, prop) {
-        return getGroq()[prop];
-      }
-    });
-    GROQ_MODEL = "llama-3.3-70b-versatile";
-    sleep = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
-    isGeneratingFreeTip = false;
-    FREE_TIP_PREFERRED_SPORTS = /* @__PURE__ */ new Set(["basketball", "football", "mma"]);
-    FREE_TIP_AVOID_SPORTS = /* @__PURE__ */ new Set(["baseball", "hockey", "tennis", "cricket", "golf"]);
-  }
-});
-
-// server/index.ts
-import express from "express";
-import { runMigrations } from "stripe-replit-sync";
 
 // server/routes.ts
-import { createServer } from "node:http";
-
-// server/storage.ts
-init_schema();
-init_db();
-import { eq, desc, sql as sql2 } from "drizzle-orm";
-
-// server/stripeClient.ts
-import Stripe from "stripe";
-var connectionSettings;
-async function getCredentials() {
-  if (process.env.STRIPE_SECRET_KEY && process.env.STRIPE_PUBLISHABLE_KEY) {
-    return {
-      publishableKey: process.env.STRIPE_PUBLISHABLE_KEY,
-      secretKey: process.env.STRIPE_SECRET_KEY
-    };
-  }
-  const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
-  const xReplitToken = process.env.REPL_IDENTITY ? "repl " + process.env.REPL_IDENTITY : process.env.WEB_REPL_RENEWAL ? "depl " + process.env.WEB_REPL_RENEWAL : null;
-  if (!xReplitToken) {
-    throw new Error("X_REPLIT_TOKEN not found for repl/depl");
-  }
-  const connectorName = "stripe";
-  const isProduction = process.env.REPLIT_DEPLOYMENT === "1";
-  const targetEnvironment = isProduction ? "production" : "development";
-  const url = new URL(`https://${hostname}/api/v2/connection`);
-  url.searchParams.set("include_secrets", "true");
-  url.searchParams.set("connector_names", connectorName);
-  url.searchParams.set("environment", targetEnvironment);
-  const response = await fetch(url.toString(), {
-    headers: {
-      "Accept": "application/json",
-      "X_REPLIT_TOKEN": xReplitToken
-    }
-  });
-  const data = await response.json();
-  connectionSettings = data.items?.[0];
-  if (!connectionSettings || (!connectionSettings.settings.publishable || !connectionSettings.settings.secret)) {
-    throw new Error(`Stripe ${targetEnvironment} connection not found`);
-  }
-  return {
-    publishableKey: connectionSettings.settings.publishable,
-    secretKey: connectionSettings.settings.secret
-  };
-}
-async function getUncachableStripeClient() {
-  const { secretKey } = await getCredentials();
-  return new Stripe(secretKey, {
-    apiVersion: "2025-11-17.clover"
-  });
-}
-async function getStripePublishableKey() {
-  const { publishableKey } = await getCredentials();
-  return publishableKey;
-}
-async function getStripeSecretKey() {
-  const { secretKey } = await getCredentials();
-  return secretKey;
-}
-var stripeSync = null;
-async function getStripeSync() {
-  if (!stripeSync) {
-    const { StripeSync } = await import("stripe-replit-sync");
-    const secretKey = await getStripeSecretKey();
-    stripeSync = new StripeSync({
-      poolConfig: {
-        connectionString: process.env.DATABASE_URL,
-        max: 2
-      },
-      stripeSecretKey: secretKey
-    });
-  }
-  return stripeSync;
-}
-
-// server/storage.ts
-function extractRows(result) {
-  return result?.rows ?? Array.from(result ?? []);
-}
-var DatabaseStorage = class {
-  async getUser(id) {
-    const [user] = await db.select().from(users).where(eq(users.id, id));
-    return user;
-  }
-  async getUserByEmail(email) {
-    const [user] = await db.select().from(users).where(eq(users.email, email));
-    return user;
-  }
-  async getUserByStripeCustomerId(customerId) {
-    const [user] = await db.select().from(users).where(eq(users.stripeCustomerId, customerId));
-    return user;
-  }
-  async createUser(insertUser, referralCode) {
-    const [user] = await db.insert(users).values({
-      ...insertUser,
-      referredByCode: referralCode?.toUpperCase() || null
-    }).returning();
-    return user;
-  }
-  async updateUserStripeInfo(userId, stripeInfo) {
-    const [user] = await db.update(users).set(stripeInfo).where(eq(users.id, userId)).returning();
-    return user;
-  }
-  async getUserPreferences(userId) {
-    const [prefs] = await db.select().from(userPreferences).where(eq(userPreferences.userId, userId));
-    return prefs;
-  }
-  async saveUserPreferences(userId, prefs) {
-    const existing = await this.getUserPreferences(userId);
-    if (existing) {
-      const [updated] = await db.update(userPreferences).set({ ...prefs, updatedAt: /* @__PURE__ */ new Date() }).where(eq(userPreferences.userId, userId)).returning();
-      return updated;
-    } else {
-      const [created] = await db.insert(userPreferences).values({ userId, ...prefs }).returning();
-      return created;
-    }
-  }
-  async getProduct(productId) {
-    const result = await db.execute(
-      sql2`SELECT * FROM stripe.products WHERE id = ${productId}`
-    );
-    return extractRows(result)[0] || null;
-  }
-  async listProducts(active = true, limit = 20, offset = 0) {
-    const result = await db.execute(
-      sql2`SELECT * FROM stripe.products WHERE active = ${active} LIMIT ${limit} OFFSET ${offset}`
-    );
-    return extractRows(result);
-  }
-  async listProductsWithPrices(active = true, limit = 20, offset = 0) {
-    const result = await db.execute(
-      sql2`
-        WITH paginated_products AS (
-          SELECT id, name, description, metadata, active
-          FROM stripe.products
-          WHERE active = ${active}
-          ORDER BY id
-          LIMIT ${limit} OFFSET ${offset}
-        )
-        SELECT 
-          p.id as product_id,
-          p.name as product_name,
-          p.description as product_description,
-          p.active as product_active,
-          p.metadata as product_metadata,
-          pr.id as price_id,
-          pr.unit_amount,
-          pr.currency,
-          pr.recurring,
-          pr.active as price_active,
-          pr.metadata as price_metadata
-        FROM paginated_products p
-        LEFT JOIN stripe.prices pr ON pr.product = p.id AND pr.active = true
-        ORDER BY p.id, pr.unit_amount
-      `
-    );
-    const rows = extractRows(result);
-    if (rows.length === 0) {
-      try {
-        const stripe = await getUncachableStripeClient();
-        const products = await stripe.products.list({ active: true, limit: 20 });
-        const productsWithPrices = [];
-        for (const product of products.data) {
-          const prices = await stripe.prices.list({ product: product.id, active: true });
-          if (prices.data.length === 0) {
-            productsWithPrices.push({
-              product_id: product.id,
-              product_name: product.name,
-              product_description: product.description,
-              product_active: product.active,
-              product_metadata: product.metadata,
-              price_id: null,
-              unit_amount: null,
-              currency: null,
-              recurring: null,
-              price_active: null
-            });
-          } else {
-            for (const price of prices.data) {
-              productsWithPrices.push({
-                product_id: product.id,
-                product_name: product.name,
-                product_description: product.description,
-                product_active: product.active,
-                product_metadata: product.metadata,
-                price_id: price.id,
-                unit_amount: price.unit_amount,
-                currency: price.currency,
-                recurring: price.recurring,
-                price_active: price.active,
-                price_metadata: price.metadata
-              });
-            }
-          }
-        }
-        return productsWithPrices;
-      } catch (error) {
-        console.error("Failed to fetch from Stripe API:", error);
-        return [];
-      }
-    }
-    return rows;
-  }
-  async getPrice(priceId) {
-    const result = await db.execute(
-      sql2`SELECT * FROM stripe.prices WHERE id = ${priceId}`
-    );
-    return extractRows(result)[0] || null;
-  }
-  async listPrices(active = true, limit = 20, offset = 0) {
-    const result = await db.execute(
-      sql2`SELECT * FROM stripe.prices WHERE active = ${active} LIMIT ${limit} OFFSET ${offset}`
-    );
-    return extractRows(result);
-  }
-  async getPricesForProduct(productId) {
-    const result = await db.execute(
-      sql2`SELECT * FROM stripe.prices WHERE product = ${productId} AND active = true`
-    );
-    return extractRows(result);
-  }
-  async getSubscription(subscriptionId) {
-    const result = await db.execute(
-      sql2`SELECT * FROM stripe.subscriptions WHERE id = ${subscriptionId}`
-    );
-    return extractRows(result)[0] || null;
-  }
-  async createContactSubmission(data) {
-    const result = await db.insert(contactSubmissions).values(data).returning();
-    return result[0];
-  }
-  async getContactSubmissions(status) {
-    if (status) {
-      return db.select().from(contactSubmissions).where(eq(contactSubmissions.status, status)).orderBy(desc(contactSubmissions.createdAt));
-    }
-    return db.select().from(contactSubmissions).orderBy(desc(contactSubmissions.createdAt));
-  }
-  // Anonymize user data to satisfy Apple's account deletion requirement.
-  // Keeps the row (preserving referential integrity with referrals/affiliates)
-  // but scrubs all personal information and revokes access.
-  async deleteUser(userId) {
-    await db.update(users).set({
-      email: `deleted_${userId}@deleted.invalid`,
-      password: "DELETED",
-      name: null,
-      stripeCustomerId: null,
-      stripeSubscriptionId: null,
-      isPremium: false,
-      subscriptionExpiry: null
-    }).where(eq(users.id, userId));
-  }
-};
-var storage = new DatabaseStorage();
-
-// server/stripeService.ts
-var StripeService = class {
-  async createCustomer(email, userId) {
-    const stripe = await getUncachableStripeClient();
-    return await stripe.customers.create({
-      email,
-      metadata: { userId }
-    });
-  }
-  async getCustomer(customerId) {
-    const stripe = await getUncachableStripeClient();
-    return await stripe.customers.retrieve(customerId);
-  }
-  async createCheckoutSession(customerId, priceId, successUrl, cancelUrl) {
-    const stripe = await getUncachableStripeClient();
-    return await stripe.checkout.sessions.create({
-      customer: customerId,
-      payment_method_types: ["card"],
-      line_items: [{ price: priceId, quantity: 1 }],
-      mode: "subscription",
-      success_url: successUrl,
-      cancel_url: cancelUrl
-    });
-  }
-  async createCustomerPortalSession(customerId, returnUrl) {
-    const stripe = await getUncachableStripeClient();
-    return await stripe.billingPortal.sessions.create({
-      customer: customerId,
-      return_url: returnUrl
-    });
-  }
-  async getProduct(productId) {
-    return await storage.getProduct(productId);
-  }
-  async getSubscription(subscriptionId) {
-    return await storage.getSubscription(subscriptionId);
-  }
-  async getActiveSubscription(customerId) {
-    const stripe = await getUncachableStripeClient();
-    const subscriptions = await stripe.subscriptions.list({
-      customer: customerId,
-      status: "active",
-      limit: 1
-    });
-    return subscriptions.data[0] || null;
-  }
-};
-var stripeService = new StripeService();
-
-// server/routes.ts
-import { z } from "zod";
-import bcrypt from "bcryptjs";
-
-// server/auth.ts
-import jwt from "jsonwebtoken";
-import { createHash } from "crypto";
-function getJwtSecret() {
-  if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
-  if (process.env.REPLIT_DEPLOYMENT === "1") {
-    throw new Error("JWT_SECRET must be set in production");
-  }
-  if (process.env.DATABASE_URL) {
-    return createHash("sha256").update(process.env.DATABASE_URL).digest("hex");
-  }
-  return "fallback-dev-secret-not-for-production";
-}
-var JWT_EXPIRY = "30d";
-function signToken(userId) {
-  return jwt.sign({ sub: userId }, getJwtSecret(), { expiresIn: JWT_EXPIRY });
-}
-function verifyToken(token) {
-  try {
-    return jwt.verify(token, getJwtSecret());
-  } catch {
-    return null;
-  }
-}
-function requireAuth(req, res, next) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "Authentication required" });
-  }
-  const token = authHeader.slice(7);
-  const payload = verifyToken(token);
-  if (!payload?.sub) {
-    return res.status(401).json({ error: "Invalid or expired token" });
-  }
-  req.userId = payload.sub;
-  next();
-}
-function optionalAuth(req, _res, next) {
-  const authHeader = req.headers.authorization;
-  if (authHeader?.startsWith("Bearer ")) {
-    const token = authHeader.slice(7);
-    const payload = verifyToken(token);
-    if (payload?.sub) {
-      req.userId = payload.sub;
-    }
-  }
-  next();
-}
-function timingSafeEqual(a, b) {
-  if (a.length !== b.length) return false;
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  try {
-    const { timingSafeEqual: tse } = __require("crypto");
-    return tse(bufA, bufB);
-  } catch {
-    let result = 0;
-    for (let i = 0; i < bufA.length; i++) {
-      result |= bufA[i] ^ bufB[i];
-    }
-    return result === 0;
-  }
-}
-function requireAdmin(req, res, next) {
-  const adminKey = process.env.ADMIN_API_KEY;
-  if (!adminKey) {
-    return res.status(503).json({ error: "Admin access not configured" });
-  }
-  const providedKey = req.headers["x-admin-key"];
-  if (!providedKey || !timingSafeEqual(providedKey, adminKey)) {
-    return res.status(403).json({ error: "Forbidden" });
-  }
-  next();
-}
-var rateLimitStore = /* @__PURE__ */ new Map();
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, value] of rateLimitStore) {
-    if (now > value.resetTime) {
-      rateLimitStore.delete(key);
-    }
-  }
-}, 6e4);
-var rateLimitCounter = 0;
-function rateLimit(options) {
-  const scope = `rl_${++rateLimitCounter}`;
-  return (req, res, next) => {
-    const ip = options.keyGenerator ? options.keyGenerator(req) : req.ip || req.headers["x-forwarded-for"] || "unknown";
-    const key = `${scope}:${ip}`;
-    const now = Date.now();
-    const entry = rateLimitStore.get(key);
-    if (!entry || now > entry.resetTime) {
-      rateLimitStore.set(key, { count: 1, resetTime: now + options.windowMs });
-      return next();
-    }
-    entry.count++;
-    if (entry.count > options.max) {
-      const retryAfter = Math.ceil((entry.resetTime - now) / 1e3);
-      res.set("Retry-After", String(retryAfter));
-      return res.status(429).json({ error: "Too many requests. Please try again later." });
-    }
-    next();
-  };
-}
-
-// server/routes.ts
-init_db();
-init_schema();
-init_predictionService();
-init_sportsApiService();
-import { sql as sql5, and as and2 } from "drizzle-orm";
 var adminRateLimit = rateLimit({ windowMs: 15 * 60 * 1e3, max: 30 });
 var registerSchema = z.object({
   email: z.string().email().max(254),
@@ -4203,7 +3913,6 @@ async function registerRoutes(app2) {
 }
 
 // server/webhookHandlers.ts
-init_predictionService();
 init_db();
 init_schema();
 import { eq as eq3 } from "drizzle-orm";
@@ -4376,7 +4085,6 @@ var WebhookHandlers = class {
 };
 
 // server/index.ts
-init_predictionService();
 init_db();
 init_schema();
 import * as fs2 from "fs";
@@ -4733,47 +4441,6 @@ function setupErrorHandler(app2) {
         const deleted = await db.delete(predictions2).where(eq4(predictions2.id, 4113)).returning();
         if (deleted.length > 0) log(`Removed prediction ID 4113 (${deleted[0].matchTitle}) from DB`);
       } catch {
-      }
-      try {
-        const { predictions: predictions2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-        const { sql: sql6, and: and3, isNull: isNull2, eq: _eq } = await import("drizzle-orm");
-        const reset = await db.update(predictions2).set({ result: sql6`null` }).where(
-          and3(
-            _eq(predictions2.isPremium, true),
-            isNull2(predictions2.userId),
-            sql6`${predictions2.expiresAt} > ${predictions2.matchTime}`,
-            sql6`${predictions2.matchTime} < NOW() - INTERVAL '1 hour'`,
-            sql6`${predictions2.matchTime} > NOW() - INTERVAL '7 days'`,
-            sql6`${predictions2.result} IS NOT NULL`
-          )
-        ).returning({ id: predictions2.id });
-        if (reset.length > 0) {
-          log(`[STARTUP MIGRATION] Reset ${reset.length} premium predictions for re-resolution with series-aware fix`);
-          const { resolvePredictionResults: resolvePredictionResults2 } = await Promise.resolve().then(() => (init_predictionService(), predictionService_exports));
-          await resolvePredictionResults2();
-          log(`[STARTUP MIGRATION] Re-resolution complete`);
-        }
-      } catch (err) {
-        console.error("[STARTUP MIGRATION] Series-aware re-resolution failed:", err);
-      }
-      try {
-        const { predictions: predictions2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-        const { sql: sql6, and: and3, or: _or } = await import("drizzle-orm");
-        const reset = await db.update(predictions2).set({ result: sql6`null` }).where(
-          and3(
-            _or(
-              sql6`${predictions2.sport} = 'cricket'`,
-              sql6`${predictions2.sport} = 'tennis'`
-            ),
-            sql6`${predictions2.matchTime} > NOW() - INTERVAL '7 days'`,
-            sql6`${predictions2.result} IN ('correct', 'incorrect')`
-          )
-        ).returning({ id: predictions2.id });
-        if (reset.length > 0) {
-          log(`[STARTUP MIGRATION] Reset ${reset.length} cricket/tennis predictions for AI re-resolution with stricter prompt`);
-        }
-      } catch (err) {
-        console.error("[STARTUP MIGRATION] Cricket/tennis AI reset failed:", err);
       }
       const { initPushTokensTable: initPushTokensTable2 } = await Promise.resolve().then(() => (init_pushNotificationService(), pushNotificationService_exports));
       await initPushTokensTable2();
