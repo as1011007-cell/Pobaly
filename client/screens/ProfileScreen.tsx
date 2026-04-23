@@ -133,11 +133,15 @@ export default function ProfileScreen() {
         }).catch(() => {});
       }
 
-      Alert.alert(
-        "You're now Premium",
-        "Thank you! You now have unlimited access to all AI predictions, live updates, and full history.",
-        [{ text: "OK" }]
-      );
+      // Defer Alert by 400ms — gives iOS time to fully dismiss the StoreKit
+      // sheet, otherwise the alert can be silently dropped on real devices.
+      setTimeout(() => {
+        Alert.alert(
+          "You're now Premium",
+          "Thank you! You now have unlimited access to all AI predictions, live updates, and full history.",
+          [{ text: "OK" }]
+        );
+      }, 400);
     } catch (error: any) {
       if (error?.userCancelled) return;
 
@@ -156,11 +160,13 @@ export default function ProfileScreen() {
               userId: user.id,
             }).catch(() => {});
           }
-          Alert.alert(
-            "You're now Premium",
-            "Your subscription is active. Enjoy unlimited access to all predictions.",
-            [{ text: "OK" }]
-          );
+          setTimeout(() => {
+            Alert.alert(
+              "You're now Premium",
+              "Your subscription is active. Enjoy unlimited access to all predictions.",
+              [{ text: "OK" }]
+            );
+          }, 400);
           return;
         }
       } catch {}

@@ -253,11 +253,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // confirm server-side. The premiumActivatedAt timestamp blocks any server
   // refresh from downgrading the status before the sync completes.
+  // CRITICAL: state update happens FIRST (synchronously in this tick) so the
+  // UI re-renders with isPremium=true immediately. AsyncStorage writes are
+  // fire-and-forget so disk I/O never delays the user-visible update.
   const activatePremium = async () => {
     const now = Date.now();
     premiumActivatedAt.current = now;
-    // Persist so protection survives cold restarts
-    AsyncStorage.setItem("@probaly/premium_activated_at", String(now)).catch(() => {});
     const current = userRef.current;
     if (!current) return;
     const updatedUser: User = {
@@ -269,8 +270,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return d;
       })(),
     };
-    await storage.setUser(updatedUser);
+    // Update React state and ref FIRST — UI re-renders this tick
     setUserAndRef(updatedUser);
+    // Persist to disk in background — never blocks the UI
+    storage.setUser(updatedUser).catch(() => {});
+    AsyncStorage.setItem("@probaly/premium_activated_at", String(now)).catch(() => {});
     cancelPremiumPromoNotifications().catch(() => {});
   };
 

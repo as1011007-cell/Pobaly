@@ -195,18 +195,20 @@ export default function SubscriptionScreen() {
         }).catch(() => {});
       }
 
-      Alert.alert(
-        "You're now Premium",
-        "Thank you! You now have unlimited access to all AI predictions, live updates, and full history.",
-        [
-          {
-            text: "OK",
-            onPress: () => {
-              if (navigation.canGoBack()) navigation.goBack();
+      setTimeout(() => {
+        Alert.alert(
+          "You're now Premium",
+          "Thank you! You now have unlimited access to all AI predictions, live updates, and full history.",
+          [
+            {
+              text: "OK",
+              onPress: () => {
+                if (navigation.canGoBack()) navigation.goBack();
+              },
             },
-          },
-        ]
-      );
+          ]
+        );
+      }, 400);
     } catch (error: any) {
       if (error?.userCancelled) return;
 
@@ -226,18 +228,20 @@ export default function SubscriptionScreen() {
               userId: user.id,
             }).catch(() => {});
           }
-          Alert.alert(
-            "You're now Premium",
-            "Your subscription is active. Enjoy unlimited access to all predictions.",
-            [
-              {
-                text: "OK",
-                onPress: () => {
-                  if (navigation.canGoBack()) navigation.goBack();
+          setTimeout(() => {
+            Alert.alert(
+              "You're now Premium",
+              "Your subscription is active. Enjoy unlimited access to all predictions.",
+              [
+                {
+                  text: "OK",
+                  onPress: () => {
+                    if (navigation.canGoBack()) navigation.goBack();
+                  },
                 },
-              },
-            ]
-          );
+              ]
+            );
+          }, 400);
           return;
         }
       } catch {}
