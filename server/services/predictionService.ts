@@ -4,22 +4,8 @@ import { predictions, type InsertPrediction } from "@shared/schema";
 import { eq, and, gte, isNull, desc, sql, or } from "drizzle-orm";
 import { getUpcomingMatchesFromApi, getRecentCompletedGames, isUsingFallbackData, refreshUpcomingMatches, lookupGameByTeams } from "./sportsApiService";
 
-// OpenAI client — used only for the web_search Responses API (resolver Pass 2)
-let _openai: OpenAI | null = null;
-function getOpenAI(): OpenAI {
-  if (!_openai) {
-    _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  }
-  return _openai;
-}
-const openai = new Proxy({} as OpenAI, {
-  get(_target, prop) {
-    return (getOpenAI() as any)[prop];
-  },
-});
-
 // Groq client — free tier, OpenAI-compatible. Used for all prediction
-// generation and the batch resolver pass (no web_search needed there).
+// generation and the AI resolver batch pass.
 let _groq: OpenAI | null = null;
 function getGroq(): OpenAI {
   if (!_groq) {
@@ -2091,105 +2077,7 @@ Return ONLY this JSON object (no prose, no markdown):
     }
   }
 
-  console.log(`[AI-RESOLVE] Pass 1 done. ${aiCorrect + aiIncorrect} resolved, ${stillUnknown.length} need web search.`);
-
-  // ── PASS 2: Web search with gpt-4o for remaining unknowns ───────────────
-  // Only predictions that batch-mini couldn't confirm. Uses live internet
-  // search so results are accurate. One call per prediction, with delay.
-  for (const pred of stillUnknown) {
-    try {
-      const matchupClean = (pred.matchTitle || '').replace(/\s*\(O\/U\)$/, '');
-      const matchDateIso = pred.matchTime ? new Date(pred.matchTime).toISOString().split('T')[0] : 'unknown';
-      const isOU = (pred.matchTitle || '').includes('(O/U)');
-
-      const prompt = `You are a sports-results lookup assistant. Use the web_search tool to find the FINAL official result of the completed sports match below. Accuracy is critical — a wrong answer hurts users.
-
-Match: ${matchupClean}
-Sport: ${pred.sport}
-Match date (UTC): ${matchDateIso}
-Bet type: ${isOU ? "Over/Under total points/runs/goals" : "Match winner"}
-Our prediction was: "${pred.predictedOutcome}"
-
-REQUIRED PROCESS:
-1. Use web_search to look up the final score and winner from at least ONE reputable source (espn.com, espncricinfo.com, bbc.com/sport, official league site).
-2. Only set "found": true if you have a reputable source URL that EXPLICITLY states the final score AND winner of THIS exact match on THIS exact date.
-3. Provide the actual source URL. If you cannot find explicit confirmation, set "found": false.
-
-Return ONLY valid JSON (no prose, no markdown):
-{
-  "found": true | false,
-  "homeScore": <integer or null>,
-  "awayScore": <integer or null>,
-  "predictionCorrect": true | false | null,
-  "source": "<full URL>" | null,
-  "reasoning": "<one sentence>"
-}
-
-Resolution rules:
-- O/U bets: compare homeScore+awayScore vs the line in predictedOutcome. Over wins if total > line, Under if total < line.
-- Winner bets: predictionCorrect = true only if the exact team in predictedOutcome matches actual winner.
-- If postponed/cancelled/uncertain: found: false.`;
-
-      let content = "{}";
-      let usedWebSearch = false;
-      try {
-        const resp: any = await (openai as any).responses.create({
-          model: "gpt-4o",
-          input: prompt,
-          tools: [{ type: "web_search" }],
-        });
-        usedWebSearch = true;
-        content = resp.output_text
-          || resp.output?.flatMap?.((o: any) => o.content?.filter?.((c: any) => c.type === "output_text" || c.type === "text").map?.((c: any) => c.text) ?? []).join("")
-          || "{}";
-        content = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-      } catch (responsesErr) {
-        console.warn(`[AI-RESOLVE] web_search unavailable, skipping ${matchupClean}`);
-        aiUnknown++;
-        continue;
-      }
-
-      if (usedWebSearch && stillUnknown.indexOf(pred) === 0) {
-        console.log(`[AI-RESOLVE] Pass 2: using web_search for remaining ${stillUnknown.length}`);
-      }
-
-      let parsed: any;
-      try {
-        parsed = JSON.parse(content);
-      } catch {
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
-      }
-
-      if (!parsed.found || parsed.predictionCorrect === null || parsed.predictionCorrect === undefined) {
-        aiUnknown++;
-        console.log(`[AI-RESOLVE] Could not confirm: ${matchupClean} (${pred.sport}) — ${parsed.reasoning || 'no reasoning'}`);
-        continue;
-      }
-
-      const source = typeof parsed.source === "string" ? parsed.source.trim() : "";
-      const isValidUrl = /^https?:\/\/.+\..+/i.test(source);
-      if (!isValidUrl) {
-        aiUnknown++;
-        console.log(`[AI-RESOLVE] Rejected (no valid source): ${matchupClean}`);
-        continue;
-      }
-
-      const newResult = parsed.predictionCorrect ? "correct" : "incorrect";
-      await db.update(predictions).set({ result: newResult }).where(eq(predictions.id, pred.id));
-
-      if (parsed.predictionCorrect) aiCorrect++;
-      else aiIncorrect++;
-
-      const scoreStr = parsed.homeScore != null && parsed.awayScore != null ? `${parsed.homeScore}-${parsed.awayScore}` : 'score n/a';
-      console.log(`[AI-RESOLVE][web] ${matchupClean}: ${scoreStr}, predicted "${pred.predictedOutcome}" → ${newResult.toUpperCase()} [src: ${source}]`);
-      await sleep(8000);
-    } catch (err) {
-      aiUnknown++;
-      console.error(`[AI-RESOLVE] Failed for "${pred.matchTitle}":`, err instanceof Error ? err.message : err);
-    }
-  }
-
+  aiUnknown += stillUnknown.length;
   console.log(`[AI-RESOLVE] Done: ${aiCorrect} correct, ${aiIncorrect} incorrect, ${aiUnknown} still unknown out of ${stuck.length}`);
   return { correct: aiCorrect, incorrect: aiIncorrect, unknown: aiUnknown };
 }
