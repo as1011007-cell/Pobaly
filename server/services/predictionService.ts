@@ -612,8 +612,65 @@ async function _generateDailyFreeTip(): Promise<void> {
 
   console.log(`[FREE-TIP] Best pick: ${best ? `${best.match.homeTeam} vs ${best.match.awayTeam} (${best.analysis.probability}%)` : 'none found'}`);
 
+  // Fallback path: when Groq is rate-limited (free-tier 100K TPD exhausted)
+  // every batch result is null and `best` stays null. Rather than leaving the
+  // home card empty all day, promote the highest-probability ALREADY-SCORED
+  // premium pick of the day to be the free tip. We already spent the Groq
+  // tokens analyzing it — no additional API calls needed.
   if (!best) {
-    console.error("Could not generate any free prediction");
+    console.warn("[FREE-TIP] Batch scoring produced no results (likely Groq rate-limited) — trying fallback to best existing premium pick");
+    try {
+      const candidates = await db.select()
+        .from(predictions)
+        .where(
+          and(
+            eq(predictions.isPremium, true),
+            eq(predictions.isLive, false),
+            isNull(predictions.userId),
+            sql`${predictions.matchTime} > NOW()`,
+            sql`${predictions.matchTitle} NOT LIKE '%(O/U)'`,
+            sql`${predictions.explanation} NOT LIKE '[DEMO]%'`,
+            isNull(predictions.result),
+          )
+        )
+        .orderBy(desc(predictions.probability), predictions.matchTime)
+        .limit(10);
+
+      // Prefer low-variance sports; fall back to neutral; then anything.
+      const preferredPick = candidates.find(r => FREE_TIP_PREFERRED_SPORTS.has(r.sport));
+      const neutralPick = candidates.find(r => !FREE_TIP_PREFERRED_SPORTS.has(r.sport) && !FREE_TIP_AVOID_SPORTS.has(r.sport));
+      const pick = preferredPick ?? neutralPick ?? candidates[0];
+
+      if (!pick) {
+        console.error("[FREE-TIP] Fallback failed: no premium predictions available to clone");
+        return;
+      }
+
+      const fbDisplayProbability = Math.max(pick.probability, 71);
+      const fbDisplayConfidence = fbDisplayProbability >= 75 ? "high" : pick.confidence;
+      const fbSportsbookOdds = generateSportsbookOdds(fbDisplayProbability, pick.predictedOutcome);
+
+      await db.insert(predictions).values({
+        userId: null,
+        matchTitle: pick.matchTitle,
+        sport: pick.sport,
+        matchTime: pick.matchTime,
+        predictedOutcome: pick.predictedOutcome,
+        probability: fbDisplayProbability,
+        confidence: fbDisplayConfidence,
+        explanation: pick.explanation,
+        factors: pick.factors as any,
+        sportsbookOdds: fbSportsbookOdds,
+        riskIndex: Math.min(pick.riskIndex ?? 3, 4),
+        isLive: false,
+        isPremium: false,
+        result: null,
+        expiresAt: new Date(pick.matchTime.getTime() + 3 * 60 * 60 * 1000),
+      });
+      console.log(`[FREE-TIP] Fallback success: cloned premium pick "${pick.matchTitle}" (real ${pick.probability}% → display ${fbDisplayProbability}%, sport: ${pick.sport})`);
+    } catch (fallbackErr) {
+      console.error("[FREE-TIP] Fallback failed with error:", fallbackErr);
+    }
     return;
   }
 
