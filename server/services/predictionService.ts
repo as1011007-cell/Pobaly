@@ -564,14 +564,20 @@ async function _generateDailyFreeTip(): Promise<void> {
     return;
   }
 
-  // Prefer tomorrow (UTC). If tomorrow has no games (rare quiet day in
-  // the off-season), walk forward day-by-day up to 7 days to find the
-  // earliest day that has games — better than leaving the home card empty.
-  let windowStart = new Date();
+  // Anchor "tomorrow" to US Eastern Time (UTC-4 EDT in summer / -5 EST in
+  // winter). Using raw UTC midnight is too aggressive for US users — at
+  // 01:00 UTC it's still late evening April 23 in ET, so "tomorrow UTC"
+  // (the 25th) feels like day-after-tomorrow. ET aligns with US sports
+  // schedules and the typical user's mental model of "tomorrow's games."
+  // If tomorrow ET has no games (rare quiet day), walk forward up to 7
+  // days to find the earliest day with games.
+  const ET_OFFSET_MS = 4 * 60 * 60 * 1000; // EDT (April–November). Off by 1h during EST window — fine for date selection.
+  const nowInEt = new Date(Date.now() - ET_OFFSET_MS);
+  let windowStart = new Date(nowInEt);
   windowStart.setUTCHours(0, 0, 0, 0);
   windowStart.setUTCDate(windowStart.getUTCDate() + 1);
-  let windowEnd = new Date(windowStart);
-  windowEnd.setUTCDate(windowEnd.getUTCDate() + 1);
+  windowStart = new Date(windowStart.getTime() + ET_OFFSET_MS);
+  let windowEnd = new Date(windowStart.getTime() + 24 * 60 * 60 * 1000);
 
   let pool = matches.filter(m => m.matchTime >= windowStart && m.matchTime < windowEnd);
   let daysAhead = 1;
