@@ -854,9 +854,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const replaceTipSchema = z.object({
     matchTitle: z.string().min(1).max(500),
     sport: z.string().min(1).max(50),
+    matchTime: z.string().datetime().optional(),
     predictedOutcome: z.string().max(500).optional(),
     probability: z.number().min(0).max(100).optional(),
     confidence: z.enum(["high", "medium", "low"]).optional(),
+    explanation: z.string().max(5000).optional(),
+    factors: z.array(z.object({
+      title: z.string().max(200),
+      impact: z.string().max(50),
+      description: z.string().max(1000),
+    })).optional(),
+    sportsbookOdds: z.any().optional(),
+    riskIndex: z.number().int().min(0).max(10).optional(),
   });
 
   app.post("/api/predictions/replace-free-tip", requireAdmin, adminRateLimit, async (req: Request, res: Response) => {
