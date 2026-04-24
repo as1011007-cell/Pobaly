@@ -591,16 +591,37 @@ async function _generateDailyFreeTip(): Promise<void> {
   const tomorrowEnd = windowEnd;
   console.log(`[FREE-TIP] Using ${pool.length} games for ${tomorrowStart.toISOString().slice(0, 10)} (${daysAhead === 1 ? "tomorrow" : `${daysAhead} days ahead — tomorrow had none`})`);
 
-  // Reorder: preferred (low-variance) sports first, avoid (high-variance) sports last.
-  const preferred = pool.filter(m => FREE_TIP_PREFERRED_SPORTS.has(m.sport));
-  const neutral = pool.filter(m => !FREE_TIP_PREFERRED_SPORTS.has(m.sport) && !FREE_TIP_AVOID_SPORTS.has(m.sport));
-  const avoid = pool.filter(m => FREE_TIP_AVOID_SPORTS.has(m.sport));
-  const ordered = [...preferred, ...neutral, ...avoid];
+  // Round-robin across all sports so every sport gets a fair shot in the
+  // 25-candidate batch. Previously baseball/hockey/tennis/cricket/golf were
+  // pushed to the bottom and effectively never scored — meaning the free tip
+  // was almost always soccer/basketball. Now we pick one game from each
+  // sport in rotation until we hit the search limit.
+  const bySport = new Map<string, SportsMatch[]>();
+  for (const m of pool) {
+    const list = bySport.get(m.sport) ?? [];
+    list.push(m);
+    bySport.set(m.sport, list);
+  }
+  const sportQueues = Array.from(bySport.values());
+  const ordered: SportsMatch[] = [];
+  let added = true;
+  while (added) {
+    added = false;
+    for (const queue of sportQueues) {
+      const next = queue.shift();
+      if (next) {
+        ordered.push(next);
+        added = true;
+      }
+    }
+  }
 
   // Score up to 25 candidates in batch — pick the best across all of them
   // instead of stopping at the first good-enough one. Fewer API calls, better pick.
   const SEARCH_LIMIT = Math.min(25, ordered.length);
   const candidates = ordered.slice(0, SEARCH_LIMIT).map(m => ({ match: m, betType: "winner" as const }));
+  const sportSummary = Array.from(new Set(candidates.map(c => c.match.sport))).join(", ");
+  console.log(`[FREE-TIP] Candidate sports mix: ${sportSummary}`);
 
   console.log(`[FREE-TIP] Batch-scoring ${candidates.length} candidates...`);
   const results = await generatePredictionsBatch(candidates);
@@ -646,10 +667,9 @@ async function _generateDailyFreeTip(): Promise<void> {
         .orderBy(desc(predictions.probability), predictions.matchTime)
         .limit(10);
 
-      // Prefer low-variance sports; fall back to neutral; then anything.
-      const preferredPick = candidates.find(r => FREE_TIP_PREFERRED_SPORTS.has(r.sport));
-      const neutralPick = candidates.find(r => !FREE_TIP_PREFERRED_SPORTS.has(r.sport) && !FREE_TIP_AVOID_SPORTS.has(r.sport));
-      const pick = preferredPick ?? neutralPick ?? candidates[0];
+      // Pick the highest-probability candidate regardless of sport — the SQL
+      // already orders by probability DESC, so the first row is the best.
+      const pick = candidates[0];
 
       if (!pick) {
         console.error("[FREE-TIP] Fallback failed: no premium predictions available to clone");
