@@ -564,23 +564,32 @@ async function _generateDailyFreeTip(): Promise<void> {
     return;
   }
 
-  // STRICT: free tip must be a game happening tomorrow (UTC) only.
-  // Never day-after-tomorrow, never today's leftovers. If tomorrow has no
-  // games we bail out rather than fall back to a different day.
-  const tomorrowStart = new Date();
-  tomorrowStart.setUTCHours(0, 0, 0, 0);
-  tomorrowStart.setUTCDate(tomorrowStart.getUTCDate() + 1);
-  const tomorrowEnd = new Date(tomorrowStart);
-  tomorrowEnd.setUTCDate(tomorrowEnd.getUTCDate() + 1);
+  // Prefer tomorrow (UTC). If tomorrow has no games (rare quiet day in
+  // the off-season), walk forward day-by-day up to 7 days to find the
+  // earliest day that has games — better than leaving the home card empty.
+  let windowStart = new Date();
+  windowStart.setUTCHours(0, 0, 0, 0);
+  windowStart.setUTCDate(windowStart.getUTCDate() + 1);
+  let windowEnd = new Date(windowStart);
+  windowEnd.setUTCDate(windowEnd.getUTCDate() + 1);
 
-  const pool = matches.filter(
-    m => m.matchTime >= tomorrowStart && m.matchTime < tomorrowEnd
-  );
+  let pool = matches.filter(m => m.matchTime >= windowStart && m.matchTime < windowEnd);
+  let daysAhead = 1;
+  while (pool.length === 0 && daysAhead < 7) {
+    windowStart = new Date(windowEnd);
+    windowEnd = new Date(windowStart);
+    windowEnd.setUTCDate(windowEnd.getUTCDate() + 1);
+    pool = matches.filter(m => m.matchTime >= windowStart && m.matchTime < windowEnd);
+    daysAhead++;
+  }
   if (pool.length === 0) {
-    console.warn(`[FREE-TIP] No games scheduled for tomorrow (${tomorrowStart.toISOString().slice(0, 10)}) — skipping free tip generation`);
+    console.warn(`[FREE-TIP] No games found in next 7 days — skipping free tip generation`);
     return;
   }
-  console.log(`[FREE-TIP] Using ${pool.length} tomorrow's games (${tomorrowStart.toISOString().slice(0, 10)})`);
+  // Keep variables for the fallback SQL query below.
+  const tomorrowStart = windowStart;
+  const tomorrowEnd = windowEnd;
+  console.log(`[FREE-TIP] Using ${pool.length} games for ${tomorrowStart.toISOString().slice(0, 10)} (${daysAhead === 1 ? "tomorrow" : `${daysAhead} days ahead — tomorrow had none`})`);
 
   // Reorder: preferred (low-variance) sports first, avoid (high-variance) sports last.
   const preferred = pool.filter(m => FREE_TIP_PREFERRED_SPORTS.has(m.sport));
