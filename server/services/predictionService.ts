@@ -564,23 +564,23 @@ async function _generateDailyFreeTip(): Promise<void> {
     return;
   }
 
-  // Prefer games happening tomorrow (UTC) so the free tip is always forward-looking.
-  // Fall back to all upcoming games if tomorrow has nothing.
+  // STRICT: free tip must be a game happening tomorrow (UTC) only.
+  // Never day-after-tomorrow, never today's leftovers. If tomorrow has no
+  // games we bail out rather than fall back to a different day.
   const tomorrowStart = new Date();
   tomorrowStart.setUTCHours(0, 0, 0, 0);
   tomorrowStart.setUTCDate(tomorrowStart.getUTCDate() + 1);
   const tomorrowEnd = new Date(tomorrowStart);
   tomorrowEnd.setUTCDate(tomorrowEnd.getUTCDate() + 1);
 
-  const tomorrowMatches = matches.filter(
+  const pool = matches.filter(
     m => m.matchTime >= tomorrowStart && m.matchTime < tomorrowEnd
   );
-  const pool = tomorrowMatches.length > 0 ? tomorrowMatches : matches;
-  console.log(
-    tomorrowMatches.length > 0
-      ? `[FREE-TIP] Using ${tomorrowMatches.length} tomorrow's games (${tomorrowStart.toISOString().slice(0, 10)})`
-      : `[FREE-TIP] No tomorrow games — using all ${matches.length} upcoming games as fallback`
-  );
+  if (pool.length === 0) {
+    console.warn(`[FREE-TIP] No games scheduled for tomorrow (${tomorrowStart.toISOString().slice(0, 10)}) — skipping free tip generation`);
+    return;
+  }
+  console.log(`[FREE-TIP] Using ${pool.length} tomorrow's games (${tomorrowStart.toISOString().slice(0, 10)})`);
 
   // Reorder: preferred (low-variance) sports first, avoid (high-variance) sports last.
   const preferred = pool.filter(m => FREE_TIP_PREFERRED_SPORTS.has(m.sport));
@@ -627,7 +627,8 @@ async function _generateDailyFreeTip(): Promise<void> {
             eq(predictions.isPremium, true),
             eq(predictions.isLive, false),
             isNull(predictions.userId),
-            sql`${predictions.matchTime} > NOW()`,
+            sql`${predictions.matchTime} >= ${tomorrowStart}`,
+            sql`${predictions.matchTime} < ${tomorrowEnd}`,
             sql`${predictions.matchTitle} NOT LIKE '%(O/U)'`,
             sql`${predictions.explanation} NOT LIKE '[DEMO]%'`,
             isNull(predictions.result),
