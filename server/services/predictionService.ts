@@ -2368,6 +2368,7 @@ async function logDailyResolutionSummary(): Promise<void> {
 }
 
 export function startDailyRefreshScheduler(): void {
+  const THIRTY_MINUTES = 30 * 60 * 1000;
   const SIX_HOURS = 6 * 60 * 60 * 1000;
   const RETRY_DELAY = 5 * 60 * 1000;
   
@@ -2465,8 +2466,8 @@ export function startDailyRefreshScheduler(): void {
   }
   schedule8amResolution();
 
-  // Every 6 hours: resolve newly completed games via ESPN/API and replace
-  // any incorrect free tip. AI resolver runs at midnight only (inside dailyPredictionRefresh).
+  // Every 30 minutes: resolve newly completed games via ESPN/API (cheap, fast)
+  // and replace any incorrect free tip.
   setInterval(async () => {
     try {
       await resolvePredictionResults();
@@ -2474,5 +2475,18 @@ export function startDailyRefreshScheduler(): void {
       console.error("Intraday resolution check failed:", err);
     }
     checkAndReplaceFreeTip();
+  }, THIRTY_MINUTES);
+
+  // Every 6 hours: AI fallback resolver — picks up games ESPN couldn't find
+  // a final for (cricket, niche tennis, MMA prelims, etc.) by asking Groq
+  // to recall the result. Only touches predictions already marked
+  // 'unresolved', so it never runs against an in-progress game.
+  setInterval(async () => {
+    try {
+      console.log("[6H AI-RESOLVE] Running scheduled AI fallback resolver...");
+      await resolveStuckPredictionsViaAI();
+    } catch (err) {
+      console.error("[6H AI-RESOLVE] Failed:", err);
+    }
   }, SIX_HOURS);
 }
