@@ -850,6 +850,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Edit prediction content (explanation + factors) for an existing row.
+  // Used to repair history entries whose factors were inserted as plain strings
+  // (which the app renders as empty title/description/impact rows).
+  const editContentSchema = z.object({
+    explanation: z.string().max(5000).optional(),
+    factors: z.array(z.object({
+      title: z.string().max(200),
+      impact: z.string().max(50),
+      description: z.string().max(1000),
+    })).max(20).optional(),
+  });
+
+  app.post("/api/predictions/:id/edit-content", requireAdmin, adminRateLimit, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id as string);
+      if (isNaN(id) || id <= 0 || id > 2147483647) {
+        return res.status(400).json({ error: "Invalid prediction ID" });
+      }
+      const parsed = editContentSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: safeErrorMessage(parsed.error) });
+      }
+      const { explanation, factors } = parsed.data;
+      if (explanation === undefined && factors === undefined) {
+        return res.status(400).json({ error: "Provide explanation and/or factors to update" });
+      }
+      if (explanation !== undefined && factors !== undefined) {
+        await db.execute(sql`
+          UPDATE predictions
+          SET explanation = ${explanation},
+              factors = ${JSON.stringify(factors)}::jsonb
+          WHERE id = ${id}
+        `);
+      } else if (explanation !== undefined) {
+        await db.execute(sql`
+          UPDATE predictions SET explanation = ${explanation} WHERE id = ${id}
+        `);
+      } else {
+        await db.execute(sql`
+          UPDATE predictions SET factors = ${JSON.stringify(factors)}::jsonb WHERE id = ${id}
+        `);
+      }
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Edit prediction content error:", error);
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+
   // Replace free tip (admin endpoint)
   const replaceTipSchema = z.object({
     matchTitle: z.string().min(1).max(500),
