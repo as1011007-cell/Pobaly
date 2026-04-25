@@ -1368,14 +1368,18 @@ export async function getFreeTip() {
 
 export async function forceNewFreeTip(): Promise<void> {
   const startOfToday = getStartOfToday();
+  // Same rule as the midnight reset: preserve any tip that already won.
+  // Only nuke unresolved or losing tips so a manual swap doesn't wipe a
+  // winner that's earned its spot in history.
   await db.delete(predictions).where(
     and(
       eq(predictions.isPremium, false),
       isNull(predictions.userId),
-      gte(predictions.createdAt, startOfToday)
+      gte(predictions.createdAt, startOfToday),
+      sql`(${predictions.result} IS NULL OR ${predictions.result} = 'incorrect')`
     )
   );
-  console.log("Deleted today's free tip — generating fresh one...");
+  console.log("Deleted today's unresolved/incorrect free tips — generating fresh one (any winners preserved for history)...");
   isGeneratingFreeTip = false;
   await _generateDailyFreeTip();
   try {
@@ -2068,17 +2072,23 @@ async function purgeFakeHistoryEntries(): Promise<void> {
 
 async function resetAndGenerateDailyFreeTip(): Promise<void> {
   const startOfToday = getStartOfToday();
-  // Only delete the free tip — identified by expiresAt > matchTime (3h buffer)
-  // History entries have expiresAt = matchTime so they are NOT affected
+  // Clear the previous day's free tip — but PRESERVE winning tips so they
+  // can show in user history per the rules in replit.md (free users see
+  // correct free daily tips for 30 days; premium users see them too).
+  // We only delete tips that are still unresolved (NULL) or that lost
+  // (incorrect). Winning tips stay in the DB; the natural history filter
+  // (created_at < startOfToday) keeps them out of "today's free tip" lookup
+  // while still surfacing them in history.
   await db.delete(predictions).where(
     and(
       eq(predictions.isPremium, false),
       isNull(predictions.userId),
       sql`${predictions.createdAt} < ${startOfToday.toISOString()}::timestamp`,
-      sql`${predictions.expiresAt} > ${predictions.matchTime}`
+      sql`${predictions.expiresAt} > ${predictions.matchTime}`,
+      sql`(${predictions.result} IS NULL OR ${predictions.result} = 'incorrect')`
     )
   );
-  console.log("Midnight reset: cleared previous day's free tip");
+  console.log("Midnight reset: cleared previous day's unresolved/incorrect free tips (winners preserved for history)");
   isGeneratingFreeTip = false;
   await _generateDailyFreeTip();
 }
