@@ -2011,24 +2011,12 @@ async function fixPrematurelyResolvedPredictions(): Promise<void> {
     console.log(`Reset ${resetted.length} prematurely resolved predictions: ${resetted.map(r => r.matchTitle).join(', ')}`);
   }
 
-  // Only delete CORRUPTED incorrect rows (the bug signature: matchTime <= 90min
-  // after createdAt — real scheduled games always have hours/days lead time).
-  // Genuine, correctly-resolved losses are KEPT in the DB so we can measure
-  // AI accuracy over time and feed those outcomes back into model evaluation.
-  // User-facing history queries already filter for result='correct', so kept
-  // losses never appear to users.
-  const removed = await db.delete(predictions)
-    .where(
-      and(
-        eq(predictions.result, "incorrect"),
-        sql`extract(epoch from (${predictions.matchTime} - ${predictions.createdAt})) < 5400`
-      )
-    )
-    .returning({ id: predictions.id, matchTitle: predictions.matchTitle });
-
-  if (removed.length > 0) {
-    console.log(`Removed ${removed.length} corrupted incorrect predictions (matchTime within 90min of createdAt): ${removed.map(r => r.matchTitle).join(', ')}`);
-  }
+  // NOTE: Incorrect predictions are intentionally KEPT in the database to
+  // power the AI feedback loop (see getAIFeedbackContext) — last-30-day
+  // accuracy snapshots, confidence calibration, and the SELF-CRITIQUE list
+  // of recent wrong picks all depend on losses being preserved. User-facing
+  // history queries already filter for result='correct', so kept losses
+  // never appear to users.
 
   const fabricated = await db.delete(predictions)
     .where(
