@@ -2368,7 +2368,7 @@ async function logDailyResolutionSummary(): Promise<void> {
 }
 
 export function startDailyRefreshScheduler(): void {
-  const THIRTY_MINUTES = 30 * 60 * 1000;
+  const SIX_HOURS = 6 * 60 * 60 * 1000;
   const RETRY_DELAY = 5 * 60 * 1000;
   
   console.log("Daily prediction refresh scheduler started");
@@ -2465,7 +2465,7 @@ export function startDailyRefreshScheduler(): void {
   }
   schedule8amResolution();
 
-  // Every 30 minutes: resolve newly completed games via ESPN/API and replace
+  // Every 6 hours: resolve newly completed games via ESPN/API and replace
   // any incorrect free tip. AI resolver runs at midnight only (inside dailyPredictionRefresh).
   setInterval(async () => {
     try {
@@ -2474,5 +2474,5 @@ export function startDailyRefreshScheduler(): void {
       console.error("Intraday resolution check failed:", err);
     }
     checkAndReplaceFreeTip();
-  }, THIRTY_MINUTES);
+  }, SIX_HOURS);
 }
