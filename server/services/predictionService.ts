@@ -810,6 +810,14 @@ export async function generatePremiumPredictionsForUser(userId: string): Promise
     const analysis = results[i];
     if (!analysis || analysis.probability < 65) continue;
 
+    // Same defensive guard as generateDemoPredictions: reject suspiciously
+    // short lead times to avoid persisting corrupt source data.
+    const leadTimeMs = match.matchTime.getTime() - Date.now();
+    if (leadTimeMs < 90 * 60 * 1000) {
+      console.warn(`[PREMIUM-USER] Skipping ${effectiveTitle} for ${userId}: starts in ${Math.round(leadTimeMs / 60000)}min (< 90min lead time, likely corrupt source data) — matchTime=${match.matchTime.toISOString()}`);
+      continue;
+    }
+
     const sportsbookOdds = generateSportsbookOdds(analysis.probability, analysis.predictedOutcome);
     try {
       await db.insert(predictions).values({
@@ -1326,6 +1334,18 @@ export async function generateDemoPredictions(): Promise<void> {
     const minProbability = HIGH_VARIANCE_SPORTS.has(match.sport) ? 55 : 60;
     if (analysis.probability < minProbability) {
       console.log(`Skipping low-confidence prediction (${analysis.probability}% < ${minProbability}%): ${effectiveTitle}`);
+      continue;
+    }
+
+    // Defensive guard: real scheduled games always have hours/days of lead time.
+    // Anything starting in <90 minutes is almost certainly corrupt source data
+    // (e.g. ESPN returning placeholder/TBD timestamps near midnight UTC) and
+    // would be marked unresolved → incorrect by the resolver shortly after
+    // insertion. Skip rather than poison history.
+    const leadTimeMs = match.matchTime.getTime() - Date.now();
+    const MIN_LEAD_TIME_MS = 90 * 60 * 1000;
+    if (leadTimeMs < MIN_LEAD_TIME_MS) {
+      console.warn(`[DEMO] Skipping ${effectiveTitle}: starts in ${Math.round(leadTimeMs / 60000)}min (< 90min lead time, likely corrupt source data) — matchTime=${match.matchTime.toISOString()}`);
       continue;
     }
 

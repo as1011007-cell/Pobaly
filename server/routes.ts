@@ -862,6 +862,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
     })).max(20).optional(),
   });
 
+  // Admin: fix a corrupted matchTime on a prediction (and optionally reset its
+  // result so the resolver re-checks once the real game finishes). Used to
+  // repair rows where ESPN/Odds source data returned a placeholder timestamp.
+  const fixMatchTimeSchema = z.object({
+    matchTime: z.string().datetime(),
+    resetResult: z.boolean().optional().default(true),
+  });
+
+  app.post("/api/predictions/:id/fix-match-time", requireAdmin, adminRateLimit, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id as string);
+      if (isNaN(id) || id <= 0 || id > 2147483647) {
+        return res.status(400).json({ error: "Invalid prediction ID" });
+      }
+      const parsed = fixMatchTimeSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: safeErrorMessage(parsed.error) });
+      }
+      const { matchTime, resetResult } = parsed.data;
+      const newMatchTime = new Date(matchTime);
+      if (isNaN(newMatchTime.getTime())) {
+        return res.status(400).json({ error: "Invalid matchTime" });
+      }
+      // expiresAt convention for real AI pre-game predictions = matchTime + 3h
+      const newExpiresAt = new Date(newMatchTime.getTime() + 3 * 60 * 60 * 1000);
+      if (resetResult) {
+        await db.execute(sql`
+          UPDATE predictions
+          SET match_time = ${newMatchTime.toISOString()}::timestamp,
+              expires_at = ${newExpiresAt.toISOString()}::timestamp,
+              result = NULL
+          WHERE id = ${id}
+        `);
+      } else {
+        await db.execute(sql`
+          UPDATE predictions
+          SET match_time = ${newMatchTime.toISOString()}::timestamp,
+              expires_at = ${newExpiresAt.toISOString()}::timestamp
+          WHERE id = ${id}
+        `);
+      }
+      res.json({ success: true, id, matchTime: newMatchTime.toISOString(), expiresAt: newExpiresAt.toISOString(), resetResult });
+    } catch (error: any) {
+      console.error("Fix prediction matchTime error:", error);
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+
   app.post("/api/predictions/:id/edit-content", requireAdmin, adminRateLimit, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id as string);
