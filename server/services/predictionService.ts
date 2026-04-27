@@ -1864,6 +1864,27 @@ export async function resolvePredictionResults(): Promise<void> {
 
   console.log(`Resolved predictions: ${correct} correct, ${incorrect} marked incorrect out of ${unresolved.length}`);
 
+  // Flip any predictions still NULL more than 6h after match start to 'unresolved'
+  // so the 6h AI fallback resolver picks them up. Without this step, niche-league
+  // games (IPL cricket, Bangladesh cricket, prelim MMA, etc.) that ESPN never
+  // covers would stay NULL until the next midnight refresh — up to 18h delay
+  // before the AI gets a chance.
+  const sixHoursAgoForFlip = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+  const flipped = await db.update(predictions)
+    .set({ result: "unresolved" })
+    .where(
+      and(
+        isNull(predictions.userId),
+        isNull(predictions.result),
+        sql`${predictions.matchTime} < ${sixHoursAgoForFlip.toISOString()}::timestamp`,
+        sql`${predictions.matchTime} >= ${fourteenDaysAgo.toISOString()}::timestamp`
+      )
+    )
+    .returning({ id: predictions.id, matchTitle: predictions.matchTitle });
+  if (flipped.length > 0) {
+    console.log(`[RESOLVE] Flipped ${flipped.length} stuck NULL predictions to 'unresolved' for AI fallback: ${flipped.map(f => f.matchTitle).join(', ')}`);
+  }
+
   const activeTip = await getTodaysActiveFreePrediction();
   if (!activeTip) {
     console.log("Free tip was lost or expired — auto-generating replacement...");
