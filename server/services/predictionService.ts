@@ -1864,11 +1864,13 @@ export async function resolvePredictionResults(): Promise<void> {
 
   console.log(`Resolved predictions: ${correct} correct, ${incorrect} marked incorrect out of ${unresolved.length}`);
 
-  // Flip any predictions still NULL more than 6h after match start to 'unresolved'
-  // so the 6h AI fallback resolver picks them up. Without this step, niche-league
-  // games (IPL cricket, Bangladesh cricket, prelim MMA, etc.) that ESPN never
-  // covers would stay NULL until the next midnight refresh — up to 18h delay
-  // before the AI gets a chance.
+  // Flip any predictions still NULL more than 6h after match start to 'unresolved'.
+  // The row stays in the retry pool — every subsequent 30-minute ESPN/Odds resolver
+  // pass continues to re-check it (the SELECT at the top of this function already
+  // includes result='unresolved' alongside NULL), so a late-arriving final score
+  // from any structured source will still resolve it correctly. The flip exists
+  // purely for observability: it lets us distinguish "ESPN hasn't tried yet" from
+  // "ESPN has tried for 6+ hours and the game still isn't in any feed".
   const sixHoursAgoForFlip = new Date(now.getTime() - 6 * 60 * 60 * 1000);
   const flipped = await db.update(predictions)
     .set({ result: "unresolved" })
@@ -2146,19 +2148,21 @@ export async function dailyPredictionRefresh(): Promise<void> {
     await runWithRetry(() => resetAndGenerateDailyFreeTip(), "resetAndGenerateDailyFreeTip");
 
     // refreshDemoPredictions runs first: it marks NULL predictions that are
-    // 6+ hours past matchTime as 'unresolved'. The AI resolver then runs only
-    // on those 'unresolved' entries — guaranteeing every game it touches has
-    // had at least 6 hours to finish and was already checked by ESPN.
+    // 6+ hours past matchTime as 'unresolved'. Those rows continue to be
+    // re-checked by every subsequent ESPN/Odds resolver pass (the resolver
+    // query already includes result='unresolved' alongside NULL), so if a
+    // structured data source ever publishes a final score later, it will be
+    // picked up automatically.
     await runWithRetry(() => refreshDemoPredictions(), "refreshDemoPredictions");
 
-    // AI fallback resolver: only processes 'unresolved' (never NULL) so it
-    // never attempts a game that may still be in progress.
-    try {
-      await resolveStuckPredictionsViaAI();
-    } catch (err) {
-      console.error("[MIDNIGHT] AI fallback resolver failed:", err);
-    }
-    
+    // NOTE: AI-based fallback resolution is intentionally disabled. Groq
+    // has no live game data and would have to recall results from training
+    // data (cutoff late 2024), which silently fabricates outcomes for any
+    // recent game. We resolve only with structured sports data sources
+    // (ESPN primary, Odds API, TheSportsDB direct lookup). Predictions for
+    // games that no source ever covers (some IPL/PSL cricket, lower-tier
+    // events) remain 'unresolved' rather than being assigned a fake result.
+
     console.log("Daily prediction refresh completed successfully");
 
     const { notifyDailyFreePredictionReady } = await import("./pushNotificationService");
@@ -2527,16 +2531,10 @@ export function startDailyRefreshScheduler(): void {
     checkAndReplaceFreeTip();
   }, THIRTY_MINUTES);
 
-  // Every 6 hours: AI fallback resolver — picks up games ESPN couldn't find
-  // a final for (cricket, niche tennis, MMA prelims, etc.) by asking Groq
-  // to recall the result. Only touches predictions already marked
-  // 'unresolved', so it never runs against an in-progress game.
-  setInterval(async () => {
-    try {
-      console.log("[6H AI-RESOLVE] Running scheduled AI fallback resolver...");
-      await resolveStuckPredictionsViaAI();
-    } catch (err) {
-      console.error("[6H AI-RESOLVE] Failed:", err);
-    }
-  }, SIX_HOURS);
+  // NOTE: 6-hour AI fallback resolver intentionally removed. Groq cannot
+  // look up live game scores — it would have to hallucinate from training
+  // data, which silently flips real outcomes. We rely exclusively on
+  // structured sources (ESPN + Odds API + TheSportsDB direct team lookup),
+  // and the 30-minute resolver above keeps re-checking 'unresolved' rows
+  // indefinitely so any late-arriving final score is picked up automatically.
 }
