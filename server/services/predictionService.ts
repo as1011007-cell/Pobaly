@@ -1684,7 +1684,7 @@ export async function getSportPredictionCounts(userId?: string, isPremiumUser?: 
   return counts;
 }
 
-export async function resolvePredictionResults(): Promise<void> {
+export async function resolvePredictionResults(includeOddsApi: boolean = false): Promise<void> {
   const now = new Date();
   // Require games to have started at least 6 hours ago before attempting resolution.
   // This covers long-running events (MLB extra innings, MMA full cards, 5-set tennis,
@@ -1714,7 +1714,7 @@ export async function resolvePredictionResults(): Promise<void> {
     return;
   }
 
-  const completedGames = await getRecentCompletedGames();
+  const completedGames = await getRecentCompletedGames(includeOddsApi);
   if (completedGames.length === 0) {
     console.log("No completed games to resolve against");
     return;
@@ -2142,7 +2142,12 @@ export async function dailyPredictionRefresh(): Promise<void> {
     await runWithRetry(() => purgeFakeHistoryEntries(), "purgeFakeHistoryEntries");
     await runWithRetry(() => fixPrematurelyResolvedPredictions(), "fixPrematurelyResolvedPredictions");
     await runWithRetry(() => reverifyResolutionsAfterWindowFix(), "reverifyResolutionsAfterWindowFix");
-    await runWithRetry(() => resolvePredictionResults(), "resolvePredictionResults");
+    // Pass `true` to include the Odds API as a resolution source. The midnight
+    // refresh is the ONLY scheduled call site that hits the Odds API for results,
+    // so we don't burn the limited monthly quota on every 30-min intra-day pass.
+    // All other resolver calls (intra-day, 8AM catchup, free-tip checks, startup)
+    // use ESPN + TheSportsDB only.
+    await runWithRetry(() => resolvePredictionResults(true), "resolvePredictionResults");
     await runWithRetry(() => clearExpiredPredictions(), "clearExpiredPredictions");
     // Always reset free tip at midnight — delete previous day's tip (win or lose) then generate fresh one
     await runWithRetry(() => resetAndGenerateDailyFreeTip(), "resetAndGenerateDailyFreeTip");

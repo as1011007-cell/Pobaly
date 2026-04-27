@@ -459,16 +459,18 @@ export async function getLiveMatches(): Promise<LiveMatch[]> {
   return liveMatches;
 }
 
-export async function getRecentCompletedGames(): Promise<CompletedGame[]> {
+export async function getRecentCompletedGames(includeOddsApi: boolean = false): Promise<CompletedGame[]> {
   const apiKey = process.env.ODDS_API_KEY;
 
-  // Run all three sources in parallel
-  // ESPN: NBA, MLB, NHL, football leagues, UFC, ATP/WTA, ICC cricket, PGA
-  // Odds API: all ESPN sports + IPL/PSL cricket, EuroLeague, NCAAB, Bellator
-  // TheSportsDB: PSL, IPL, MLS, ATP, WTA, and hundreds of other leagues (free, no key)
+  // Run sources in parallel.
+  //   ESPN:        NBA, MLB, NHL, football leagues, UFC, ATP/WTA, ICC cricket, PGA — free, hit every cycle
+  //   Odds API:    all ESPN sports + IPL/PSL cricket, EuroLeague, NCAAB, Bellator — paid quota, only hit
+  //                when includeOddsApi=true (currently only the once-daily midnight refresh)
+  //   TheSportsDB: PSL, IPL, MLS, ATP, WTA, hundreds of other leagues — free, no key, hit every cycle
+  // Skipping Odds API on the 30-min intra-day cycle preserves the limited monthly quota.
   const [espnGames, oddsGames, sportsDbGames] = await Promise.all([
     fetchCompletedFromESPN(),
-    apiKey ? fetchCompletedFromOddsApi(apiKey) : Promise.resolve([]),
+    (includeOddsApi && apiKey) ? fetchCompletedFromOddsApi(apiKey) : Promise.resolve([]),
     fetchCompletedFromSportsDB(),
   ]);
 
