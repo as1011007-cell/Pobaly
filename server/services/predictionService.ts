@@ -1277,17 +1277,53 @@ export async function generateDemoPredictions(): Promise<void> {
     console.log("API unavailable — using fallback matches, predictions will be marked as [DEMO]");
   }
   
-  const existingDemo = await db.select()
+  // Pull ALL system-generated predictions (both premium picks AND today's free
+  // tip), past and future, so the dedup set covers every existing entry and
+  // we never produce a duplicate or a contradicting second pick on the same
+  // game + same bet type. User-specific predictions (userId IS NOT NULL) are
+  // intentionally excluded — those are personal premium picks tied to a user
+  // and can't conflict with the system pool.
+  // Only project the two columns the dedup actually needs — skipping the
+  // explanation/factors/sportsbookOdds JSON keeps payload small even at the
+  // far end of the 1-year retention window.
+  const existingSystemPicks = await db.select({
+      matchTitle: predictions.matchTitle,
+      matchTime: predictions.matchTime,
+    })
     .from(predictions)
-    .where(
-      and(
-        eq(predictions.isPremium, true),
-        isNull(predictions.userId)
-      )
-    );
-  
-  const existingTitles = new Set(existingDemo.map(p => p.matchTitle));
-  
+    .where(isNull(predictions.userId));
+
+  // Normalize a team-pair so reversed home/away (e.g., "Lakers vs Celtics" vs
+  // "Celtics vs Lakers" — ESPN and Odds API don't agree on which team is home)
+  // collapses to the same key. Strip accents and non-alphanumeric chars.
+  const normalizeTeam = (t: string) =>
+    t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+
+  // Dedup key: sorted+normalized team pair + UTC date + bet type. Including
+  // the date lets back-to-back games of the same teams on different days
+  // (e.g., NBA playoff series) coexist correctly. Including the bet type
+  // lets winner + O/U coexist on the same game (they're independent bets,
+  // not contradictory) while blocking duplicate winner picks or duplicate
+  // O/U picks for the same game.
+  const buildKey = (home: string, away: string, matchTime: Date, betType: "winner" | "overunder") => {
+    const pair = [normalizeTeam(home), normalizeTeam(away)].sort().join('|');
+    const date = matchTime.toISOString().slice(0, 10);
+    return `${pair}|${date}|${betType}`;
+  };
+
+  // Build the existing-keys set by parsing each stored matchTitle.
+  // Format is "${home} vs ${away}" or "${home} vs ${away} (O/U)".
+  const existingKeys = new Set<string>();
+  for (const p of existingSystemPicks) {
+    const isOU = / \(O\/U\)$/.test(p.matchTitle);
+    const cleanTitle = p.matchTitle.replace(/ \(O\/U\)$/, '');
+    const idx = cleanTitle.indexOf(' vs ');
+    if (idx <= 0) continue; // Malformed title, skip
+    const home = cleanTitle.substring(0, idx);
+    const away = cleanTitle.substring(idx + 4);
+    existingKeys.add(buildKey(home, away, p.matchTime, isOU ? "overunder" : "winner"));
+  }
+
   // Randomly select O/U candidates for basketball, baseball, and hockey
   const ouSports = ["basketball", "baseball", "hockey"];
   const demoOuSet = new Set<string>();
@@ -1305,13 +1341,29 @@ export async function generateDemoPredictions(): Promise<void> {
   type DemoItem = { match: SportsMatch; betType: "winner" | "overunder"; effectiveTitle: string };
   const items: DemoItem[] = [];
 
+  // Track keys we've already queued in THIS run so the same source game
+  // returned by two endpoints (e.g., ESPN league + ESPN cup) isn't queued twice.
+  const queuedKeys = new Set<string>();
+  let dedupSkipped = 0;
+
   for (const match of matches) {
     const matchTitle = `${match.homeTeam} vs ${match.awayTeam}`;
     const useOU = ouSports.includes(match.sport) && demoOuSet.has(matchTitle);
+    const betType: "winner" | "overunder" = useOU ? "overunder" : "winner";
     const effectiveTitle = useOU ? `${matchTitle} (O/U)` : matchTitle;
-    if (!existingTitles.has(effectiveTitle)) {
-      items.push({ match, betType: useOU ? "overunder" : "winner", effectiveTitle });
+    const key = buildKey(match.homeTeam, match.awayTeam, match.matchTime, betType);
+
+    if (existingKeys.has(key) || queuedKeys.has(key)) {
+      dedupSkipped++;
+      continue;
     }
+
+    items.push({ match, betType, effectiveTitle });
+    queuedKeys.add(key);
+  }
+
+  if (dedupSkipped > 0) {
+    console.log(`[DEMO] Dedup skipped ${dedupSkipped} matches already covered by existing predictions`);
   }
 
   if (items.length === 0) {
@@ -1370,7 +1422,10 @@ export async function generateDemoPredictions(): Promise<void> {
         result: null,
         expiresAt: new Date(match.matchTime.getTime() + 3 * 60 * 60 * 1000),
       });
-      existingTitles.add(effectiveTitle);
+      // Update the dedup keyset so any later iteration in this run that
+      // happens to encounter the same game (e.g., returned by two ESPN
+      // endpoints) will skip it instead of inserting a duplicate.
+      existingKeys.add(buildKey(match.homeTeam, match.awayTeam, match.matchTime, betType));
       inserted++;
       console.log(`Generated ${usingFallback ? 'fallback' : 'real'} ${betType === 'overunder' ? 'O/U' : 'winner'} prediction: ${effectiveTitle} (${match.sport})`);
     } catch (error) {
