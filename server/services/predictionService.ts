@@ -1274,7 +1274,7 @@ export async function generateDemoPredictions(): Promise<void> {
   const usingFallback = isUsingFallbackData();
   
   if (usingFallback) {
-    console.log("API unavailable — using fallback matches, predictions will be marked as [DEMO]");
+    console.log("Using ESPN-sourced matches (Odds API not used for this run)");
   }
   
   // Pull ALL system-generated predictions (both premium picks AND today's free
@@ -1401,7 +1401,9 @@ export async function generateDemoPredictions(): Promise<void> {
       continue;
     }
 
-    const explanation = usingFallback ? `[DEMO] ${analysis.explanation}` : analysis.explanation;
+    // Predictions are stored with the AI explanation as-is. ESPN-sourced
+    // predictions are real, validated picks — never tag them as demo data.
+    const explanation = analysis.explanation;
     const sportsbookOdds = generateSportsbookOdds(analysis.probability, analysis.predictedOutcome);
 
     try {
