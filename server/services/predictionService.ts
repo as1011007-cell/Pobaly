@@ -1273,9 +1273,7 @@ export async function generateDemoPredictions(): Promise<void> {
   const matches = await getUpcomingMatches();
   const usingFallback = isUsingFallbackData();
   
-  if (usingFallback) {
-    console.log("Using ESPN-sourced matches (Odds API not used for this run)");
-  }
+  // Intentionally no log here — never surface the data source publicly.
   
   // Pull ALL system-generated predictions (both premium picks AND today's free
   // tip), past and future, so the dedup set covers every existing entry and
