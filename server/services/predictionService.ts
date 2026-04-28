@@ -2296,8 +2296,8 @@ Return ONLY this JSON object (no prose, no markdown):
 }
 
 // Refresh premium predictions - clear expired and regenerate from real API data only
-async function refreshDemoPredictions(): Promise<void> {
-  console.log("Refreshing premium predictions with real API games...");
+async function refreshDemoPredictions(espnOnly: boolean = false): Promise<void> {
+  console.log(`Refreshing premium predictions with real API games...${espnOnly ? " [ESPN-only mode]" : ""}`);
   
   const now = new Date();
   
@@ -2333,7 +2333,12 @@ async function refreshDemoPredictions(): Promise<void> {
   // typically has games this season has fewer than the per-sport target.
   // Cricket excluded when ESPN-only (ESPN only covers ICC, which may have no
   // active games) to prevent infinite force-regeneration.
-  const usingEspnOnly = isUsingFallbackData();
+  // Treat the run as ESPN-only if either the caller explicitly requested it
+  // (noon top-up) OR the upstream sports API has fallen back to ESPN. Without
+  // the explicit `espnOnly` check, a noon run that follows a successful Odds
+  // API call would still keep cricket in `allSports` and trigger needless
+  // regeneration churn (ESPN's cricket coverage is sparse).
+  const usingEspnOnly = espnOnly || isUsingFallbackData();
   const PER_SPORT_TARGET = 3; // aim for at least 3 picks per sport for variety
   const TOTAL_TARGET = 40;    // bumped from 30 — users want more picks
   const coreSports = ["football", "basketball", "baseball", "hockey", "mma"];
@@ -2358,8 +2363,9 @@ async function refreshDemoPredictions(): Promise<void> {
   } else {
     console.log(`Only ${existing.length}/${TOTAL_TARGET} premium predictions, fetching more real games from API...`);
   }
-  // Clear stale ESPN cache before regenerating so we get today's fresh schedule (e.g. tomorrow's MLB)
-  await refreshUpcomingMatches();
+  // Clear stale ESPN cache before regenerating so we get today's fresh schedule (e.g. tomorrow's MLB).
+  // Pass espnOnly through so the noon top-up doesn't burn Odds API quota.
+  await refreshUpcomingMatches(espnOnly);
   await generateDemoPredictions();
 }
 
@@ -2524,6 +2530,31 @@ export function startDailyRefreshScheduler(): void {
     }, msUntil8am);
   }
   schedule8amResolution();
+
+  // 12:00 UTC: noon top-up of upcoming predictions, ESPN-only.
+  // The midnight refresh is the one big AI/Odds-burning pass per day. By noon
+  // a chunk of those predictions have already kicked off, so the pool of
+  // *future* picks shrinks. This noon pass tops the pool back up using ONLY
+  // ESPN data — it never spends Odds API quota — so under-covered sports
+  // get fresh AI picks halfway through the day and free-tier users always
+  // see a healthy list.
+  function scheduleNoonEspnTopUp() {
+    const now = new Date();
+    const nextNoon = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12, 0, 0));
+    if (nextNoon <= now) nextNoon.setUTCDate(nextNoon.getUTCDate() + 1);
+    const msUntilNoon = nextNoon.getTime() - now.getTime();
+    console.log(`Noon ESPN-only top-up scheduled at 12 PM UTC (in ${Math.round(msUntilNoon / 60000)} minutes)`);
+    setTimeout(async () => {
+      console.log("[NOON TOPUP] Running ESPN-only prediction top-up...");
+      try {
+        await refreshDemoPredictions(true);
+      } catch (err) {
+        console.error("[NOON TOPUP] Failed:", err);
+      }
+      scheduleNoonEspnTopUp();
+    }, msUntilNoon);
+  }
+  scheduleNoonEspnTopUp();
 
   // Every 30 minutes: resolve newly completed games via ESPN/API (cheap, fast)
   // and replace any incorrect free tip.

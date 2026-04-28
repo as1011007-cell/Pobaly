@@ -81,9 +81,12 @@ async function fetchGamesFromApi(sportKey: string): Promise<OddsApiGame[]> {
   }
 }
 
-export async function getUpcomingMatchesFromApi(): Promise<SportsMatch[]> {
+export async function getUpcomingMatchesFromApi(espnOnly: boolean = false): Promise<SportsMatch[]> {
   const now = Date.now();
-  if (matchCache && (now - matchCache.fetchedAt) < CACHE_TTL_MS) {
+  // Bypass the cache when caller explicitly asks for ESPN-only — the cache may
+  // contain Odds API data from an earlier call, and the whole point of espnOnly
+  // is to refuse to spend Odds API quota.
+  if (!espnOnly && matchCache && (now - matchCache.fetchedAt) < CACHE_TTL_MS) {
     const upcoming = matchCache.data.filter(m => m.matchTime.getTime() > now);
     if (upcoming.length > 0) {
       console.log(`Using cached matches (${upcoming.length} upcoming, cache age: ${Math.round((now - matchCache.fetchedAt) / 60000)}m)`);
@@ -92,9 +95,11 @@ export async function getUpcomingMatchesFromApi(): Promise<SportsMatch[]> {
   }
 
   const apiKey = process.env.ODDS_API_KEY;
-  
-  if (!apiKey) {
-    console.log('ODDS_API_KEY not set — fetching real matches from ESPN');
+
+  if (espnOnly || !apiKey) {
+    console.log(espnOnly
+      ? 'ESPN-only fetch requested — skipping Odds API to preserve quota'
+      : 'ODDS_API_KEY not set — fetching real matches from ESPN');
     const espnMatches = await getESPNMatches();
     matchCache = { data: espnMatches, fetchedAt: Date.now() };
     _usingFallback = true;
@@ -352,10 +357,10 @@ async function getESPNMatches(): Promise<SportsMatch[]> {
   return [];
 }
 
-export async function refreshUpcomingMatches(): Promise<SportsMatch[]> {
+export async function refreshUpcomingMatches(espnOnly: boolean = false): Promise<SportsMatch[]> {
   matchCache = null;
   espnFallbackCache = null;
-  return getUpcomingMatchesFromApi();
+  return getUpcomingMatchesFromApi(espnOnly);
 }
 
 interface CompletedGame {
