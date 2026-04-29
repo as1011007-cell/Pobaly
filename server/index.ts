@@ -513,6 +513,20 @@ function setupErrorHandler(app: express.Application) {
         if (deleted.length > 0) log(`Removed prediction ID 4113 (${deleted[0].matchTitle}) from DB`);
       } catch {}
 
+      // Idempotent cleanup: strip legacy "[DEMO] " prefix from prediction explanations.
+      try {
+        const { sql } = await import("drizzle-orm");
+        const result: any = await db.execute(sql`
+          UPDATE predictions
+          SET explanation = SUBSTRING(explanation FROM 8)
+          WHERE explanation LIKE '[DEMO] %'
+        `);
+        const updated = result?.rowCount ?? result?.count ?? 0;
+        if (updated > 0) log(`Stripped [DEMO] prefix from ${updated} prediction(s)`);
+      } catch (err) {
+        log(`[DEMO] cleanup skipped: ${(err as Error).message}`);
+      }
+
       // Initialize push notification tokens table
       const { initPushTokensTable } = await import("./services/pushNotificationService");
       await initPushTokensTable();
