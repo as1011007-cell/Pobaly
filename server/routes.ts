@@ -112,8 +112,8 @@ function redactPrediction(p: any) {
   };
 }
 
-const loginRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 5 });
-const registerRateLimit = rateLimit({ windowMs: 60 * 60 * 1000, max: 5 });
+const loginRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 20 });
+const registerRateLimit = rateLimit({ windowMs: 60 * 60 * 1000, max: 10 });
 const contactRateLimit = rateLimit({ windowMs: 60 * 60 * 1000, max: 5 });
 const generateRateLimit = rateLimit({ windowMs: 60 * 1000, max: 3 });
 const apiReadRateLimit = rateLimit({ windowMs: 60 * 1000, max: 60 });
