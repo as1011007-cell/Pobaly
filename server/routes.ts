@@ -823,7 +823,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const u = await storage.getUser(req.userId);
         isPremiumUser = u?.isPremium === true;
       }
-      const result = prediction.isPremium && !isPremiumUser ? redactPrediction(prediction) : prediction;
+      // Resolved predictions (those with a result) are no longer paywalled —
+      // they appear in everyone's history view, so the detail must match.
+      const isResolved = prediction.result === "correct" || prediction.result === "incorrect";
+      const result = prediction.isPremium && !isPremiumUser && !isResolved
+        ? redactPrediction(prediction)
+        : prediction;
       res.json({ prediction: result });
     } catch (error: any) {
       res.status(500).json({ error: safeErrorMessage(error) });

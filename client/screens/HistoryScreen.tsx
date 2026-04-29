@@ -23,7 +23,7 @@ export default function HistoryScreen() {
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
   const { theme } = useTheme();
-  const { user, isPremium } = useAuth();
+  const { user } = useAuth();
   const navigation = useNavigation<NavigationProp>();
 
   const [refreshing, setRefreshing] = useState(false);
@@ -54,11 +54,8 @@ export default function HistoryScreen() {
   }, [loadHistory]);
 
   const handlePredictionPress = (prediction: Prediction) => {
-    if (prediction.isPremium && !isPremium) {
-      navigation.navigate("Subscription");
-    } else {
-      navigation.navigate("PredictionDetail", { predictionId: prediction.id });
-    }
+    // History items are already-resolved past predictions — no paywall on them.
+    navigation.navigate("PredictionDetail", { predictionId: prediction.id });
   };
 
   const renderPrediction = ({ item }: { item: Prediction }) => (
