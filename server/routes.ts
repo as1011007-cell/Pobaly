@@ -10,6 +10,7 @@ import bcrypt from "bcryptjs";
 import { WebhookHandlers } from "./webhookHandlers";
 import { signToken, setCachedTokenVersion, requireAuth, optionalAuth, requireAdmin, requireWebhookAuth, rateLimit } from "./auth";
 import { checkRCSubscription } from "./revenueCatService";
+import { validateEmailDeliverable } from "./emailValidation";
 const adminRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 30 });
 import { db } from "./db";
 import { sql, and } from "drizzle-orm";
@@ -124,8 +125,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/register", registerRateLimit, async (req: Request, res: Response) => {
     try {
       const { email, password, name, referralCode } = registerSchema.parse(req.body);
-      
-      const existingUser = await storage.getUserByEmail(email.toLowerCase().trim());
+      const normalizedEmail = email.toLowerCase().trim();
+
+      // Validate deliverability FIRST so that timing/response is similar for
+      // existing-vs-new emails, mitigating user-enumeration via timing.
+      const deliverability = await validateEmailDeliverable(normalizedEmail);
+      if (!deliverability.valid) {
+        return res.status(400).json({ error: deliverability.reason || "Please enter a valid email address." });
+      }
+
+      const existingUser = await storage.getUserByEmail(normalizedEmail);
       if (existingUser) {
         return res.status(400).json({ error: "Unable to create account. Please try a different email or sign in." });
       }

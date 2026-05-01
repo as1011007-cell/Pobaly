@@ -133,6 +133,10 @@ export default function SignUpScreen({ navigation }: SignUpScreenProps) {
         let msg = "Registration failed. Please try again.";
         if (errorMsg.includes("Unable to create account")) {
           msg = "Unable to create account. Please try a different email or sign in.";
+        } else if (errorMsg.includes("doesn't appear to exist") || errorMsg.includes("valid email")) {
+          msg = "This email doesn't appear to exist. Please use a real email address.";
+          setErrors({ email: msg });
+          return;
         }
         setErrors({ general: msg });
       }
