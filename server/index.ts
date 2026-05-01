@@ -493,6 +493,22 @@ function setupErrorHandler(app: express.Application) {
 
   setupErrorHandler(app);
 
+  // Single-active-session support: ensure users.token_version exists BEFORE
+  // accepting traffic. The login handler relies on this column existing to
+  // bump the counter on every login; if a request hit before the column
+  // existed, the bump would silently fail and revocation would not work.
+  try {
+    const { sql } = await import("drizzle-orm");
+    await db.execute(sql`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0
+    `);
+    log("Ensured users.token_version column exists");
+  } catch (err) {
+    log(`FATAL: token_version migration failed: ${(err as Error).message}`);
+    throw err;
+  }
+
   const port = parseInt(process.env.PORT || "5000", 10);
   server.listen(
     {

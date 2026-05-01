@@ -30,6 +30,26 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+// AuthContext registers a handler here so we can sign the user out from
+// anywhere in the app when the server says the session was revoked
+// (because they signed in on another device).
+let onSessionRevoked: (() => void) | null = null;
+export function setOnSessionRevoked(handler: (() => void) | null) {
+  onSessionRevoked = handler;
+}
+
+async function maybeHandleSessionRevoked(res: Response): Promise<boolean> {
+  if (res.status !== 401) return false;
+  try {
+    const body = await res.clone().json();
+    if (body?.code === "SESSION_REVOKED") {
+      if (onSessionRevoked) onSessionRevoked();
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
 export async function apiRequest(
   method: string,
   route: string,
@@ -51,6 +71,7 @@ export async function apiRequest(
     credentials: "include",
   });
 
+  await maybeHandleSessionRevoked(res);
   await throwIfResNotOk(res);
   return res;
 }
@@ -69,6 +90,8 @@ export const getQueryFn: <T>(options: {
       headers: authHeaders,
       credentials: "include",
     });
+
+    await maybeHandleSessionRevoked(res);
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;

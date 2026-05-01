@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from "r
 import { Platform, AppState, AppStateStatus } from "react-native";
 import { User } from "@/types";
 import { storage } from "@/lib/storage";
-import { apiRequest, getApiUrl } from "@/lib/query-client";
+import { apiRequest, getApiUrl, setOnSessionRevoked } from "@/lib/query-client";
 import { loginRevenueCat, logoutRevenueCat } from "@/lib/revenuecat";
 import {
   registerPushTokenWithServer,
@@ -39,6 +39,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     loadUser();
+  }, []);
+
+  // Single-active-session: if any API call returns SESSION_REVOKED (because
+  // the account just signed in on another device) silently sign this device
+  // out so the user lands back on the login screen.
+  useEffect(() => {
+    setOnSessionRevoked(() => {
+      if (!userRef.current) return;
+      signOut().catch(() => {});
+    });
+    return () => setOnSessionRevoked(null);
   }, []);
 
   // Refresh subscription state whenever the app comes to foreground.

@@ -8,7 +8,7 @@ import bcrypt from "bcryptjs";
 // Affiliate program disabled — re-enable by uncommenting
 // import affiliateRoutes from "./affiliateRoutes";
 import { WebhookHandlers } from "./webhookHandlers";
-import { signToken, requireAuth, optionalAuth, requireAdmin, requireWebhookAuth, rateLimit } from "./auth";
+import { signToken, setCachedTokenVersion, requireAuth, optionalAuth, requireAdmin, requireWebhookAuth, rateLimit } from "./auth";
 import { checkRCSubscription } from "./revenueCatService";
 const adminRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 30 });
 import { db } from "./db";
@@ -137,7 +137,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         name: name.trim(),
       }, referralCode);
 
-      const token = signToken(user.id);
+      // Fresh user starts at token_version = 0 (DB default).
+      setCachedTokenVersion(user.id, 0);
+      const token = signToken(user.id, 0);
 
       return res.json({
         user: {
@@ -179,7 +181,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ error: "Invalid credentials" });
       }
 
-      const token = signToken(user.id);
+      // Single-active-session: bump the user's token_version so any token
+      // issued to a previous device becomes invalid on its next request.
+      // If the bump fails we MUST NOT issue a token — otherwise the new
+      // token would carry tv=0 (or stale value) and previously-issued
+      // tokens would remain usable, defeating the kickout guarantee.
+      let newTokenVersion: number;
+      try {
+        const result: any = await db.execute(
+          sql`UPDATE users SET token_version = token_version + 1 WHERE id = ${user.id} RETURNING token_version`,
+        );
+        const rows: any[] = Array.isArray(result) ? result : (result?.rows ?? []);
+        const bumped = rows[0]?.token_version;
+        if (bumped === undefined || bumped === null) {
+          throw new Error("token_version bump returned no rows");
+        }
+        newTokenVersion = Number(bumped);
+      } catch (err) {
+        console.error("[AUTH] failed to bump token_version on login:", (err as Error).message);
+        return res.status(500).json({ error: "Could not start session. Please try again." });
+      }
+      setCachedTokenVersion(user.id, newTokenVersion);
+      const token = signToken(user.id, newTokenVersion);
 
       return res.json({
         user: {

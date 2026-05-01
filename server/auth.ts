@@ -15,14 +15,66 @@ function getJwtSecret(): string {
 
 const JWT_EXPIRY = "365d";
 
-export function signToken(userId: string): string {
-  return jwt.sign({ sub: userId }, getJwtSecret(), { expiresIn: JWT_EXPIRY });
+export function signToken(userId: string, tokenVersion: number): string {
+  return jwt.sign(
+    { sub: userId, tv: tokenVersion },
+    getJwtSecret(),
+    { expiresIn: JWT_EXPIRY },
+  );
 }
 
-export function verifyToken(token: string): { sub: string } | null {
+export function verifyToken(token: string): { sub: string; tv?: number } | null {
   try {
-    return jwt.verify(token, getJwtSecret()) as { sub: string };
+    return jwt.verify(token, getJwtSecret()) as { sub: string; tv?: number };
   } catch {
+    return null;
+  }
+}
+
+// ---- Single-active-session support -----------------------------------------
+// Each user has a `token_version` counter in the DB. Every successful login
+// increments it, embedding the new value into the freshly issued JWT. On
+// every authenticated request we compare the JWT's `tv` claim against the
+// user's current `token_version`. If they differ, the token came from a
+// previous login session and we reject it. A short-TTL in-memory cache keeps
+// the per-request DB lookup cheap.
+
+const TOKEN_VERSION_TTL_MS = 60_000;
+const tokenVersionCache = new Map<string, { version: number; expiresAt: number }>();
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of tokenVersionCache) {
+    if (v.expiresAt < now) tokenVersionCache.delete(k);
+  }
+}, 5 * 60_000);
+
+export function setCachedTokenVersion(userId: string, version: number) {
+  tokenVersionCache.set(userId, {
+    version,
+    expiresAt: Date.now() + TOKEN_VERSION_TTL_MS,
+  });
+}
+
+async function getCurrentTokenVersion(userId: string): Promise<number | null> {
+  const cached = tokenVersionCache.get(userId);
+  if (cached && cached.expiresAt > Date.now()) return cached.version;
+
+  try {
+    const { db } = await import("./db");
+    const { sql } = await import("drizzle-orm");
+    const result: any = await db.execute(
+      sql`SELECT token_version FROM users WHERE id = ${userId}`,
+    );
+    const rows: any[] = Array.isArray(result) ? result : (result?.rows ?? []);
+    if (rows.length === 0) return null;
+    const version = Number(rows[0]?.token_version ?? 0);
+    setCachedTokenVersion(userId, version);
+    return version;
+  } catch (err) {
+    console.warn("[AUTH] token_version lookup failed:", (err as Error).message);
+    // Fail-open: if the DB lookup fails, accept the JWT's claim rather than
+    // locking everyone out due to a transient DB issue.
     return null;
   }
 }
@@ -35,28 +87,50 @@ declare global {
   }
 }
 
-export function requireAuth(req: Request, res: Response, next: NextFunction) {
+export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "Authentication required" });
+    return res.status(401).json({ error: "Authentication required", code: "NO_TOKEN" });
   }
 
   const token = authHeader.slice(7);
   const payload = verifyToken(token);
   if (!payload?.sub) {
-    return res.status(401).json({ error: "Invalid or expired token" });
+    return res.status(401).json({ error: "Invalid or expired token", code: "INVALID_TOKEN" });
+  }
+
+  const currentVersion = await getCurrentTokenVersion(payload.sub);
+  // Tokens issued before token_version existed have no `tv` claim — treat
+  // them as version 0 so they keep working until the user logs in again
+  // (the first new login bumps version to 1 and invalidates them).
+  const tokenTv = typeof payload.tv === "number" ? payload.tv : 0;
+  if (currentVersion !== null && tokenTv !== currentVersion) {
+    return res.status(401).json({
+      error: "Your session ended because this account signed in on another device.",
+      code: "SESSION_REVOKED",
+    });
   }
 
   req.userId = payload.sub;
   next();
 }
 
-export function optionalAuth(req: Request, _res: Response, next: NextFunction) {
+export async function optionalAuth(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   if (authHeader?.startsWith("Bearer ")) {
     const token = authHeader.slice(7);
     const payload = verifyToken(token);
     if (payload?.sub) {
+      const currentVersion = await getCurrentTokenVersion(payload.sub);
+      const tokenTv = typeof payload.tv === "number" ? payload.tv : 0;
+      if (currentVersion !== null && tokenTv !== currentVersion) {
+        // The client is presenting a token from a previous session — kick it
+        // out even on otherwise-public endpoints so the app signs out fast.
+        return res.status(401).json({
+          error: "Your session ended because this account signed in on another device.",
+          code: "SESSION_REVOKED",
+        });
+      }
       req.userId = payload.sub;
     }
   }
