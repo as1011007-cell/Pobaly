@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Language, getTranslation, LANGUAGES } from "@/lib/translations";
+import { Language, getTranslation, LANGUAGES, isSupportedLanguage } from "@/lib/translations";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { useAuth } from "./AuthContext";
 
@@ -38,8 +38,8 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const loadLanguage = async () => {
     try {
       const stored = await AsyncStorage.getItem(LANGUAGE_STORAGE_KEY);
-      if (stored && (stored === "en" || stored === "es" || stored === "fr")) {
-        setLanguageState(stored as Language);
+      if (isSupportedLanguage(stored)) {
+        setLanguageState(stored);
       }
     } catch (error) {
       console.error("Error loading language:", error);
@@ -54,8 +54,8 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
         new URL(`/api/user/preferences/${userId}`, getApiUrl()).toString()
       );
       const data = await response.json();
-      if (data.language && (data.language === "en" || data.language === "es" || data.language === "fr")) {
-        setLanguageState(data.language as Language);
+      if (isSupportedLanguage(data?.language)) {
+        setLanguageState(data.language);
         await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, data.language);
       }
     } catch (error) {

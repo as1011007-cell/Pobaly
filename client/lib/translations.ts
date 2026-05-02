@@ -1,9 +1,19 @@
-export type Language = "en" | "es" | "fr";
+export type Language = "en" | "es" | "fr" | "de" | "ja" | "zh" | "ru";
+
+export const SUPPORTED_LANGUAGES: Language[] = ["en", "es", "fr", "de", "ja", "zh", "ru"];
+
+export function isSupportedLanguage(value: unknown): value is Language {
+  return typeof value === "string" && (SUPPORTED_LANGUAGES as string[]).includes(value);
+}
 
 export const LANGUAGES: { code: Language; name: string; nativeName: string }[] = [
   { code: "en", name: "English", nativeName: "English" },
   { code: "es", name: "Spanish", nativeName: "Español" },
   { code: "fr", name: "French", nativeName: "Français" },
+  { code: "de", name: "German", nativeName: "Deutsch" },
+  { code: "ja", name: "Japanese", nativeName: "日本語" },
+  { code: "zh", name: "Chinese (Simplified)", nativeName: "中文" },
+  { code: "ru", name: "Russian", nativeName: "Русский" },
 ];
 
 type TranslationKeys = {
@@ -22,7 +32,7 @@ type TranslationKeys = {
   done: string;
   close: string;
   retry: string;
-  
+
   // Auth
   login: string;
   register: string;
@@ -35,20 +45,20 @@ type TranslationKeys = {
   noAccount: string;
   hasAccount: string;
   getStarted: string;
-  
+
   // Navigation
   home: string;
   live: string;
   sports: string;
   history: string;
   profile: string;
-  
+
   // Home Screen
   freeTipOfDay: string;
   premiumPredictions: string;
   viewAll: string;
   noPredictions: string;
-  
+
   // Sports
   football: string;
   basketball: string;
@@ -60,7 +70,7 @@ type TranslationKeys = {
   boxing: string;
   golf: string;
   cricket: string;
-  
+
   // Predictions
   probability: string;
   confidence: string;
@@ -74,7 +84,7 @@ type TranslationKeys = {
   correct: string;
   incorrect: string;
   pending: string;
-  
+
   // Subscription
   premium: string;
   free: string;
@@ -86,7 +96,7 @@ type TranslationKeys = {
   subscriptionActive: string;
   subscriptionExpires: string;
   perYear: string;
-  
+
   // Settings
   settings: string;
   notifications: string;
@@ -98,16 +108,16 @@ type TranslationKeys = {
   dark: string;
   system: string;
   appearanceDescription: string;
-  
+
   // Legal
   termsOfService: string;
   privacyPolicy: string;
   legal: string;
-  
+
   // Profile
   version: string;
   subscription: string;
-  
+
   // Messages
   welcomeTitle: string;
   welcomeSubtitle: string;
@@ -117,7 +127,6 @@ type TranslationKeys = {
 
 const translations: Record<Language, TranslationKeys> = {
   en: {
-    // Common
     appName: "Probaly",
     loading: "Loading...",
     error: "Error",
@@ -132,8 +141,6 @@ const translations: Record<Language, TranslationKeys> = {
     done: "Done",
     close: "Close",
     retry: "Retry",
-    
-    // Auth
     login: "Log In",
     register: "Sign Up",
     signOut: "Sign Out",
@@ -145,21 +152,15 @@ const translations: Record<Language, TranslationKeys> = {
     noAccount: "Don't have an account?",
     hasAccount: "Already have an account?",
     getStarted: "Get Started",
-    
-    // Navigation
     home: "Home",
     live: "Live",
     sports: "Sports",
     history: "History",
     profile: "Profile",
-    
-    // Home Screen
     freeTipOfDay: "Free Tip of the Day",
     premiumPredictions: "Premium Predictions",
     viewAll: "View All",
     noPredictions: "No predictions available",
-    
-    // Sports
     football: "Football",
     basketball: "Basketball",
     tennis: "Tennis",
@@ -170,8 +171,6 @@ const translations: Record<Language, TranslationKeys> = {
     boxing: "Boxing",
     golf: "Golf",
     cricket: "Cricket",
-    
-    // Predictions
     probability: "Probability",
     confidence: "Confidence",
     riskIndex: "Risk Index",
@@ -184,8 +183,6 @@ const translations: Record<Language, TranslationKeys> = {
     correct: "Correct",
     incorrect: "Incorrect",
     pending: "Pending",
-    
-    // Subscription
     premium: "Premium",
     free: "Free",
     upgrade: "Upgrade to Premium",
@@ -196,8 +193,6 @@ const translations: Record<Language, TranslationKeys> = {
     subscriptionActive: "Premium Active",
     subscriptionExpires: "Expires",
     perYear: "/year",
-    
-    // Settings
     settings: "Settings",
     notifications: "Notifications",
     language: "Language",
@@ -208,25 +203,18 @@ const translations: Record<Language, TranslationKeys> = {
     dark: "Dark",
     system: "System",
     appearanceDescription: "Choose how Probaly looks on your device. System will follow your device settings.",
-    
-    // Legal
     termsOfService: "Terms of Service",
     privacyPolicy: "Privacy Policy",
     legal: "Legal",
-    
-    // Profile
     version: "Version",
     subscription: "Subscription",
-    
-    // Messages
     welcomeTitle: "AI-Powered Sports Predictions",
     welcomeSubtitle: "Get data-driven insights for smarter decisions",
     noDataAvailable: "No data available",
     pullToRefresh: "Pull to refresh",
   },
-  
+
   es: {
-    // Common
     appName: "Probaly",
     loading: "Cargando...",
     error: "Error",
@@ -241,8 +229,6 @@ const translations: Record<Language, TranslationKeys> = {
     done: "Listo",
     close: "Cerrar",
     retry: "Reintentar",
-    
-    // Auth
     login: "Iniciar Sesión",
     register: "Registrarse",
     signOut: "Cerrar Sesión",
@@ -254,21 +240,15 @@ const translations: Record<Language, TranslationKeys> = {
     noAccount: "¿No tienes cuenta?",
     hasAccount: "¿Ya tienes cuenta?",
     getStarted: "Comenzar",
-    
-    // Navigation
     home: "Inicio",
     live: "En Vivo",
     sports: "Deportes",
     history: "Historial",
     profile: "Perfil",
-    
-    // Home Screen
     freeTipOfDay: "Consejo Gratis del Día",
     premiumPredictions: "Predicciones Premium",
     viewAll: "Ver Todo",
     noPredictions: "No hay predicciones disponibles",
-    
-    // Sports
     football: "Fútbol Americano",
     basketball: "Baloncesto",
     tennis: "Tenis",
@@ -279,8 +259,6 @@ const translations: Record<Language, TranslationKeys> = {
     boxing: "Boxeo",
     golf: "Golf",
     cricket: "Críquet",
-    
-    // Predictions
     probability: "Probabilidad",
     confidence: "Confianza",
     riskIndex: "Índice de Riesgo",
@@ -293,8 +271,6 @@ const translations: Record<Language, TranslationKeys> = {
     correct: "Correcto",
     incorrect: "Incorrecto",
     pending: "Pendiente",
-    
-    // Subscription
     premium: "Premium",
     free: "Gratis",
     upgrade: "Actualizar a Premium",
@@ -305,8 +281,6 @@ const translations: Record<Language, TranslationKeys> = {
     subscriptionActive: "Premium Activo",
     subscriptionExpires: "Expira",
     perYear: "/año",
-    
-    // Settings
     settings: "Configuración",
     notifications: "Notificaciones",
     language: "Idioma",
@@ -316,26 +290,19 @@ const translations: Record<Language, TranslationKeys> = {
     light: "Claro",
     dark: "Oscuro",
     system: "Sistema",
-    appearanceDescription: "Elige como se ve Probaly en tu dispositivo. Sistema seguira la configuracion de tu dispositivo.",
-    
-    // Legal
+    appearanceDescription: "Elige cómo se ve Probaly en tu dispositivo. Sistema seguirá la configuración de tu dispositivo.",
     termsOfService: "Términos de Servicio",
     privacyPolicy: "Política de Privacidad",
     legal: "Legal",
-    
-    // Profile
     version: "Versión",
     subscription: "Suscripción",
-    
-    // Messages
     welcomeTitle: "Predicciones Deportivas con IA",
     welcomeSubtitle: "Obtén información basada en datos para decisiones más inteligentes",
     noDataAvailable: "No hay datos disponibles",
     pullToRefresh: "Desliza para actualizar",
   },
-  
+
   fr: {
-    // Common
     appName: "Probaly",
     loading: "Chargement...",
     error: "Erreur",
@@ -350,8 +317,6 @@ const translations: Record<Language, TranslationKeys> = {
     done: "Terminé",
     close: "Fermer",
     retry: "Réessayer",
-    
-    // Auth
     login: "Connexion",
     register: "S'inscrire",
     signOut: "Déconnexion",
@@ -363,21 +328,15 @@ const translations: Record<Language, TranslationKeys> = {
     noAccount: "Pas de compte?",
     hasAccount: "Déjà un compte?",
     getStarted: "Commencer",
-    
-    // Navigation
     home: "Accueil",
     live: "En Direct",
     sports: "Sports",
     history: "Historique",
     profile: "Profil",
-    
-    // Home Screen
     freeTipOfDay: "Conseil Gratuit du Jour",
     premiumPredictions: "Prédictions Premium",
     viewAll: "Voir Tout",
     noPredictions: "Aucune prédiction disponible",
-    
-    // Sports
     football: "Football Américain",
     basketball: "Basketball",
     tennis: "Tennis",
@@ -388,8 +347,6 @@ const translations: Record<Language, TranslationKeys> = {
     boxing: "Boxe",
     golf: "Golf",
     cricket: "Cricket",
-    
-    // Predictions
     probability: "Probabilité",
     confidence: "Confiance",
     riskIndex: "Indice de Risque",
@@ -402,8 +359,6 @@ const translations: Record<Language, TranslationKeys> = {
     correct: "Correct",
     incorrect: "Incorrect",
     pending: "En Attente",
-    
-    // Subscription
     premium: "Premium",
     free: "Gratuit",
     upgrade: "Passer à Premium",
@@ -414,8 +369,6 @@ const translations: Record<Language, TranslationKeys> = {
     subscriptionActive: "Premium Actif",
     subscriptionExpires: "Expire",
     perYear: "/an",
-    
-    // Settings
     settings: "Paramètres",
     notifications: "Notifications",
     language: "Langue",
@@ -424,23 +377,369 @@ const translations: Record<Language, TranslationKeys> = {
     lightMode: "Clair",
     light: "Clair",
     dark: "Sombre",
-    system: "Systeme",
-    appearanceDescription: "Choisissez l'apparence de Probaly sur votre appareil. Systeme suivra les parametres de votre appareil.",
-    
-    // Legal
+    system: "Système",
+    appearanceDescription: "Choisissez l'apparence de Probaly sur votre appareil. Système suivra les paramètres de votre appareil.",
     termsOfService: "Conditions d'Utilisation",
     privacyPolicy: "Politique de Confidentialité",
     legal: "Légal",
-    
-    // Profile
     version: "Version",
     subscription: "Abonnement",
-    
-    // Messages
     welcomeTitle: "Prédictions Sportives par IA",
     welcomeSubtitle: "Obtenez des insights basés sur les données pour des décisions plus intelligentes",
     noDataAvailable: "Aucune donnée disponible",
     pullToRefresh: "Tirez pour actualiser",
+  },
+
+  de: {
+    appName: "Probaly",
+    loading: "Lädt...",
+    error: "Fehler",
+    success: "Erfolg",
+    cancel: "Abbrechen",
+    confirm: "Bestätigen",
+    save: "Speichern",
+    delete: "Löschen",
+    edit: "Bearbeiten",
+    back: "Zurück",
+    next: "Weiter",
+    done: "Fertig",
+    close: "Schließen",
+    retry: "Wiederholen",
+    login: "Anmelden",
+    register: "Registrieren",
+    signOut: "Abmelden",
+    signOutConfirm: "Möchten Sie sich wirklich abmelden?",
+    email: "E-Mail",
+    password: "Passwort",
+    name: "Name",
+    forgotPassword: "Passwort vergessen?",
+    noAccount: "Noch kein Konto?",
+    hasAccount: "Bereits ein Konto?",
+    getStarted: "Loslegen",
+    home: "Startseite",
+    live: "Live",
+    sports: "Sport",
+    history: "Verlauf",
+    profile: "Profil",
+    freeTipOfDay: "Gratis-Tipp des Tages",
+    premiumPredictions: "Premium-Vorhersagen",
+    viewAll: "Alle anzeigen",
+    noPredictions: "Keine Vorhersagen verfügbar",
+    football: "American Football",
+    basketball: "Basketball",
+    tennis: "Tennis",
+    baseball: "Baseball",
+    hockey: "Eishockey",
+    soccer: "Fußball",
+    mma: "MMA",
+    boxing: "Boxen",
+    golf: "Golf",
+    cricket: "Cricket",
+    probability: "Wahrscheinlichkeit",
+    confidence: "Vertrauen",
+    riskIndex: "Risiko-Index",
+    factors: "Schlüsselfaktoren",
+    prediction: "Vorhersage",
+    matchTime: "Spielzeit",
+    liveNow: "Jetzt Live",
+    upcoming: "Bevorstehend",
+    completed: "Abgeschlossen",
+    correct: "Richtig",
+    incorrect: "Falsch",
+    pending: "Ausstehend",
+    premium: "Premium",
+    free: "Kostenlos",
+    upgrade: "Auf Premium upgraden",
+    subscribe: "Abonnieren",
+    restorePurchases: "Käufe wiederherstellen",
+    noPurchasesFound: "Keine Käufe gefunden",
+    purchasesRestored: "Käufe erfolgreich wiederhergestellt",
+    subscriptionActive: "Premium aktiv",
+    subscriptionExpires: "Läuft ab",
+    perYear: "/Jahr",
+    settings: "Einstellungen",
+    notifications: "Benachrichtigungen",
+    language: "Sprache",
+    appearance: "Erscheinungsbild",
+    darkMode: "Dunkel",
+    lightMode: "Hell",
+    light: "Hell",
+    dark: "Dunkel",
+    system: "System",
+    appearanceDescription: "Wählen Sie, wie Probaly auf Ihrem Gerät aussieht. System folgt Ihren Geräteeinstellungen.",
+    termsOfService: "Nutzungsbedingungen",
+    privacyPolicy: "Datenschutzerklärung",
+    legal: "Rechtliches",
+    version: "Version",
+    subscription: "Abonnement",
+    welcomeTitle: "KI-gestützte Sportvorhersagen",
+    welcomeSubtitle: "Datengestützte Einblicke für klügere Entscheidungen",
+    noDataAvailable: "Keine Daten verfügbar",
+    pullToRefresh: "Zum Aktualisieren ziehen",
+  },
+
+  ja: {
+    appName: "Probaly",
+    loading: "読み込み中...",
+    error: "エラー",
+    success: "成功",
+    cancel: "キャンセル",
+    confirm: "確認",
+    save: "保存",
+    delete: "削除",
+    edit: "編集",
+    back: "戻る",
+    next: "次へ",
+    done: "完了",
+    close: "閉じる",
+    retry: "再試行",
+    login: "ログイン",
+    register: "新規登録",
+    signOut: "サインアウト",
+    signOutConfirm: "本当にサインアウトしますか？",
+    email: "メールアドレス",
+    password: "パスワード",
+    name: "名前",
+    forgotPassword: "パスワードをお忘れですか？",
+    noAccount: "アカウントをお持ちではありませんか？",
+    hasAccount: "すでにアカウントをお持ちですか？",
+    getStarted: "始める",
+    home: "ホーム",
+    live: "ライブ",
+    sports: "スポーツ",
+    history: "履歴",
+    profile: "プロフィール",
+    freeTipOfDay: "今日の無料予想",
+    premiumPredictions: "プレミアム予想",
+    viewAll: "すべて見る",
+    noPredictions: "予想がありません",
+    football: "アメフト",
+    basketball: "バスケットボール",
+    tennis: "テニス",
+    baseball: "野球",
+    hockey: "ホッケー",
+    soccer: "サッカー",
+    mma: "総合格闘技",
+    boxing: "ボクシング",
+    golf: "ゴルフ",
+    cricket: "クリケット",
+    probability: "確率",
+    confidence: "信頼度",
+    riskIndex: "リスク指数",
+    factors: "主要因子",
+    prediction: "予想",
+    matchTime: "試合時間",
+    liveNow: "配信中",
+    upcoming: "予定",
+    completed: "終了",
+    correct: "的中",
+    incorrect: "不的中",
+    pending: "保留中",
+    premium: "プレミアム",
+    free: "無料",
+    upgrade: "プレミアムにアップグレード",
+    subscribe: "購読する",
+    restorePurchases: "購入を復元",
+    noPurchasesFound: "購入が見つかりません",
+    purchasesRestored: "購入が正常に復元されました",
+    subscriptionActive: "プレミアム有効",
+    subscriptionExpires: "有効期限",
+    perYear: "/年",
+    settings: "設定",
+    notifications: "通知",
+    language: "言語",
+    appearance: "外観",
+    darkMode: "ダーク",
+    lightMode: "ライト",
+    light: "ライト",
+    dark: "ダーク",
+    system: "システム",
+    appearanceDescription: "Probalyの表示方法をデバイスで選択します。システムはデバイスの設定に従います。",
+    termsOfService: "利用規約",
+    privacyPolicy: "プライバシーポリシー",
+    legal: "法的事項",
+    version: "バージョン",
+    subscription: "サブスクリプション",
+    welcomeTitle: "AIによるスポーツ予想",
+    welcomeSubtitle: "より賢い判断のためのデータに基づくインサイト",
+    noDataAvailable: "データがありません",
+    pullToRefresh: "引っ張って更新",
+  },
+
+  zh: {
+    appName: "Probaly",
+    loading: "加载中...",
+    error: "错误",
+    success: "成功",
+    cancel: "取消",
+    confirm: "确认",
+    save: "保存",
+    delete: "删除",
+    edit: "编辑",
+    back: "返回",
+    next: "下一步",
+    done: "完成",
+    close: "关闭",
+    retry: "重试",
+    login: "登录",
+    register: "注册",
+    signOut: "退出登录",
+    signOutConfirm: "确定要退出登录吗？",
+    email: "电子邮件",
+    password: "密码",
+    name: "姓名",
+    forgotPassword: "忘记密码？",
+    noAccount: "还没有账户？",
+    hasAccount: "已有账户？",
+    getStarted: "开始",
+    home: "首页",
+    live: "直播",
+    sports: "体育",
+    history: "历史",
+    profile: "个人资料",
+    freeTipOfDay: "每日免费推荐",
+    premiumPredictions: "高级预测",
+    viewAll: "查看全部",
+    noPredictions: "暂无预测",
+    football: "美式足球",
+    basketball: "篮球",
+    tennis: "网球",
+    baseball: "棒球",
+    hockey: "冰球",
+    soccer: "足球",
+    mma: "综合格斗",
+    boxing: "拳击",
+    golf: "高尔夫",
+    cricket: "板球",
+    probability: "概率",
+    confidence: "置信度",
+    riskIndex: "风险指数",
+    factors: "关键因素",
+    prediction: "预测",
+    matchTime: "比赛时间",
+    liveNow: "正在直播",
+    upcoming: "即将开始",
+    completed: "已完成",
+    correct: "正确",
+    incorrect: "错误",
+    pending: "待定",
+    premium: "高级会员",
+    free: "免费",
+    upgrade: "升级到高级",
+    subscribe: "订阅",
+    restorePurchases: "恢复购买",
+    noPurchasesFound: "未找到购买记录",
+    purchasesRestored: "购买已成功恢复",
+    subscriptionActive: "高级会员激活",
+    subscriptionExpires: "到期",
+    perYear: "/年",
+    settings: "设置",
+    notifications: "通知",
+    language: "语言",
+    appearance: "外观",
+    darkMode: "深色",
+    lightMode: "浅色",
+    light: "浅色",
+    dark: "深色",
+    system: "系统",
+    appearanceDescription: "选择 Probaly 在您设备上的显示方式。系统将跟随您的设备设置。",
+    termsOfService: "服务条款",
+    privacyPolicy: "隐私政策",
+    legal: "法律",
+    version: "版本",
+    subscription: "订阅",
+    welcomeTitle: "AI 驱动的体育预测",
+    welcomeSubtitle: "获取数据驱动的洞察，做出更明智的决定",
+    noDataAvailable: "暂无数据",
+    pullToRefresh: "下拉刷新",
+  },
+
+  ru: {
+    appName: "Probaly",
+    loading: "Загрузка...",
+    error: "Ошибка",
+    success: "Успех",
+    cancel: "Отмена",
+    confirm: "Подтвердить",
+    save: "Сохранить",
+    delete: "Удалить",
+    edit: "Изменить",
+    back: "Назад",
+    next: "Далее",
+    done: "Готово",
+    close: "Закрыть",
+    retry: "Повторить",
+    login: "Войти",
+    register: "Регистрация",
+    signOut: "Выйти",
+    signOutConfirm: "Вы уверены, что хотите выйти?",
+    email: "Электронная почта",
+    password: "Пароль",
+    name: "Имя",
+    forgotPassword: "Забыли пароль?",
+    noAccount: "Нет аккаунта?",
+    hasAccount: "Уже есть аккаунт?",
+    getStarted: "Начать",
+    home: "Главная",
+    live: "Прямой эфир",
+    sports: "Спорт",
+    history: "История",
+    profile: "Профиль",
+    freeTipOfDay: "Бесплатный совет дня",
+    premiumPredictions: "Премиум-прогнозы",
+    viewAll: "Показать все",
+    noPredictions: "Нет доступных прогнозов",
+    football: "Американский футбол",
+    basketball: "Баскетбол",
+    tennis: "Теннис",
+    baseball: "Бейсбол",
+    hockey: "Хоккей",
+    soccer: "Футбол",
+    mma: "MMA",
+    boxing: "Бокс",
+    golf: "Гольф",
+    cricket: "Крикет",
+    probability: "Вероятность",
+    confidence: "Уверенность",
+    riskIndex: "Индекс риска",
+    factors: "Ключевые факторы",
+    prediction: "Прогноз",
+    matchTime: "Время матча",
+    liveNow: "Прямой эфир",
+    upcoming: "Скоро",
+    completed: "Завершено",
+    correct: "Верно",
+    incorrect: "Неверно",
+    pending: "Ожидание",
+    premium: "Премиум",
+    free: "Бесплатно",
+    upgrade: "Перейти на Премиум",
+    subscribe: "Подписаться",
+    restorePurchases: "Восстановить покупки",
+    noPurchasesFound: "Покупки не найдены",
+    purchasesRestored: "Покупки успешно восстановлены",
+    subscriptionActive: "Премиум активен",
+    subscriptionExpires: "Истекает",
+    perYear: "/год",
+    settings: "Настройки",
+    notifications: "Уведомления",
+    language: "Язык",
+    appearance: "Внешний вид",
+    darkMode: "Тёмная",
+    lightMode: "Светлая",
+    light: "Светлая",
+    dark: "Тёмная",
+    system: "Системная",
+    appearanceDescription: "Выберите, как Probaly выглядит на вашем устройстве. Система будет следовать настройкам вашего устройства.",
+    termsOfService: "Условия использования",
+    privacyPolicy: "Политика конфиденциальности",
+    legal: "Правовая информация",
+    version: "Версия",
+    subscription: "Подписка",
+    welcomeTitle: "Спортивные прогнозы на базе ИИ",
+    welcomeSubtitle: "Инсайты на основе данных для более умных решений",
+    noDataAvailable: "Нет данных",
+    pullToRefresh: "Потяните, чтобы обновить",
   },
 };
 

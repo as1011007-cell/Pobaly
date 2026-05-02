@@ -50,9 +50,21 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
   return {};
 }
 
-export async function fetchFreeTip(): Promise<Prediction | null> {
+// Helper: append the user's selected language to any prediction-fetching URL.
+// Only sent when non-default ("en") so default English requests stay
+// byte-identical to the pre-i18n behaviour and benefit from any
+// upstream caching keyed on the bare URL.
+function withLang(url: URL, lang?: string): URL {
+  if (lang && lang !== "en") {
+    url.searchParams.set("lang", lang);
+  }
+  return url;
+}
+
+export async function fetchFreeTip(lang?: string): Promise<Prediction | null> {
   try {
-    const response = await fetch(new URL("/api/predictions/free-tip", apiUrl).toString());
+    const url = withLang(new URL("/api/predictions/free-tip", apiUrl), lang);
+    const response = await fetch(url.toString());
     const data = await response.json();
     return data.prediction ? mapApiPrediction(data.prediction) : null;
   } catch (error) {
@@ -61,13 +73,18 @@ export async function fetchFreeTip(): Promise<Prediction | null> {
   }
 }
 
-export async function fetchPremiumPredictions(userId?: string, isPremium?: boolean): Promise<Prediction[]> {
+export async function fetchPremiumPredictions(
+  userId?: string,
+  isPremium?: boolean,
+  lang?: string,
+): Promise<Prediction[]> {
   try {
     const url = new URL("/api/predictions/premium", apiUrl);
     if (userId) {
       url.searchParams.set("userId", userId);
     }
     url.searchParams.set("isPremium", isPremium ? "true" : "false");
+    withLang(url, lang);
     const headers = await getAuthHeaders();
     const response = await fetch(url.toString(), { headers });
     const data = await response.json();
@@ -78,12 +95,16 @@ export async function fetchPremiumPredictions(userId?: string, isPremium?: boole
   }
 }
 
-export async function fetchLivePredictions(userId?: string): Promise<Prediction[]> {
+export async function fetchLivePredictions(
+  userId?: string,
+  lang?: string,
+): Promise<Prediction[]> {
   try {
     const url = new URL("/api/predictions/live", apiUrl);
     if (userId) {
       url.searchParams.set("userId", userId);
     }
+    withLang(url, lang);
     const headers = await getAuthHeaders();
     const response = await fetch(url.toString(), { headers });
     const data = await response.json();
@@ -117,9 +138,12 @@ export async function fetchLiveMatches(): Promise<LiveMatch[]> {
   }
 }
 
-export async function fetchHistoryPredictions(userId?: string): Promise<Prediction[]> {
+export async function fetchHistoryPredictions(
+  userId?: string,
+  lang?: string,
+): Promise<Prediction[]> {
   try {
-    const url = new URL("/api/predictions/history", apiUrl);
+    const url = withLang(new URL("/api/predictions/history", apiUrl), lang);
     const headers = await getAuthHeaders();
     const response = await fetch(url.toString(), { headers });
     const data = await response.json();
@@ -130,13 +154,19 @@ export async function fetchHistoryPredictions(userId?: string): Promise<Predicti
   }
 }
 
-export async function fetchPredictionsBySport(sport: string, userId?: string, isPremium?: boolean): Promise<Prediction[]> {
+export async function fetchPredictionsBySport(
+  sport: string,
+  userId?: string,
+  isPremium?: boolean,
+  lang?: string,
+): Promise<Prediction[]> {
   try {
     const url = new URL(`/api/predictions/sport/${sport}`, apiUrl);
     if (userId) {
       url.searchParams.set("userId", userId);
     }
     url.searchParams.set("isPremium", isPremium ? "true" : "false");
+    withLang(url, lang);
     const headers = await getAuthHeaders();
     const response = await fetch(url.toString(), { headers });
     const data = await response.json();
@@ -147,10 +177,11 @@ export async function fetchPredictionsBySport(sport: string, userId?: string, is
   }
 }
 
-export async function fetchPredictionById(id: string): Promise<Prediction | null> {
+export async function fetchPredictionById(id: string, lang?: string): Promise<Prediction | null> {
   try {
     const headers = await getAuthHeaders();
-    const response = await fetch(new URL(`/api/predictions/${id}`, apiUrl).toString(), { headers });
+    const url = withLang(new URL(`/api/predictions/${id}`, apiUrl), lang);
+    const response = await fetch(url.toString(), { headers });
     const data = await response.json();
     return data.prediction ? mapApiPrediction(data.prediction) : null;
   } catch (error) {

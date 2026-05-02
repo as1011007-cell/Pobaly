@@ -493,6 +493,17 @@ function setupErrorHandler(app: express.Application) {
 
   const server = await registerRoutes(app);
 
+  // i18n translation cache: bootstraps the prediction_translations table
+  // so the prediction read endpoints can serve localized copy without
+  // re-translating on every request. Failure is non-fatal — endpoints
+  // fall back to English text on a missing/broken cache.
+  try {
+    const { initTranslationCache } = await import("./services/translationService");
+    await initTranslationCache();
+  } catch (err) {
+    log(`Translation cache init failed (continuing): ${(err as Error).message}`);
+  }
+
   // Telegram channel mirror: ingests photos/videos from the configured
   // private channel and exposes them to the landing page for 24h.
   // Mounts /api/landing/telegram-media + /uploads/telegram static serve.

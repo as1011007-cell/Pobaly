@@ -15,6 +15,7 @@ import { LiveBadge } from "@/components/LiveBadge";
 import { useTheme } from "@/hooks/useTheme";
 import { BorderRadius, Spacing, ProbalyColors } from "@/constants/theme";
 import { fetchPredictionById } from "@/lib/predictionsApi";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import type { Prediction } from "@/types";
 
@@ -28,11 +29,12 @@ export default function PredictionDetailScreen() {
 
   const [loading, setLoading] = useState(true);
   const [prediction, setPrediction] = useState<Prediction | null>(null);
+  const { language } = useLanguage();
 
   useEffect(() => {
     async function loadPrediction() {
       try {
-        const data = await fetchPredictionById(route.params.predictionId);
+        const data = await fetchPredictionById(route.params.predictionId, language);
         setPrediction(data);
       } catch (error) {
         console.error("Error loading prediction:", error);
@@ -41,7 +43,7 @@ export default function PredictionDetailScreen() {
       }
     }
     loadPrediction();
-  }, [route.params.predictionId]);
+  }, [route.params.predictionId, language]);
 
   if (loading) {
     return (

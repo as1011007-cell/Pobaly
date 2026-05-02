@@ -35,6 +35,7 @@ import {
   dailyPredictionRefresh,
 } from "./services/predictionService";
 import { getLiveMatches } from "./services/sportsApiService";
+import { normalizeLang, translatePredictions, translatePrediction } from "./services/translationService";
 
 const registerSchema = z.object({
   email: z.string().email().max(254),
@@ -714,10 +715,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
 
   // Get free tip of the day
-  app.get("/api/predictions/free-tip", apiReadRateLimit, async (_req: Request, res: Response) => {
+  app.get("/api/predictions/free-tip", apiReadRateLimit, async (req: Request, res: Response) => {
     try {
+      const lang = normalizeLang(req.query.lang);
       const freeTip = await getFreeTip();
-      res.json({ prediction: freeTip });
+      const localized = await translatePrediction(freeTip as any, lang);
+      res.json({ prediction: localized });
     } catch (error: any) {
       res.status(500).json({ error: safeErrorMessage(error) });
     }
@@ -726,6 +729,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get premium predictions (requires authentication)
   app.get("/api/predictions/premium", apiReadRateLimit, optionalAuth, async (req: Request, res: Response) => {
     try {
+      const lang = normalizeLang(req.query.lang);
       const userId = req.userId as string;
       let isPremiumUser = false;
       if (userId) {
@@ -733,7 +737,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isPremiumUser = u?.isPremium === true;
       }
       const preds = await getPremiumPredictions(userId, isPremiumUser);
-      res.json({ predictions: isPremiumUser ? preds : preds.map(redactPrediction) });
+      // Translate first so the cache key (prediction_id, lang) is identical
+      // for every viewer of this pick. Redaction happens after — redacted
+      // payloads have no explanation/factors so translating them is wasted
+      // work, but for unredacted payloads the cached translation is reused
+      // by every user in the same language.
+      const localized = isPremiumUser ? await translatePredictions(preds as any[], lang) : preds;
+      res.json({ predictions: isPremiumUser ? localized : preds.map(redactPrediction) });
     } catch (error: any) {
       res.status(500).json({ error: safeErrorMessage(error) });
     }
@@ -761,6 +771,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get live predictions (premium only)
   app.get("/api/predictions/live", apiReadRateLimit, optionalAuth, async (req: Request, res: Response) => {
     try {
+      const lang = normalizeLang(req.query.lang);
       const userId = req.userId as string;
       let isPremiumUser = false;
       if (userId) {
@@ -768,7 +779,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isPremiumUser = u?.isPremium === true;
       }
       const predictions = await getLivePredictions(userId, isPremiumUser);
-      res.json({ predictions });
+      const localized = await translatePredictions(predictions as any[], lang);
+      res.json({ predictions: localized });
     } catch (error: any) {
       res.status(500).json({ error: safeErrorMessage(error) });
     }
@@ -786,6 +798,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get history (correct predictions only)
   app.get("/api/predictions/history", apiReadRateLimit, optionalAuth, async (req: Request, res: Response) => {
     try {
+      const lang = normalizeLang(req.query.lang);
       const userId = req.userId as string;
       let isPremiumUser = false;
       let premiumSince: Date | null = null;
@@ -795,7 +808,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         premiumSince = u?.premiumSince || null;
       }
       const predictions = await getHistoryPredictions(userId, isPremiumUser, premiumSince);
-      res.json({ predictions });
+      const localized = await translatePredictions(predictions as any[], lang);
+      res.json({ predictions: localized });
     } catch (error: any) {
       res.status(500).json({ error: safeErrorMessage(error) });
     }
@@ -816,8 +830,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const u = await storage.getUser(userId);
         isPremiumUser = u?.isPremium === true;
       }
+      const lang = normalizeLang(req.query.lang);
       const preds = await getPredictionsBySport(sport, userId, isPremiumUser);
-      res.json({ predictions: isPremiumUser ? preds : preds.map((p: any) => p.isPremium ? redactPrediction(p) : p) });
+      // Translate the visible (un-redacted) subset only. For free users this
+      // is the resolved + free picks; the locked premium rows are about to
+      // be stripped of all translatable copy by redactPrediction anyway.
+      const visibleIds = new Set(
+        preds
+          .filter((p: any) => isPremiumUser || !p.isPremium)
+          .map((p: any) => Number(p.id)),
+      );
+      const visible = preds.filter((p: any) => visibleIds.has(Number(p.id)));
+      const localizedVisible = await translatePredictions(visible as any[], lang);
+      const localizedById = new Map(localizedVisible.map((p: any) => [Number(p.id), p]));
+      const out = preds.map((p: any) => {
+        if (!visibleIds.has(Number(p.id))) return redactPrediction(p);
+        return localizedById.get(Number(p.id)) ?? p;
+      });
+      res.json({ predictions: out });
     } catch (error: any) {
       res.status(500).json({ error: safeErrorMessage(error) });
     }
@@ -858,9 +888,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Resolved predictions (those with a result) are no longer paywalled —
       // they appear in everyone's history view, so the detail must match.
       const isResolved = prediction.result === "correct" || prediction.result === "incorrect";
-      const result = prediction.isPremium && !isPremiumUser && !isResolved
+      const isRedacted = prediction.isPremium && !isPremiumUser && !isResolved;
+      const lang = normalizeLang(req.query.lang);
+      const result = isRedacted
         ? redactPrediction(prediction)
-        : prediction;
+        : (await translatePrediction(prediction as any, lang)) ?? prediction;
       res.json({ prediction: result });
     } catch (error: any) {
       res.status(500).json({ error: safeErrorMessage(error) });

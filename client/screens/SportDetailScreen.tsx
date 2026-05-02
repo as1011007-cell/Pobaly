@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { ThemedText } from "@/components/ThemedText";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { Spacing } from "@/constants/theme";
 import { fetchPredictionsBySport } from "@/lib/predictionsApi";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
@@ -29,16 +30,18 @@ export default function SportDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [predictions, setPredictions] = useState<Prediction[]>([]);
 
+  const { language } = useLanguage();
+
   const loadPredictions = useCallback(async () => {
     try {
-      const data = await fetchPredictionsBySport(route.params.sport, user?.id, isPremium);
+      const data = await fetchPredictionsBySport(route.params.sport, user?.id, isPremium, language);
       setPredictions(data);
     } catch (error) {
       console.error("Error loading sport predictions:", error);
     } finally {
       setLoading(false);
     }
-  }, [route.params.sport, user?.id, isPremium]);
+  }, [route.params.sport, user?.id, isPremium, language]);
 
   useEffect(() => {
     loadPredictions();

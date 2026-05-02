@@ -12,6 +12,7 @@ import { SectionHeader } from "@/components/SectionHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { Spacing } from "@/constants/theme";
 import { fetchFreeTip, fetchPremiumPredictions } from "@/lib/predictionsApi";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
@@ -32,11 +33,13 @@ export default function HomeScreen() {
   const [freeTip, setFreeTip] = useState<Prediction | null>(null);
   const [premiumPredictions, setPremiumPredictions] = useState<Prediction[]>([]);
 
+  const { language } = useLanguage();
+
   const loadPredictions = useCallback(async () => {
     try {
       const [tip, premium] = await Promise.all([
-        fetchFreeTip(),
-        fetchPremiumPredictions(user?.id, isPremium),
+        fetchFreeTip(language),
+        fetchPremiumPredictions(user?.id, isPremium, language),
       ]);
       setFreeTip(tip);
       setPremiumPredictions(premium);
@@ -45,7 +48,7 @@ export default function HomeScreen() {
     } finally {
       setLoading(false);
     }
-  }, [user?.id, isPremium]);
+  }, [user?.id, isPremium, language]);
 
   useEffect(() => {
     loadPredictions();
