@@ -15,6 +15,8 @@ import { SportIcon } from "@/components/SportIcon";
 import { ProbabilityBar } from "@/components/ProbabilityBar";
 import { LiveBadge } from "@/components/LiveBadge";
 import { useTheme } from "@/hooks/useTheme";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { getDateLocale } from "@/lib/dateLocale";
 import { BorderRadius, Spacing, Typography } from "@/constants/theme";
 import { Prediction } from "@/types";
 
@@ -34,6 +36,7 @@ export function PredictionCard({
   onPress,
 }: PredictionCardProps) {
   const { theme, isDark } = useTheme();
+  const { t, language } = useLanguage();
   const scale = useSharedValue(1);
 
   const handlePressIn = () => {
@@ -53,7 +56,10 @@ export function PredictionCard({
     transform: [{ scale: scale.value }],
   }));
 
-  const formattedTime = format(new Date(prediction.matchTime), "MMM d, h:mm a");
+  const formattedTime = format(new Date(prediction.matchTime), "MMM d, h:mm a", {
+    locale: getDateLocale(language),
+  });
+  const sportLabel = (t as any)[prediction.sport] ?? (prediction.sport.charAt(0).toUpperCase() + prediction.sport.slice(1));
 
   const isHero = variant === "hero";
   const isCompact = variant === "compact";
@@ -91,7 +97,7 @@ export function PredictionCard({
               { color: isHero ? "rgba(255,255,255,0.8)" : theme.textSecondary },
             ]}
           >
-            {prediction.sport.charAt(0).toUpperCase() + prediction.sport.slice(1)}
+            {sportLabel}
           </ThemedText>
         </View>
         {prediction.isLive ? (
@@ -174,7 +180,7 @@ export function PredictionCard({
       {isHero && (
         <View style={styles.heroFooter}>
           <View style={styles.viewDetailsButton}>
-            <ThemedText style={styles.viewDetailsText}>View Details</ThemedText>
+            <ThemedText style={styles.viewDetailsText}>{t.viewDetails}</ThemedText>
             <Feather name="chevron-right" size={16} color="#FFFFFF" />
           </View>
         </View>
@@ -193,10 +199,10 @@ export function PredictionCard({
               <Feather name="lock" size={20} color="#FFFFFF" />
             </View>
             <ThemedText type="body" style={[styles.lockText, { color: theme.text }]}>
-              Premium Only
+              {t.premiumOnly}
             </ThemedText>
             <ThemedText type="small" style={{ color: theme.textSecondary, textAlign: "center" }}>
-              Subscribe to unlock this prediction
+              {t.subscribeToUnlock}
             </ThemedText>
           </View>
         </>

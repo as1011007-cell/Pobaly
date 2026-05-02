@@ -71,11 +71,7 @@ export default function LanguageSelectScreen() {
         type="small"
         style={[styles.hint, { color: theme.textSecondary }]}
       >
-        {t.language === "Idioma"
-          ? "El idioma se guardará en tu cuenta"
-          : t.language === "Langue"
-          ? "La langue sera enregistrée dans votre compte"
-          : "Language will be saved to your account"}
+        {t.languageSavedHint}
       </ThemedText>
     </View>
   );

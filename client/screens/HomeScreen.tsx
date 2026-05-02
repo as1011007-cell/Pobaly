@@ -33,7 +33,7 @@ export default function HomeScreen() {
   const [freeTip, setFreeTip] = useState<Prediction | null>(null);
   const [premiumPredictions, setPremiumPredictions] = useState<Prediction[]>([]);
 
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
 
   const loadPredictions = useCallback(async () => {
     try {
@@ -72,7 +72,7 @@ export default function HomeScreen() {
     <View style={styles.header}>
       {freeTip ? (
         <>
-          <SectionHeader title="Free Tip of the Day" />
+          <SectionHeader title={t.freeTipOfDay} />
           <PredictionCard
             prediction={freeTip}
             variant="hero"
@@ -84,25 +84,25 @@ export default function HomeScreen() {
       <View style={styles.sectionSpacer} />
 
       <SectionHeader
-        title={isPremium ? "Your Predictions" : "Unlock Premium"}
-        actionLabel={isPremium && premiumPredictions.length > 4 ? "See More" : undefined}
+        title={isPremium ? t.yourPredictions : t.unlockPremium}
+        actionLabel={isPremium && premiumPredictions.length > 4 ? t.seeMore : undefined}
         onAction={isPremium ? () => navigation.getParent()?.navigate("SportsTab") : undefined}
       />
 
       {!isPremium ? (
         <View style={[styles.upgradeCard, { backgroundColor: theme.backgroundDefault }]}>
           <ThemedText type="body" style={{ fontWeight: "600", marginBottom: Spacing.xs }}>
-            Get access to all predictions
+            {t.getAccessAllPredictions}
           </ThemedText>
           <ThemedText type="small" style={{ color: theme.textSecondary, marginBottom: Spacing.md }}>
-            Unlock premium predictions, live updates, and full history from $49.99/month
+            {t.unlockPremiumDesc}
           </ThemedText>
           <ThemedText
             type="small"
             style={{ color: theme.accent, fontWeight: "600" }}
             onPress={handleUpgradePress}
           >
-            Upgrade Now →
+            {t.upgradeNow} →
           </ThemedText>
         </View>
       ) : null}
@@ -133,7 +133,7 @@ export default function HomeScreen() {
       <View style={[styles.emptyContainer, { backgroundColor: theme.backgroundRoot }]}>
         <ActivityIndicator size="large" color={theme.accent} />
         <ThemedText type="body" style={{ marginTop: Spacing.lg, color: theme.textSecondary }}>
-          Loading predictions...
+          {t.loadingPredictions}
         </ThemedText>
       </View>
     );
@@ -144,8 +144,8 @@ export default function HomeScreen() {
       <View style={[styles.emptyContainer, { backgroundColor: theme.backgroundRoot }]}>
         <EmptyState
           icon="trending-up"
-          title="No predictions available"
-          description="Check back later for AI-powered sports predictions"
+          title={t.noPredictions}
+          description={t.noPredictionsDesc}
         />
       </View>
     );

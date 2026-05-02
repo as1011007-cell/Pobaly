@@ -16,6 +16,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { BorderRadius, Spacing, ProbalyColors } from "@/constants/theme";
 import { fetchPredictionById } from "@/lib/predictionsApi";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { getDateLocale } from "@/lib/dateLocale";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import type { Prediction } from "@/types";
 
@@ -29,7 +30,7 @@ export default function PredictionDetailScreen() {
 
   const [loading, setLoading] = useState(true);
   const [prediction, setPrediction] = useState<Prediction | null>(null);
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
 
   useEffect(() => {
     async function loadPrediction() {
@@ -50,7 +51,7 @@ export default function PredictionDetailScreen() {
       <View style={[styles.container, { backgroundColor: theme.backgroundRoot, justifyContent: "center", alignItems: "center" }]}>
         <ActivityIndicator size="large" color={theme.accent} />
         <ThemedText type="body" style={{ marginTop: Spacing.lg, color: theme.textSecondary }}>
-          Loading prediction...
+          {t.loadingPrediction}
         </ThemedText>
       </View>
     );
@@ -59,12 +60,15 @@ export default function PredictionDetailScreen() {
   if (!prediction) {
     return (
       <View style={[styles.container, { backgroundColor: theme.backgroundRoot, justifyContent: "center", alignItems: "center" }]}>
-        <ThemedText>Prediction not found</ThemedText>
+        <ThemedText>{t.predictionNotFound}</ThemedText>
       </View>
     );
   }
 
-  const formattedTime = format(new Date(prediction.matchTime), "EEEE, MMM d 'at' h:mm a");
+  const formattedTime = format(new Date(prediction.matchTime), "EEEE, MMM d 'at' h:mm a", {
+    locale: getDateLocale(language),
+  });
+  const sportLabel = (t as any)[prediction.sport] ?? (prediction.sport.charAt(0).toUpperCase() + prediction.sport.slice(1));
 
   return (
     <ScrollView
@@ -80,7 +84,7 @@ export default function PredictionDetailScreen() {
         <View style={styles.sportRow}>
           <SportIcon sport={prediction.sport} size={18} color={theme.primary} />
           <ThemedText type="small" style={[styles.sportText, { color: theme.textSecondary }]}>
-            {prediction.sport.charAt(0).toUpperCase() + prediction.sport.slice(1)}
+            {sportLabel}
           </ThemedText>
           {prediction.isLive ? <LiveBadge /> : null}
         </View>
@@ -98,11 +102,11 @@ export default function PredictionDetailScreen() {
         end={{ x: 1, y: 1 }}
         style={styles.probabilityCard}
       >
-        <ThemedText style={styles.predictionLabel}>Predicted Outcome</ThemedText>
+        <ThemedText style={styles.predictionLabel}>{t.predictedOutcome}</ThemedText>
         <ThemedText style={styles.outcome}>{prediction.predictedOutcome}</ThemedText>
         <View style={styles.probabilityRow}>
           <ThemedText style={styles.probabilityValue}>{prediction.probability}%</ThemedText>
-          <ThemedText style={styles.probabilityLabel}>Probability</ThemedText>
+          <ThemedText style={styles.probabilityLabel}>{t.probability}</ThemedText>
         </View>
         <ProbabilityBar
           probability={prediction.probability}
@@ -119,7 +123,7 @@ export default function PredictionDetailScreen() {
         <View style={styles.sectionHeader}>
           <Feather name="info" size={18} color={theme.primary} />
           <ThemedText type="h4" style={styles.sectionTitle}>
-            AI Analysis
+            {t.aiAnalysis}
           </ThemedText>
         </View>
         <ThemedText type="body" style={{ color: theme.textSecondary, lineHeight: 24 }}>
@@ -132,7 +136,7 @@ export default function PredictionDetailScreen() {
           <View style={styles.sectionHeader}>
             <Feather name="list" size={18} color={theme.primary} />
             <ThemedText type="h4" style={styles.sectionTitle}>
-              Key Factors
+              {t.factors}
             </ThemedText>
           </View>
           {prediction.factors.map((factor, index) => (
@@ -168,7 +172,7 @@ export default function PredictionDetailScreen() {
           <View style={styles.sectionHeader}>
             <Feather name="alert-triangle" size={18} color={theme.warning} />
             <ThemedText type="h4" style={styles.sectionTitle}>
-              Risk Index
+              {t.riskIndex}
             </ThemedText>
           </View>
           <View style={styles.riskRow}>
@@ -177,10 +181,10 @@ export default function PredictionDetailScreen() {
             </ThemedText>
             <ThemedText type="small" style={{ color: theme.textSecondary, marginLeft: Spacing.md }}>
               {prediction.riskIndex < 25
-                ? "Low Risk"
+                ? t.lowRisk
                 : prediction.riskIndex < 50
-                  ? "Medium Risk"
-                  : "High Risk"}
+                  ? t.mediumRisk
+                  : t.highRisk}
             </ThemedText>
           </View>
           <View style={styles.riskBarContainer}>

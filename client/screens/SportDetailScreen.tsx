@@ -30,7 +30,7 @@ export default function SportDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [predictions, setPredictions] = useState<Prediction[]>([]);
 
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
 
   const loadPredictions = useCallback(async () => {
     try {
@@ -78,7 +78,7 @@ export default function SportDetailScreen() {
       >
         <ActivityIndicator size="large" color={theme.accent} />
         <ThemedText type="body" style={{ marginTop: Spacing.lg, color: theme.textSecondary }}>
-          Loading predictions...
+          {t.loadingPredictions}
         </ThemedText>
       </View>
     );
@@ -97,8 +97,8 @@ export default function SportDetailScreen() {
       >
         <EmptyState
           icon="bar-chart-2"
-          title="No predictions available"
-          description="Check back later for predictions in this sport"
+          title={t.noPredictions}
+          description={t.noPredictionsForSport}
         />
       </View>
     );

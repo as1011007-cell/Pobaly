@@ -14,6 +14,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/contexts/AuthContext";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { fetchLiveMatches } from "@/lib/predictionsApi";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { LiveMatch } from "@/types";
 
 export default function LiveScreen() {
@@ -22,6 +23,7 @@ export default function LiveScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const { theme } = useTheme();
   const { isPremium } = useAuth();
+  const { t } = useLanguage();
   const navigation = useNavigation<any>();
 
   const [refreshing, setRefreshing] = useState(false);
@@ -84,13 +86,13 @@ export default function LiveScreen() {
             <Feather name="lock" size={32} color={theme.accent} />
           </View>
           <ThemedText type="h3" style={styles.premiumTitle}>
-            Live Events
+            {t.liveEvents}
           </ThemedText>
           <ThemedText
             type="body"
             style={[styles.premiumDescription, { color: theme.textSecondary }]}
           >
-            Get real-time score updates and live match tracking across all sports with Premium.
+            {t.liveEventsLockDesc}
           </ThemedText>
           <Pressable onPress={handleUpgradePress} testID="button-upgrade-live">
             <LinearGradient
@@ -101,7 +103,7 @@ export default function LiveScreen() {
             >
               <Feather name="zap" size={18} color="#FFFFFF" />
               <ThemedText style={styles.upgradeButtonText}>
-                Upgrade to Premium
+                {t.upgradeToPremium}
               </ThemedText>
             </LinearGradient>
           </Pressable>
@@ -124,7 +126,7 @@ export default function LiveScreen() {
       >
         <ActivityIndicator size="large" color={theme.accent} />
         <ThemedText type="body" style={{ marginTop: Spacing.lg, color: theme.textSecondary }}>
-          Loading live events...
+          {t.loadingLiveEvents}
         </ThemedText>
       </View>
     );
@@ -144,8 +146,8 @@ export default function LiveScreen() {
       >
         <EmptyState
           icon="radio"
-          title="No live events right now"
-          description="Check back during live matches for real-time score updates"
+          title={t.noLiveEventsTitle}
+          description={t.noLiveEventsDesc}
         />
       </View>
     );

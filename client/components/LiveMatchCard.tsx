@@ -3,6 +3,7 @@ import { View, StyleSheet, Pressable } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { ThemedText } from "@/components/ThemedText";
 import { useTheme } from "@/hooks/useTheme";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { BorderRadius, Spacing } from "@/constants/theme";
 import type { LiveMatch, Sport } from "@/types";
 
@@ -35,9 +36,10 @@ interface LiveMatchCardProps {
 
 export function LiveMatchCard({ match, onPress }: LiveMatchCardProps) {
   const { theme } = useTheme();
+  const { t } = useLanguage();
 
   const sportIcon = SPORT_ICONS[match.sport] || "activity";
-  const sportLabel = SPORT_LABELS[match.sport] || match.sport;
+  const sportLabel = (t as any)[match.sport] ?? SPORT_LABELS[match.sport] ?? match.sport;
 
   return (
     <Pressable
@@ -55,7 +57,7 @@ export function LiveMatchCard({ match, onPress }: LiveMatchCardProps) {
         <View style={[styles.liveBadge, { backgroundColor: theme.accent }]}>
           <View style={styles.liveDot} />
           <ThemedText type="small" style={{ color: "#FFFFFF", fontWeight: "700", fontSize: 10 }}>
-            LIVE
+            {t.liveLabel}
           </ThemedText>
         </View>
       </View>

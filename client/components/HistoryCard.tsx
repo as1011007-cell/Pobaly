@@ -11,6 +11,8 @@ import { format } from "date-fns";
 import { ThemedText } from "@/components/ThemedText";
 import { SportIcon } from "@/components/SportIcon";
 import { useTheme } from "@/hooks/useTheme";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { getDateLocale } from "@/lib/dateLocale";
 import { BorderRadius, Spacing } from "@/constants/theme";
 import { Prediction } from "@/types";
 
@@ -23,6 +25,7 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 export function HistoryCard({ prediction, onPress }: HistoryCardProps) {
   const { theme } = useTheme();
+  const { t, language } = useLanguage();
   const scale = useSharedValue(1);
 
   const handlePressIn = () => {
@@ -40,7 +43,7 @@ export function HistoryCard({ prediction, onPress }: HistoryCardProps) {
   const isCorrect = prediction.result === "correct";
   const resultColor = isCorrect ? theme.success : theme.error;
   const resultIcon = isCorrect ? "check-circle" : "x-circle";
-  const resultLabel = isCorrect ? "Correct" : "Incorrect";
+  const resultLabel = isCorrect ? t.correct : t.incorrect;
 
   return (
     <AnimatedPressable
@@ -57,7 +60,7 @@ export function HistoryCard({ prediction, onPress }: HistoryCardProps) {
         <View style={styles.header}>
           <SportIcon sport={prediction.sport} size={14} color={theme.textSecondary} />
           <ThemedText type="small" style={{ color: theme.textSecondary, marginLeft: Spacing.xs }}>
-            {format(new Date(prediction.matchTime), "MMM d, yyyy")}
+            {format(new Date(prediction.matchTime), "MMM d, yyyy", { locale: getDateLocale(language) })}
           </ThemedText>
         </View>
         <ThemedText type="body" style={styles.matchTitle} numberOfLines={1}>

@@ -11,6 +11,7 @@ import { TextInput } from "@/components/TextInput";
 import { Button } from "@/components/Button";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { Spacing } from "@/constants/theme";
 import { AuthStackParamList } from "@/navigation/AuthStackNavigator";
 
@@ -26,6 +27,7 @@ export default function SignInScreen({ navigation }: SignInScreenProps) {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const { signIn, isLoading } = useAuth();
+  const { t } = useLanguage();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -50,7 +52,11 @@ export default function SignInScreen({ navigation }: SignInScreenProps) {
       }
       const mins = Math.floor(remaining / 60);
       const secs = remaining % 60;
-      setCooldownText(mins > 0 ? `Try again in ${mins}m ${secs}s` : `Try again in ${secs}s`);
+      setCooldownText(
+        mins > 0
+          ? t.tryAgainInMinSec.replace("{m}", String(mins)).replace("{s}", String(secs))
+          : t.tryAgainInSec.replace("{s}", String(secs))
+      );
     };
     updateText();
     cooldownTimerRef.current = setInterval(updateText, 1000);
@@ -60,18 +66,18 @@ export default function SignInScreen({ navigation }: SignInScreenProps) {
     const newErrors: { email?: string; password?: string } = {};
     const trimmedEmail = email.trim();
     if (!trimmedEmail) {
-      newErrors.email = "Email is required";
+      newErrors.email = t.emailRequired;
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
-      newErrors.email = "Invalid email address";
+      newErrors.email = t.invalidEmail;
     } else if (trimmedEmail.length > 254) {
-      newErrors.email = "Email is too long";
+      newErrors.email = t.emailTooLong;
     }
     if (!password) {
-      newErrors.password = "Password is required";
+      newErrors.password = t.passwordRequired;
     } else if (password.length < 6) {
-      newErrors.password = "Password must be at least 6 characters";
+      newErrors.password = t.passwordTooShort;
     } else if (password.length > 128) {
-      newErrors.password = "Password is too long";
+      newErrors.password = t.passwordTooLong;
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -104,7 +110,7 @@ export default function SignInScreen({ navigation }: SignInScreenProps) {
         const unlockTime = Date.now() + LOCKOUT_DURATION_MS;
         setLockedUntil(unlockTime);
         startCooldownTimer(unlockTime);
-        setErrors({ general: "Too many sign in attempts. Please wait before trying again." });
+        setErrors({ general: t.tooManyAttemptsSignIn });
         return;
       }
 
@@ -115,11 +121,14 @@ export default function SignInScreen({ navigation }: SignInScreenProps) {
         const unlockTime = Date.now() + LOCKOUT_DURATION_MS;
         setLockedUntil(unlockTime);
         startCooldownTimer(unlockTime);
-        setErrors({ general: "Too many failed attempts. Please wait before trying again." });
+        setErrors({ general: t.tooManyAttemptsSignIn });
       } else {
         const remaining = MAX_ATTEMPTS - newAttempts;
         setErrors({
-          general: `Invalid email or password. ${remaining} ${remaining === 1 ? "attempt" : "attempts"} remaining.`,
+          general:
+            remaining === 1
+              ? t.invalidEmailPasswordOne
+              : t.invalidEmailPasswordRem.replace("{n}", String(remaining)),
         });
       }
     }
@@ -142,10 +151,10 @@ export default function SignInScreen({ navigation }: SignInScreenProps) {
     >
       <View style={styles.header}>
         <ThemedText type="h2" style={styles.title}>
-          Welcome back
+          {t.welcomeBack}
         </ThemedText>
         <ThemedText type="body" style={{ color: theme.textSecondary }}>
-          Sign in to access your predictions
+          {t.signInToAccess}
         </ThemedText>
       </View>
 
@@ -164,11 +173,11 @@ export default function SignInScreen({ navigation }: SignInScreenProps) {
         ) : null}
 
         <TextInput
-          label="Email"
+          label={t.email}
           leftIcon="mail"
-          placeholder="Enter your email"
+          placeholder={t.enterEmail}
           value={email}
-          onChangeText={(t) => { setEmail(t); setErrors({}); }}
+          onChangeText={(v) => { setEmail(v); setErrors({}); }}
           error={errors.email}
           keyboardType="email-address"
           autoCapitalize="none"
@@ -177,11 +186,11 @@ export default function SignInScreen({ navigation }: SignInScreenProps) {
           testID="input-email"
         />
         <TextInput
-          label="Password"
+          label={t.password}
           leftIcon="lock"
-          placeholder="Enter your password"
+          placeholder={t.enterPassword}
           value={password}
-          onChangeText={(t) => { setPassword(t); setErrors({}); }}
+          onChangeText={(v) => { setPassword(v); setErrors({}); }}
           error={errors.password}
           isPassword
           autoCapitalize="none"
@@ -195,7 +204,7 @@ export default function SignInScreen({ navigation }: SignInScreenProps) {
           style={styles.forgotPassword}
         >
           <ThemedText type="small" style={{ color: theme.accent }}>
-            Forgot password?
+            {t.forgotPasswordQ}
           </ThemedText>
         </Pressable>
 
@@ -208,9 +217,9 @@ export default function SignInScreen({ navigation }: SignInScreenProps) {
           {isLoading ? (
             <ActivityIndicator color="#FFFFFF" size="small" />
           ) : isLocked ? (
-            cooldownText || "Locked"
+            cooldownText || t.locked
           ) : (
-            "Sign In"
+            t.signInButton
           )}
         </Button>
 
@@ -218,11 +227,11 @@ export default function SignInScreen({ navigation }: SignInScreenProps) {
 
       <View style={styles.footer}>
         <ThemedText type="small" style={{ color: theme.textSecondary }}>
-          Don't have an account?{" "}
+          {t.dontHaveAccount}
         </ThemedText>
         <Pressable onPress={() => navigation.navigate("SignUp")}>
           <ThemedText type="small" style={{ color: theme.accent, fontWeight: "600" }}>
-            Sign Up
+            {t.signUpButton}
           </ThemedText>
         </Pressable>
       </View>

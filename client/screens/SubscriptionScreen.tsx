@@ -25,14 +25,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { BorderRadius, Spacing } from "@/constants/theme";
 import { useSubscription, REVENUECAT_ENTITLEMENT_IDENTIFIER, fetchCustomerInfo } from "@/lib/revenuecat";
 import { apiRequest } from "@/lib/query-client";
-
-const features = [
-  { icon: "unlock", title: "All Daily Predictions", description: "Access every AI prediction" },
-  { icon: "activity", title: "Live Match Updates", description: "Real-time probability changes" },
-  { icon: "filter", title: "Advanced Filters", description: "High confidence only filter" },
-  { icon: "clock", title: "Full History", description: "Track all past predictions" },
-  { icon: "bar-chart-2", title: "Analytics Dashboard", description: "Performance insights" },
-];
+import { useLanguage } from "@/contexts/LanguageContext";
 
 type PlanType = "monthly" | "annual";
 
@@ -70,7 +63,16 @@ export default function SubscriptionScreen() {
   const headerHeight = useHeaderHeight();
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const { user, isPremium, activatePremium, armPurchaseWindow } = useAuth();
+  const { t } = useLanguage();
   const [selectedPlan, setSelectedPlan] = useState<PlanType>("annual");
+
+  const features = [
+    { icon: "unlock", title: t.featureAllPredictionsTitle, description: t.featureAllPredictionsDesc },
+    { icon: "activity", title: t.featureLiveTitle, description: t.featureLiveDesc },
+    { icon: "filter", title: t.featureFiltersTitle, description: t.featureFiltersDesc },
+    { icon: "clock", title: t.featureHistoryTitle, description: t.featureHistoryDesc },
+    { icon: "bar-chart-2", title: t.featureAnalyticsTitle, description: t.featureAnalyticsDesc },
+  ];
 
   const {
     monthlyPackage,
@@ -114,20 +116,12 @@ export default function SubscriptionScreen() {
     if (isPurchasing) return;
     if (!selectedPackage) {
       if (isExpoGo) {
-        Alert.alert(
-          "Expo Go limitation",
-          `In-app purchases require ${STORE_BUILD_HINT}. Build with 'eas build --profile preview' to test real purchases.`,
-          [{ text: "OK" }]
-        );
+        Alert.alert(t.expoGoLimitation, t.expoGoLimitationDesc, [{ text: t.ok }]);
       } else {
-        Alert.alert(
-          "Prices unavailable",
-          `Could not connect to the ${STORE_NAME}. Please check your connection and try again.`,
-          [
-            { text: "Retry", onPress: () => refetchOfferings() },
-            { text: "Cancel", style: "cancel" },
-          ]
-        );
+        Alert.alert(t.pricesUnavailable, t.couldNotConnectStore, [
+          { text: t.retry, onPress: () => refetchOfferings() },
+          { text: t.cancel, style: "cancel" },
+        ]);
       }
       return;
     }
@@ -154,18 +148,14 @@ export default function SubscriptionScreen() {
       }
 
       setTimeout(() => {
-        Alert.alert(
-          "You're now Premium",
-          "Thank you! You now have unlimited access to all AI predictions, live updates, and full history.",
-          [
-            {
-              text: "OK",
-              onPress: () => {
-                if (navigation.canGoBack()) navigation.goBack();
-              },
+        Alert.alert(t.youreNowPremium, t.youreNowPremiumDesc, [
+          {
+            text: t.ok,
+            onPress: () => {
+              if (navigation.canGoBack()) navigation.goBack();
             },
-          ]
-        );
+          },
+        ]);
       }, 400);
     } catch (error: any) {
       if (error?.userCancelled) return;
@@ -187,18 +177,14 @@ export default function SubscriptionScreen() {
             }).catch(() => {});
           }
           setTimeout(() => {
-            Alert.alert(
-              "You're now Premium",
-              "Your subscription is active. Enjoy unlimited access to all predictions.",
-              [
-                {
-                  text: "OK",
-                  onPress: () => {
-                    if (navigation.canGoBack()) navigation.goBack();
-                  },
+            Alert.alert(t.youreNowPremium, t.yourSubscriptionActiveDesc, [
+              {
+                text: t.ok,
+                onPress: () => {
+                  if (navigation.canGoBack()) navigation.goBack();
                 },
-              ]
-            );
+              },
+            ]);
           }, 400);
           return;
         }
@@ -208,9 +194,9 @@ export default function SubscriptionScreen() {
       console.error("Purchase error:", error);
       const message =
         error?.message?.includes("browser") || error?.message?.includes("mock")
-          ? `Payments are simulated in Expo Go. Install via ${STORE_BUILD_HINT.replace(/^an? /, "")} to make a real purchase.`
-          : error?.message || "Something went wrong. Please try again.";
-      Alert.alert("Purchase failed", message, [{ text: "OK" }]);
+          ? t.purchasesRequireBuildHint
+          : error?.message || t.somethingWentWrong;
+      Alert.alert(t.purchaseFailed, message, [{ text: t.ok }]);
     }
   };
 
@@ -240,12 +226,16 @@ export default function SubscriptionScreen() {
       if (hasActiveSubscription) {
         navigation.navigate("Main", { screen: "ProfileTab" });
       } else {
-        Alert.alert("No purchases found", Platform.OS === "android" ? "We could not find any previous purchases on this Google account." : "We could not find any previous purchases on this Apple ID.", [{ text: "OK" }]);
+        Alert.alert(
+          t.noPurchasesFoundTitle,
+          Platform.OS === "android" ? t.noPurchasesFoundAndroid : t.noPurchasesFoundIos,
+          [{ text: t.ok }]
+        );
       }
     } catch (error: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       console.error("Restore error:", error);
-      Alert.alert("Restore failed", error?.message || "Could not restore purchases. Please try again.", [{ text: "OK" }]);
+      Alert.alert(t.restoreFailed, error?.message || t.couldNotRestorePurchases, [{ text: t.ok }]);
     }
   };
 
@@ -261,9 +251,9 @@ export default function SubscriptionScreen() {
           <View style={[styles.successIcon, { backgroundColor: `${theme.success}15` }]}>
             <Feather name="check-circle" size={48} color={theme.success} />
           </View>
-          <ThemedText type="h3" style={styles.successTitle}>You're already Premium!</ThemedText>
+          <ThemedText type="h3" style={styles.successTitle}>{t.youreAlreadyPremium}</ThemedText>
           <ThemedText type="body" style={{ color: theme.textSecondary, textAlign: "center" }}>
-            You have full access to all predictions and features.
+            {t.youreAlreadyPremiumDesc}
           </ThemedText>
         </View>
       </View>
@@ -285,17 +275,17 @@ export default function SubscriptionScreen() {
           <View style={[styles.testModeBanner, { backgroundColor: `${theme.warning}20`, borderColor: theme.warning }]}>
             <Feather name="info" size={16} color={theme.warning} />
             <ThemedText type="small" style={{ color: theme.warning, marginLeft: Spacing.xs, flex: 1, lineHeight: 18 }}>
-              Purchases require {STORE_BUILD_HINT}. Prices shown are the configured amounts — real billing activates in the native build.
+              {t.purchasesRequireBuildHint}
             </ThemedText>
           </View>
         ) : offeringsError ? (
           <View style={[styles.testModeBanner, { backgroundColor: `${theme.accent}15`, borderColor: theme.accent }]}>
             <Feather name="wifi-off" size={16} color={theme.accent} />
             <ThemedText type="small" style={{ color: theme.accent, marginLeft: Spacing.xs, flex: 1 }}>
-              Could not connect to the {STORE_NAME}.
+              {t.couldNotConnectStore}
             </ThemedText>
             <Pressable onPress={() => refetchOfferings()} style={{ marginLeft: Spacing.sm }}>
-              <ThemedText type="small" style={{ color: theme.accent, fontWeight: "700" }}>Retry</ThemedText>
+              <ThemedText type="small" style={{ color: theme.accent, fontWeight: "700" }}>{t.retry}</ThemedText>
             </Pressable>
           </View>
         ) : null}
@@ -306,9 +296,9 @@ export default function SubscriptionScreen() {
             style={styles.headerImage}
             resizeMode="contain"
           />
-          <ThemedText type="h2" style={styles.title}>Unlock All Predictions</ThemedText>
+          <ThemedText type="h2" style={styles.title}>{t.unlockAllPredictions}</ThemedText>
           <ThemedText type="body" style={{ color: theme.textSecondary, textAlign: "center" }}>
-            Get unlimited access to AI-powered sports predictions
+            {t.unlockAllPredictionsDesc}
           </ThemedText>
         </View>
 
@@ -342,9 +332,9 @@ export default function SubscriptionScreen() {
             ]}
           >
             <View style={styles.planHeader}>
-              <ThemedText type="body" style={{ fontWeight: "700" }}>Monthly</ThemedText>
+              <ThemedText type="body" style={{ fontWeight: "700" }}>{t.monthly}</ThemedText>
               <View style={[styles.savingsBadge, { backgroundColor: `${theme.success}15` }]}>
-                <ThemedText style={[styles.savingsText, { color: theme.success }]}>Save 50%</ThemedText>
+                <ThemedText style={[styles.savingsText, { color: theme.success }]}>{t.save50}</ThemedText>
               </View>
             </View>
             <View style={styles.planPriceRow}>
@@ -354,7 +344,7 @@ export default function SubscriptionScreen() {
               ) : (
                 <ThemedText type="h2" style={{ color: theme.text }}>{monthlyPriceLabel}</ThemedText>
               )}
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>/month</ThemedText>
+              <ThemedText type="small" style={{ color: theme.textSecondary }}>{t.perMonth}</ThemedText>
             </View>
             {selectedPlan === "monthly" && (
               <View style={[styles.selectedIndicator, { backgroundColor: theme.primary }]}>
@@ -377,12 +367,12 @@ export default function SubscriptionScreen() {
             ]}
           >
             <View style={styles.bestValueBadge}>
-              <ThemedText style={styles.bestValueText}>BEST VALUE</ThemedText>
+              <ThemedText style={styles.bestValueText}>{t.bestValue}</ThemedText>
             </View>
             <View style={styles.planHeader}>
-              <ThemedText type="body" style={{ fontWeight: "700" }}>Annual</ThemedText>
+              <ThemedText type="body" style={{ fontWeight: "700" }}>{t.annual}</ThemedText>
               <View style={[styles.savingsBadge, { backgroundColor: `${theme.success}15` }]}>
-                <ThemedText style={[styles.savingsText, { color: theme.success }]}>Save 63%</ThemedText>
+                <ThemedText style={[styles.savingsText, { color: theme.success }]}>{t.save63}</ThemedText>
               </View>
             </View>
             <View style={styles.planPriceRow}>
@@ -392,7 +382,7 @@ export default function SubscriptionScreen() {
               ) : (
                 <ThemedText type="h2" style={{ color: theme.text }}>{annualPriceLabel}</ThemedText>
               )}
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>/year</ThemedText>
+              <ThemedText type="small" style={{ color: theme.textSecondary }}>{t.perYear}</ThemedText>
             </View>
             {selectedPlan === "annual" && (
               <View style={[styles.selectedIndicator, { backgroundColor: theme.primary }]}>
@@ -412,35 +402,35 @@ export default function SubscriptionScreen() {
           {isPurchasing ? (
             <View style={styles.buttonContent}>
               <ActivityIndicator color="#FFFFFF" size="small" style={{ marginRight: Spacing.sm }} />
-              <ThemedText style={{ color: "#FFF", fontWeight: "700" }}>Processing...</ThemedText>
+              <ThemedText style={{ color: "#FFF", fontWeight: "700" }}>{t.processing}</ThemedText>
             </View>
           ) : isLoading ? (
             <View style={styles.buttonContent}>
               <ActivityIndicator color="#FFFFFF" size="small" style={{ marginRight: Spacing.sm }} />
-              <ThemedText style={{ color: "#FFF", fontWeight: "700" }}>Loading prices...</ThemedText>
+              <ThemedText style={{ color: "#FFF", fontWeight: "700" }}>{t.loadingPrices}</ThemedText>
             </View>
           ) : (
-            `Start ${selectedPlan === "annual" ? "Annual" : "Monthly"} Subscription`
+            selectedPlan === "annual" ? t.startAnnualSub : t.startMonthlySub
           )}
         </Button>
 
         <View style={styles.footer}>
           <ThemedText type="small" style={{ color: theme.textSecondary, textAlign: "center", lineHeight: 20 }}>
-            Must be 18+. By subscribing, you agree to our{" "}
+            {t.mustBe18Agree}{" "}
             <ThemedText
               type="small"
               style={{ color: theme.accent, textDecorationLine: "underline" }}
               onPress={() => navigation.navigate("TermsOfService")}
             >
-              Terms of Use (EULA)
+              {t.termsOfUseEula}
             </ThemedText>
-            {" "}and{" "}
+            {" "}{t.andText}{" "}
             <ThemedText
               type="small"
               style={{ color: theme.accent, textDecorationLine: "underline" }}
               onPress={() => navigation.navigate("PrivacyPolicy")}
             >
-              Privacy Policy
+              {t.privacyPolicy}
             </ThemedText>.
           </ThemedText>
           <View style={styles.footerLinks}>
@@ -453,19 +443,19 @@ export default function SubscriptionScreen() {
               {isRestoring ? (
                 <View style={styles.restoreRow}>
                   <ActivityIndicator size="small" color={theme.accent} style={{ marginRight: 4 }} />
-                  <ThemedText type="small" style={{ color: theme.accent }}>Restoring...</ThemedText>
+                  <ThemedText type="small" style={{ color: theme.accent }}>{t.restoring}</ThemedText>
                 </View>
               ) : (
-                <ThemedText type="small" style={{ color: theme.accent }}>Restore Purchase</ThemedText>
+                <ThemedText type="small" style={{ color: theme.accent }}>{t.restorePurchase}</ThemedText>
               )}
             </Pressable>
             <ThemedText type="small" style={{ color: theme.textSecondary }}>{" "}|{" "}</ThemedText>
             <Pressable onPress={() => navigation.navigate("TermsOfService")} testID="link-terms">
-              <ThemedText type="small" style={{ color: theme.accent }}>Terms of Use (EULA)</ThemedText>
+              <ThemedText type="small" style={{ color: theme.accent }}>{t.termsOfUseEula}</ThemedText>
             </Pressable>
             <ThemedText type="small" style={{ color: theme.textSecondary }}>{" "}|{" "}</ThemedText>
             <Pressable onPress={() => navigation.navigate("PrivacyPolicy")} testID="link-privacy">
-              <ThemedText type="small" style={{ color: theme.accent }}>Privacy Policy</ThemedText>
+              <ThemedText type="small" style={{ color: theme.accent }}>{t.privacyPolicy}</ThemedText>
             </Pressable>
           </View>
         </View>

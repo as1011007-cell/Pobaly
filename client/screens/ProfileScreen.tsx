@@ -97,26 +97,12 @@ export default function ProfileScreen() {
 
   const handleSubscribe = async () => {
     if (isPurchasing) return;
-    // Platform-aware copy so Android users don't see "App Store / TestFlight"
-    const isAndroid = Platform.OS === "android";
-    const STORE_NAME = isAndroid ? "Play Store" : "App Store";
-    const STORE_BUILD_HINT = isAndroid
-      ? "an internal testing or Play Store build"
-      : "a TestFlight or App Store build";
     if (!selectedPackage) {
       const isExpoGo = Constants.executionEnvironment === "storeClient";
       if (isExpoGo) {
-        Alert.alert(
-          "Expo Go limitation",
-          `In-app purchases require ${STORE_BUILD_HINT}. Build with 'eas build --profile preview' to test real purchases.`,
-          [{ text: "OK" }]
-        );
+        Alert.alert(t.expoGoLimitation, t.expoGoLimitationDesc, [{ text: t.ok }]);
       } else if (!rcLoading) {
-        Alert.alert(
-          "Prices unavailable",
-          `Could not connect to the ${STORE_NAME}. Please check your connection and try again.`,
-          [{ text: "OK" }]
-        );
+        Alert.alert(t.pricesUnavailable, t.couldNotConnectStore, [{ text: t.ok }]);
       }
       return;
     }
@@ -142,11 +128,7 @@ export default function ProfileScreen() {
       // Defer Alert by 400ms — gives iOS time to fully dismiss the StoreKit
       // sheet, otherwise the alert can be silently dropped on real devices.
       setTimeout(() => {
-        Alert.alert(
-          "You're now Premium",
-          "Thank you! You now have unlimited access to all AI predictions, live updates, and full history.",
-          [{ text: "OK" }]
-        );
+        Alert.alert(t.youreNowPremium, t.youreNowPremiumDesc, [{ text: t.ok }]);
       }, 400);
     } catch (error: any) {
       if (error?.userCancelled) return;
@@ -168,11 +150,7 @@ export default function ProfileScreen() {
             }).catch(() => {});
           }
           setTimeout(() => {
-            Alert.alert(
-              "You're now Premium",
-              "Your subscription is active. Enjoy unlimited access to all predictions.",
-              [{ text: "OK" }]
-            );
+            Alert.alert(t.youreNowPremium, t.yourSubscriptionActiveDesc, [{ text: t.ok }]);
           }, 400);
           return;
         }
@@ -182,9 +160,9 @@ export default function ProfileScreen() {
       console.error("Purchase error:", error);
       const message =
         error?.message?.includes("browser") || error?.message?.includes("mock")
-          ? `Payments require a native build (${STORE_BUILD_HINT.replace(/^an? /, "")}). Expo Go simulates purchases only.`
-          : error?.message || "Something went wrong. Please try again.";
-      Alert.alert("Purchase failed", message, [{ text: "OK" }]);
+          ? t.purchasesRequireBuildHint
+          : error?.message || t.somethingWentWrong;
+      Alert.alert(t.purchaseFailed, message, [{ text: t.ok }]);
     }
   };
 
@@ -206,14 +184,18 @@ export default function ProfileScreen() {
             userId: user.id,
           }).catch(() => {});
         }
-        Alert.alert("Purchases Restored", "Your subscription has been restored successfully.", [{ text: "OK" }]);
+        Alert.alert(t.purchasesRestoredTitle, t.purchasesRestoredDesc, [{ text: t.ok }]);
       } else {
-        Alert.alert("No Purchases Found", Platform.OS === "android" ? "We could not find any previous purchases on this Google account." : "We could not find any previous purchases on this Apple ID.", [{ text: "OK" }]);
+        Alert.alert(
+          t.noPurchasesFoundTitle,
+          Platform.OS === "android" ? t.noPurchasesFoundAndroid : t.noPurchasesFoundIos,
+          [{ text: t.ok }]
+        );
       }
     } catch (error: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       console.error("Restore error:", error);
-      Alert.alert("Restore Failed", error?.message || "Could not restore purchases. Please try again.", [{ text: "OK" }]);
+      Alert.alert(t.restoreFailed, error?.message || t.couldNotRestorePurchases, [{ text: t.ok }]);
     }
   };
 
@@ -239,12 +221,12 @@ export default function ProfileScreen() {
 
   const handleDeleteAccount = () => {
     Alert.alert(
-      "Delete Account",
-      "This will permanently delete your account and all associated data. This action cannot be undone.",
+      t.deleteAccount,
+      t.deleteAccountConfirm,
       [
-        { text: "Cancel", style: "cancel" },
+        { text: t.cancel, style: "cancel" },
         {
-          text: "Delete Account",
+          text: t.deleteAccount,
           style: "destructive",
           onPress: async () => {
             if (!user?.id) return;
@@ -256,7 +238,7 @@ export default function ProfileScreen() {
               await signOut();
             } catch (error) {
               console.error("Delete account error:", error);
-              Alert.alert("Error", "Could not delete account. Please try again or contact support@probaly.app.");
+              Alert.alert(t.errorTitle, t.couldNotDeleteAccount);
             }
           },
         },
@@ -323,7 +305,7 @@ export default function ProfileScreen() {
             <ThemedText style={styles.avatarText}>{initials}</ThemedText>
           </View>
           <ThemedText type="h4" style={styles.name}>
-            {user?.name || "User"}
+            {user?.name || t.userFallback}
           </ThemedText>
           <ThemedText type="small" style={{ color: theme.textSecondary }}>
             {user?.email}
@@ -336,30 +318,30 @@ export default function ProfileScreen() {
               <View style={styles.premiumHeader}>
                 <Feather name="check-circle" size={24} color={theme.success} />
                 <ThemedText type="body" style={{ fontWeight: "700", marginLeft: Spacing.sm }}>
-                  Premium Active
+                  {t.premiumActive}
                 </ThemedText>
               </View>
               <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: Spacing.xs }}>
-                Managed by {Platform.OS === "ios" ? "App Store" : Platform.OS === "android" ? "Google Play" : "your account"}
+                {Platform.OS === "ios" ? t.managedByApple : Platform.OS === "android" ? t.managedByGoogle : t.managedByYourAccount}
               </ThemedText>
             </View>
           ) : Platform.OS === "web" ? (
             <>
               <ThemedText type="small" style={[styles.sectionTitle, { color: theme.textSecondary }]}>
-                UPGRADE TO PREMIUM
+                {t.upgradeToPremiumSection}
               </ThemedText>
               <Button
                 onPress={() => navigation.navigate("Subscription")}
                 style={styles.subscribeButton}
                 testID="button-upgrade-web"
               >
-                View Premium Plans
+                {t.viewPremiumPlans}
               </Button>
             </>
           ) : (
             <>
               <ThemedText type="small" style={[styles.sectionTitle, { color: theme.textSecondary }]}>
-                CHOOSE YOUR PLAN
+                {t.chooseYourPlan}
               </ThemedText>
 
               <View style={styles.plansContainer}>
@@ -376,9 +358,9 @@ export default function ProfileScreen() {
                   ]}
                 >
                   <View style={styles.planHeader}>
-                    <ThemedText type="body" style={{ fontWeight: "700" }}>Monthly</ThemedText>
+                    <ThemedText type="body" style={{ fontWeight: "700" }}>{t.monthly}</ThemedText>
                     <View style={[styles.savingsBadge, { backgroundColor: `${theme.success}15` }]}>
-                      <ThemedText style={[styles.savingsText, { color: theme.success }]}>Save 50%</ThemedText>
+                      <ThemedText style={[styles.savingsText, { color: theme.success }]}>{t.save50}</ThemedText>
                     </View>
                   </View>
                   <View style={styles.planPriceRow}>
@@ -388,7 +370,7 @@ export default function ProfileScreen() {
                     ) : (
                       <ThemedText type="h3" style={{ color: theme.text }}>{monthlyPrice}</ThemedText>
                     )}
-                    <ThemedText type="small" style={{ color: theme.textSecondary }}>/month</ThemedText>
+                    <ThemedText type="small" style={{ color: theme.textSecondary }}>{t.perMonth}</ThemedText>
                   </View>
                   {selectedPlan === "monthly" && (
                     <View style={[styles.selectedIndicator, { backgroundColor: theme.primary }]}>
@@ -410,12 +392,12 @@ export default function ProfileScreen() {
                   ]}
                 >
                   <View style={[styles.bestValueBadge, { backgroundColor: theme.accent }]}>
-                    <ThemedText style={styles.bestValueText}>BEST VALUE</ThemedText>
+                    <ThemedText style={styles.bestValueText}>{t.bestValue}</ThemedText>
                   </View>
                   <View style={styles.planHeader}>
-                    <ThemedText type="body" style={{ fontWeight: "700" }}>Annual</ThemedText>
+                    <ThemedText type="body" style={{ fontWeight: "700" }}>{t.annual}</ThemedText>
                     <View style={[styles.savingsBadge, { backgroundColor: `${theme.success}15` }]}>
-                      <ThemedText style={[styles.savingsText, { color: theme.success }]}>Save 63%</ThemedText>
+                      <ThemedText style={[styles.savingsText, { color: theme.success }]}>{t.save63}</ThemedText>
                     </View>
                   </View>
                   <View style={styles.planPriceRow}>
@@ -425,7 +407,7 @@ export default function ProfileScreen() {
                     ) : (
                       <ThemedText type="h3" style={{ color: theme.text }}>{annualPrice}</ThemedText>
                     )}
-                    <ThemedText type="small" style={{ color: theme.textSecondary }}>/year</ThemedText>
+                    <ThemedText type="small" style={{ color: theme.textSecondary }}>{t.perYear}</ThemedText>
                   </View>
                   {selectedPlan === "annual" && (
                     <View style={[styles.selectedIndicator, { backgroundColor: theme.primary }]}>
@@ -444,15 +426,15 @@ export default function ProfileScreen() {
                 {isPurchasing ? (
                   <View style={{ flexDirection: "row", alignItems: "center" }}>
                     <ActivityIndicator color="#FFFFFF" size="small" style={{ marginRight: Spacing.sm }} />
-                    <ThemedText style={{ color: "#FFF", fontWeight: "700" }}>Processing...</ThemedText>
+                    <ThemedText style={{ color: "#FFF", fontWeight: "700" }}>{t.processing}</ThemedText>
                   </View>
                 ) : rcLoading ? (
                   <View style={{ flexDirection: "row", alignItems: "center" }}>
                     <ActivityIndicator color="#FFFFFF" size="small" style={{ marginRight: Spacing.sm }} />
-                    <ThemedText style={{ color: "#FFF", fontWeight: "700" }}>Loading prices...</ThemedText>
+                    <ThemedText style={{ color: "#FFF", fontWeight: "700" }}>{t.loadingPrices}</ThemedText>
                   </View>
                 ) : (
-                  `Start ${selectedPlan === "annual" ? "Annual" : "Monthly"} Subscription`
+                  selectedPlan === "annual" ? t.startAnnualSub : t.startMonthlySub
                 )}
               </Button>
             </>
@@ -535,7 +517,7 @@ export default function ProfileScreen() {
             />
             <SettingsRow
               icon="trash-2"
-              title="Delete Account"
+              title={t.deleteAccount}
               destructive
               onPress={handleDeleteAccount}
             />

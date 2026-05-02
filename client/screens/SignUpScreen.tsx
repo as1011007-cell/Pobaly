@@ -11,6 +11,7 @@ import { TextInput } from "@/components/TextInput";
 import { Button } from "@/components/Button";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { Spacing } from "@/constants/theme";
 import { AuthStackParamList } from "@/navigation/AuthStackNavigator";
 
@@ -26,6 +27,7 @@ export default function SignUpScreen({ navigation }: SignUpScreenProps) {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const { signUp, isLoading } = useAuth();
+  const { t } = useLanguage();
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -56,7 +58,11 @@ export default function SignUpScreen({ navigation }: SignUpScreenProps) {
       }
       const mins = Math.floor(remaining / 60);
       const secs = remaining % 60;
-      setCooldownText(mins > 0 ? `Try again in ${mins}m ${secs}s` : `Try again in ${secs}s`);
+      setCooldownText(
+        mins > 0
+          ? t.tryAgainInMinSec.replace("{m}", String(mins)).replace("{s}", String(secs))
+          : t.tryAgainInSec.replace("{s}", String(secs))
+      );
     };
     updateText();
     cooldownTimerRef.current = setInterval(updateText, 1000);
@@ -68,23 +74,23 @@ export default function SignUpScreen({ navigation }: SignUpScreenProps) {
     const trimmedEmail = email.trim();
 
     if (!trimmedName) {
-      newErrors.name = "Name is required";
+      newErrors.name = t.nameRequired;
     } else if (trimmedName.length > 100) {
-      newErrors.name = "Name is too long";
+      newErrors.name = t.nameTooLong;
     }
     if (!trimmedEmail) {
-      newErrors.email = "Email is required";
+      newErrors.email = t.emailRequired;
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
-      newErrors.email = "Invalid email address";
+      newErrors.email = t.invalidEmail;
     } else if (trimmedEmail.length > 254) {
-      newErrors.email = "Email is too long";
+      newErrors.email = t.emailTooLong;
     }
     if (!password) {
-      newErrors.password = "Password is required";
+      newErrors.password = t.passwordRequired;
     } else if (password.length < 6) {
-      newErrors.password = "Password must be at least 6 characters";
+      newErrors.password = t.passwordTooShort;
     } else if (password.length > 128) {
-      newErrors.password = "Password is too long";
+      newErrors.password = t.passwordTooLong;
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -117,7 +123,7 @@ export default function SignUpScreen({ navigation }: SignUpScreenProps) {
         const unlockTime = Date.now() + LOCKOUT_DURATION_MS;
         setLockedUntil(unlockTime);
         startCooldownTimer(unlockTime);
-        setErrors({ general: "Too many attempts. Please wait before trying again." });
+        setErrors({ general: t.tooManyAttemptsSignUp });
         return;
       }
 
@@ -128,13 +134,13 @@ export default function SignUpScreen({ navigation }: SignUpScreenProps) {
         const unlockTime = Date.now() + LOCKOUT_DURATION_MS;
         setLockedUntil(unlockTime);
         startCooldownTimer(unlockTime);
-        setErrors({ general: "Too many failed attempts. Please wait before trying again." });
+        setErrors({ general: t.tooManyAttemptsSignUp });
       } else {
-        let msg = "Registration failed. Please try again.";
+        let msg = t.registrationFailed;
         if (errorMsg.includes("Unable to create account")) {
-          msg = "Unable to create account. Please try a different email or sign in.";
+          msg = t.unableToCreateAccount;
         } else if (errorMsg.includes("doesn't appear to exist") || errorMsg.includes("valid email")) {
-          msg = "This email doesn't appear to exist. Please use a real email address.";
+          msg = t.emailDoesntExist;
           setErrors({ email: msg });
           return;
         }
@@ -161,10 +167,10 @@ export default function SignUpScreen({ navigation }: SignUpScreenProps) {
     >
       <View style={styles.header}>
         <ThemedText type="h2" style={styles.title}>
-          Create account
+          {t.createAccountTitle}
         </ThemedText>
         <ThemedText type="body" style={{ color: theme.textSecondary }}>
-          Start your journey with AI-powered predictions
+          {t.startYourJourney}
         </ThemedText>
       </View>
 
@@ -183,11 +189,11 @@ export default function SignUpScreen({ navigation }: SignUpScreenProps) {
         ) : null}
 
         <TextInput
-          label="Full Name"
+          label={t.fullName}
           leftIcon="user"
-          placeholder="Enter your name"
+          placeholder={t.enterName}
           value={name}
-          onChangeText={(t) => { setName(t); clearErrors(); }}
+          onChangeText={(v) => { setName(v); clearErrors(); }}
           error={errors.name}
           autoCapitalize="words"
           autoComplete="name"
@@ -195,11 +201,11 @@ export default function SignUpScreen({ navigation }: SignUpScreenProps) {
           testID="input-name"
         />
         <TextInput
-          label="Email"
+          label={t.email}
           leftIcon="mail"
-          placeholder="Enter your email"
+          placeholder={t.enterEmail}
           value={email}
-          onChangeText={(t) => { setEmail(t); clearErrors(); }}
+          onChangeText={(v) => { setEmail(v); clearErrors(); }}
           error={errors.email}
           keyboardType="email-address"
           autoCapitalize="none"
@@ -208,11 +214,11 @@ export default function SignUpScreen({ navigation }: SignUpScreenProps) {
           testID="input-email"
         />
         <TextInput
-          label="Password"
+          label={t.password}
           leftIcon="lock"
-          placeholder="Create a password (min 6 characters)"
+          placeholder={t.createPasswordPlaceholder}
           value={password}
-          onChangeText={(t) => { setPassword(t); clearErrors(); }}
+          onChangeText={(v) => { setPassword(v); clearErrors(); }}
           error={errors.password}
           isPassword
           autoCapitalize="none"
@@ -230,9 +236,9 @@ export default function SignUpScreen({ navigation }: SignUpScreenProps) {
           {isLoading ? (
             <ActivityIndicator color="#FFFFFF" size="small" />
           ) : isLocked ? (
-            cooldownText || "Locked"
+            cooldownText || t.locked
           ) : (
-            "Create Account"
+            t.createAccountButton
           )}
         </Button>
 
@@ -240,17 +246,17 @@ export default function SignUpScreen({ navigation }: SignUpScreenProps) {
           type="small"
           style={[styles.terms, { color: theme.textSecondary }]}
         >
-          By signing up, you agree to our Terms of Service and Privacy Policy
+          {t.byCreatingAccount}
         </ThemedText>
       </View>
 
       <View style={styles.footer}>
         <ThemedText type="small" style={{ color: theme.textSecondary }}>
-          Already have an account?{" "}
+          {t.alreadyHaveAccount}
         </ThemedText>
         <Pressable onPress={() => navigation.navigate("SignIn")}>
           <ThemedText type="small" style={{ color: theme.accent, fontWeight: "600" }}>
-            Sign In
+            {t.signInButton}
           </ThemedText>
         </Pressable>
       </View>
