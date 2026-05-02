@@ -13,6 +13,22 @@ const PUBLIC_PREFIX = "/uploads/telegram";
 const FALLBACK_DIR = path.resolve(process.cwd(), "server", "uploads", "fallback");
 const FALLBACK_PREFIX = "/uploads/fallback";
 const MAX_DISPLAY_ITEMS = 3;
+// Telegram message IDs that must never appear on the landing page. Filtered
+// out at query time so the post is hidden in both dev and prod regardless
+// of whether the row still exists in the database. Add an entry here when
+// the operator needs to suppress a specific channel post.
+const EXCLUDED_TELEGRAM_MESSAGE_IDS: number[] = [
+  4893, // video "Reliable predictions from professionals! High earnings!"
+];
+// Pre-built SQL fragment "NOT IN (id1, id2, ...)" — or "TRUE" when empty —
+// safe because the values are statically defined integers above (validated
+// by Number.isInteger before interpolating with sql.raw, no user input).
+const EXCLUDED_IDS_SQL_FRAGMENT = (() => {
+  const safe = EXCLUDED_TELEGRAM_MESSAGE_IDS.filter(Number.isInteger);
+  return safe.length === 0
+    ? "TRUE"
+    : `telegram_message_id NOT IN (${safe.join(",")})`;
+})();
 const CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
 const ROTATION_CHECK_INTERVAL_MS = 60 * 1000;
 // Poll Telegram every 90 seconds to catch missed messages (reliable fallback
@@ -152,6 +168,7 @@ async function rotateDailyDisplay(): Promise<number> {
           expires_at = NOW() + INTERVAL '24 hours'
       WHERE id IN (
         SELECT id FROM telegram_media
+        WHERE ${sql.raw(EXCLUDED_IDS_SQL_FRAGMENT)}
         ORDER BY created_at DESC
         LIMIT ${MAX_DISPLAY_ITEMS}
       )
@@ -354,6 +371,7 @@ async function getActiveMedia() {
     SELECT id, telegram_message_id, media_type, file_path, mime_type,
            width, height, caption, created_at, expires_at
     FROM telegram_media
+    WHERE ${sql.raw(EXCLUDED_IDS_SQL_FRAGMENT)}
     ORDER BY created_at DESC, id DESC
     LIMIT ${MAX_DISPLAY_ITEMS}
   `);
