@@ -192,9 +192,20 @@ async function cleanupExpired() {
     // Delete expired rows first (DB is the source of truth) and get the
     // file_paths back so we can unlink — this avoids orphaned DB rows if a
     // file unlink fails.
+    //
+    // Safety: NEVER delete the latest MAX_DISPLAY_ITEMS by post time, even
+    // if their expires_at has passed. The landing page renders these as
+    // "latest 3 from the channel" — we must not lose them just because
+    // rotation didn't refresh their expires_at on schedule (e.g., during
+    // a Telegram outage or extended period of no new posts).
     const result: any = await db.execute(sql`
       DELETE FROM telegram_media
       WHERE expires_at <= NOW()
+        AND id NOT IN (
+          SELECT id FROM telegram_media
+          ORDER BY created_at DESC, id DESC
+          LIMIT ${MAX_DISPLAY_ITEMS}
+        )
       RETURNING file_path
     `);
     const rows: any[] = result.rows || result || [];
@@ -249,19 +260,17 @@ async function cleanupExpired() {
 }
 
 async function getActiveMedia() {
-  // Items become visible the moment a rotation activates them. Live posts
-  // trigger an instant rotation from the NewMessage handler, so a newly
-  // ingested photo/video shows up on the landing page within seconds. The
-  // 11 AM ET scheduled rotation remains as a safety net (covers cases where
-  // no new posts arrive for a while). ORDER BY activated_at DESC ensures
-  // any older row whose activation wasn't refreshed by the latest rotation
-  // is naturally pushed out of the top MAX_DISPLAY_ITEMS.
+  // Always return the latest MAX_DISPLAY_ITEMS by post time. We deliberately
+  // do NOT filter by activated_at or expires_at — the landing page must
+  // always reflect the 3 newest posts in the channel as soon as they're
+  // ingested, regardless of whether the rotation logic has run yet. The
+  // rotation/activation flow still updates expires_at to protect rows from
+  // cleanup; this query just doesn't depend on it for visibility.
   const result: any = await db.execute(sql`
     SELECT id, telegram_message_id, media_type, file_path, mime_type,
            width, height, caption, created_at, expires_at
     FROM telegram_media
-    WHERE activated_at IS NOT NULL AND expires_at > NOW()
-    ORDER BY activated_at DESC, created_at DESC
+    ORDER BY created_at DESC, id DESC
     LIMIT ${MAX_DISPLAY_ITEMS}
   `);
   const rows: any[] = result.rows || result || [];

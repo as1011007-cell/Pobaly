@@ -634,6 +634,11 @@ async function cleanupExpired() {
     const result = await db.execute(sql6`
       DELETE FROM telegram_media
       WHERE expires_at <= NOW()
+        AND id NOT IN (
+          SELECT id FROM telegram_media
+          ORDER BY created_at DESC, id DESC
+          LIMIT ${MAX_DISPLAY_ITEMS}
+        )
       RETURNING file_path
     `);
     const rows = result.rows || result || [];
@@ -683,8 +688,7 @@ async function getActiveMedia() {
     SELECT id, telegram_message_id, media_type, file_path, mime_type,
            width, height, caption, created_at, expires_at
     FROM telegram_media
-    WHERE activated_at IS NOT NULL AND expires_at > NOW()
-    ORDER BY activated_at DESC, created_at DESC
+    ORDER BY created_at DESC, id DESC
     LIMIT ${MAX_DISPLAY_ITEMS}
   `);
   const rows = result.rows || result || [];
