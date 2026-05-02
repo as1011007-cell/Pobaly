@@ -408,7 +408,9 @@ function configureExpoAndLanding(app: express.Application) {
   ]);
 
   app.use((req: Request, res: Response, next: NextFunction) => {
-    if (req.path.startsWith("/api")) {
+    // Let API and runtime-uploaded files (e.g. Telegram media) pass through
+    // to their own handlers instead of being swallowed by the SPA fallback.
+    if (req.path.startsWith("/api") || req.path.startsWith("/uploads/")) {
       return next();
     }
     if (webBuildExists && !landingPagePaths.has(req.path)) {

@@ -532,25 +532,65 @@
           return Math.floor(hrs / 24) + 'd ago';
         }
 
+        function safeUrl(u) {
+          // Only allow same-origin /uploads/ paths to defend against
+          // javascript:, data:, or external URLs sneaking into src=.
+          if (typeof u !== 'string') return '';
+          if (u.indexOf('/uploads/') === 0) return u;
+          return '';
+        }
+
         function render(items) {
+          grid.innerHTML = '';
           if (!items || items.length === 0) {
             section.classList.remove('is-visible');
-            grid.innerHTML = '';
             return;
           }
-          var html = items.map(function (it) {
-            var media;
+          items.forEach(function (it) {
+            var url = safeUrl(it.url);
+            if (!url) return;
+
+            var card = document.createElement('div');
+            card.className = 'latest-card';
+
+            var mediaEl;
             if (it.type === 'video') {
-              media = '<video class="latest-media" src="' + escapeHtml(it.url) + '" controls preload="metadata" playsinline></video>';
+              mediaEl = document.createElement('video');
+              mediaEl.controls = true;
+              mediaEl.preload = 'metadata';
+              mediaEl.playsInline = true;
             } else {
-              media = '<img class="latest-media" src="' + escapeHtml(it.url) + '" alt="Probaly latest" loading="lazy" />';
+              mediaEl = document.createElement('img');
+              mediaEl.alt = 'Probaly latest';
+              mediaEl.loading = 'lazy';
             }
-            var caption = it.caption ? '<div class="latest-caption">' + escapeHtml(it.caption) + '</div>' : '';
-            var when = '<div class="latest-time">' + escapeHtml(timeAgo(it.createdAt)) + '</div>';
-            return '<div class="latest-card">' + media + '<div class="latest-meta">' + caption + when + '</div></div>';
-          }).join('');
-          grid.innerHTML = html;
-          section.classList.add('is-visible');
+            mediaEl.className = 'latest-media';
+            mediaEl.src = url;
+            card.appendChild(mediaEl);
+
+            var meta = document.createElement('div');
+            meta.className = 'latest-meta';
+
+            if (it.caption) {
+              var cap = document.createElement('div');
+              cap.className = 'latest-caption';
+              cap.textContent = String(it.caption);
+              meta.appendChild(cap);
+            }
+
+            var when = document.createElement('div');
+            when.className = 'latest-time';
+            when.textContent = timeAgo(it.createdAt);
+            meta.appendChild(when);
+
+            card.appendChild(meta);
+            grid.appendChild(card);
+          });
+          if (grid.children.length > 0) {
+            section.classList.add('is-visible');
+          } else {
+            section.classList.remove('is-visible');
+          }
         }
 
         function load() {

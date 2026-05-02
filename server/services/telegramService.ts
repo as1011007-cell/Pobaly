@@ -40,8 +40,13 @@ async function ensureUploadDir() {
 
 async function cleanupExpired() {
   try {
+    // Delete expired rows first (DB is the source of truth) and get the
+    // file_paths back so we can unlink — this avoids orphaned DB rows if a
+    // file unlink fails.
     const result: any = await db.execute(sql`
-      SELECT id, file_path FROM telegram_media WHERE expires_at <= NOW()
+      DELETE FROM telegram_media
+      WHERE expires_at <= NOW()
+      RETURNING file_path
     `);
     const rows: any[] = result.rows || result || [];
     for (const row of rows) {
@@ -49,12 +54,45 @@ async function cleanupExpired() {
       try {
         await fs.unlink(filePath);
       } catch {
-        // file may already be gone
+        // file may already be gone — fine
       }
     }
     if (rows.length > 0) {
-      await db.execute(sql`DELETE FROM telegram_media WHERE expires_at <= NOW()`);
       console.log(`[telegram] cleanup removed ${rows.length} expired item(s)`);
+    }
+
+    // Disk sweep: unlink any files in the upload dir that are not referenced
+    // by an active DB row. Skip files modified within the last 5 minutes so
+    // we never race against an in-flight ingest (writeFile happens just
+    // before the INSERT — that brief window must not count as orphan).
+    try {
+      const onDisk = await fs.readdir(UPLOAD_DIR);
+      if (onDisk.length > 0) {
+        const live: any = await db.execute(
+          sql`SELECT file_path FROM telegram_media`,
+        );
+        const liveRows: any[] = live.rows || live || [];
+        const liveSet = new Set<string>(liveRows.map((r: any) => r.file_path));
+        const graceMs = 5 * 60 * 1000;
+        const now = Date.now();
+        let orphans = 0;
+        for (const name of onDisk) {
+          if (liveSet.has(name)) continue;
+          try {
+            const stat = await fs.stat(path.join(UPLOAD_DIR, name));
+            if (now - stat.mtimeMs < graceMs) continue;
+            await fs.unlink(path.join(UPLOAD_DIR, name));
+            orphans++;
+          } catch {
+            // file might have been deleted between readdir and stat — ignore
+          }
+        }
+        if (orphans > 0) {
+          console.log(`[telegram] disk sweep removed ${orphans} orphan file(s)`);
+        }
+      }
+    } catch {
+      // upload dir might not exist yet — ignore
     }
   } catch (e) {
     console.warn("[telegram] cleanup failed:", (e as Error).message);
@@ -147,26 +185,80 @@ async function ingestMessage(client: any, msg: any, Api: any) {
   const existingRows: any[] = existing.rows || existing || [];
   if (existingRows.length > 0) return;
 
+  // Use the message's actual post time so backfilled items expire 24h after
+  // they were posted (not 24h after we ingested them).
+  const postedAtSecs = Number(msg.date || 0) || Math.floor(Date.now() / 1000);
+  const ageMs = Date.now() - postedAtSecs * 1000;
+  if (ageMs >= 24 * 60 * 60 * 1000) {
+    // Already past the 24h display window — skip download entirely.
+    return;
+  }
+
   const buffer: Buffer | undefined = await client.downloadMedia(msg, {});
   if (!buffer || !buffer.length) return;
 
-  const filename = `${Date.now()}_${messageId.toString()}.${ext}`;
+  const filename = `${postedAtSecs}_${messageId.toString()}.${ext}`;
   const fullPath = path.join(UPLOAD_DIR, filename);
   await fs.writeFile(fullPath, buffer);
 
   const caption = msg.message || null;
-  await db.execute(sql`
-    INSERT INTO telegram_media
-      (telegram_message_id, media_type, file_path, mime_type, width, height, caption, expires_at)
-    VALUES (
-      ${messageId.toString()}, ${mediaType}, ${filename}, ${mimeType},
-      ${width}, ${height}, ${caption}, NOW() + INTERVAL '24 hours'
-    )
-    ON CONFLICT (telegram_message_id) DO NOTHING
-  `);
-  console.log(
-    `[telegram] ingested ${mediaType} message=${messageId} file=${filename} size=${sizeBytes}`,
-  );
+  try {
+    const inserted: any = await db.execute(sql`
+      INSERT INTO telegram_media
+        (telegram_message_id, media_type, file_path, mime_type, width, height, caption, created_at, expires_at)
+      VALUES (
+        ${messageId.toString()}, ${mediaType}, ${filename}, ${mimeType},
+        ${width}, ${height}, ${caption},
+        to_timestamp(${postedAtSecs}),
+        to_timestamp(${postedAtSecs}) + INTERVAL '24 hours'
+      )
+      ON CONFLICT (telegram_message_id) DO NOTHING
+      RETURNING id
+    `);
+    const insertedRows: any[] = inserted.rows || inserted || [];
+    if (insertedRows.length === 0) {
+      // Row already existed (race) — drop the file we just wrote.
+      try {
+        await fs.unlink(fullPath);
+      } catch {}
+      return;
+    }
+    console.log(
+      `[telegram] ingested ${mediaType} message=${messageId} file=${filename} size=${sizeBytes}`,
+    );
+  } catch (e) {
+    // DB insert failed — clean up the orphan file we just wrote.
+    try {
+      await fs.unlink(fullPath);
+    } catch {}
+    throw e;
+  }
+}
+
+async function backfillRecent(client: any, Api: any) {
+  if (!resolvedChannelId) return;
+  try {
+    const peer = new Api.PeerChannel({ channelId: resolvedChannelId as any });
+    const messages: any[] = await client.getMessages(peer, { limit: 30 });
+    let ingested = 0;
+    for (const m of messages) {
+      if (!m?.media) continue;
+      try {
+        const before = ingested;
+        await ingestMessage(client, m, Api);
+        // Best-effort count — ingestMessage logs on actual ingest
+        ingested = before + 1;
+      } catch (err) {
+        console.warn(
+          "[telegram] backfill message failed:",
+          (err as Error).message,
+        );
+      }
+    }
+    console.log(`[telegram] backfill checked ${messages.length} recent message(s)`);
+  } catch (e) {
+    console.warn("[telegram] backfill failed:", (e as Error).message);
+  }
 }
 
 async function startTelegramListener() {
@@ -248,6 +340,11 @@ async function startTelegramListener() {
 
     listenerStarted = true;
     console.log(`[telegram] listening to channel id=${resolvedChannelId}`);
+
+    // Backfill the last few messages so a recent server restart doesn't
+    // lose media that was posted while we were offline. Items already past
+    // their 24h window are skipped inside ingestMessage.
+    void backfillRecent(client, Api);
 
     client.addEventHandler(async (event: any) => {
       try {
