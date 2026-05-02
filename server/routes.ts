@@ -542,7 +542,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // payloads have no explanation/factors so translating them is wasted
       // work, but for unredacted payloads the cached translation is reused
       // by every user in the same language.
-      const localized = isPremiumUser ? await translatePredictions(preds as any[], lang) : preds;
+      // Non-blocking translate so a fresh-language premium feed never stalls
+      // on Groq. Cache misses fall back to English; the next request is hot.
+      const localized = isPremiumUser ? await translatePredictionsBackground(preds as any[], lang) : preds;
       res.json({ predictions: isPremiumUser ? localized : preds.map(redactPrediction) });
     } catch (error: any) {
       res.status(500).json({ error: safeErrorMessage(error) });
@@ -579,7 +581,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isPremiumUser = u?.isPremium === true;
       }
       const predictions = await getLivePredictions(userId, isPremiumUser);
-      const localized = await translatePredictions(predictions as any[], lang);
+      // Non-blocking translate — Live tab must feel instant; English fallback
+      // on first cold request is acceptable, then localized from cache.
+      const localized = await translatePredictionsBackground(predictions as any[], lang);
       res.json({ predictions: localized });
     } catch (error: any) {
       res.status(500).json({ error: safeErrorMessage(error) });
