@@ -6,6 +6,12 @@ import { sql } from "drizzle-orm";
 
 const UPLOAD_DIR = path.resolve(process.cwd(), "server", "uploads", "telegram");
 const PUBLIC_PREFIX = "/uploads/telegram";
+// Static "winnings" gallery shown at the END of the landing-page slider,
+// always after the live Telegram items. Read once at startup from disk
+// (server/uploads/fallback/) and cached — these files don't change at
+// runtime, so no need to rescan.
+const FALLBACK_DIR = path.resolve(process.cwd(), "server", "uploads", "fallback");
+const FALLBACK_PREFIX = "/uploads/fallback";
 const MAX_DISPLAY_ITEMS = 3;
 const CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
 const ROTATION_CHECK_INTERVAL_MS = 60 * 1000;
@@ -284,6 +290,56 @@ async function cleanupExpired() {
     }
   } catch (e) {
     console.warn("[telegram] cleanup failed:", (e as Error).message);
+  }
+}
+
+// Cached at startup. Each entry mirrors the shape returned by getActiveMedia
+// so the slider renders them with the exact same code path.
+let fallbackItems: Array<{
+  id: string;
+  type: "photo" | "video";
+  url: string;
+  mimeType: string | null;
+  width: null;
+  height: null;
+  caption: null;
+  createdAt: null;
+  expiresAt: null;
+}> = [];
+
+async function loadFallbackItems() {
+  try {
+    await fs.mkdir(FALLBACK_DIR, { recursive: true });
+    const names = (await fs.readdir(FALLBACK_DIR))
+      .filter((n) => /\.(jpe?g|png|webp|gif|mp4|mov|webm)$/i.test(n))
+      .sort();
+    fallbackItems = names.map((name) => {
+      const lower = name.toLowerCase();
+      const isVideo = /\.(mp4|mov|webm)$/i.test(lower);
+      const mime =
+        lower.endsWith(".mp4") ? "video/mp4" :
+        lower.endsWith(".mov") ? "video/quicktime" :
+        lower.endsWith(".webm") ? "video/webm" :
+        lower.endsWith(".png") ? "image/png" :
+        lower.endsWith(".webp") ? "image/webp" :
+        lower.endsWith(".gif") ? "image/gif" :
+        "image/jpeg";
+      return {
+        id: `fallback-${name}`,
+        type: (isVideo ? "video" : "photo") as "photo" | "video",
+        url: `${FALLBACK_PREFIX}/${name}`,
+        mimeType: mime,
+        width: null,
+        height: null,
+        caption: null,
+        createdAt: null,
+        expiresAt: null,
+      };
+    });
+    console.log(`[telegram] loaded ${fallbackItems.length} fallback gallery items`);
+  } catch (e) {
+    console.warn("[telegram] failed to load fallback items:", (e as Error).message);
+    fallbackItems = [];
   }
 }
 
@@ -824,14 +880,26 @@ export async function initTelegramService(app: Express) {
       express.static(UPLOAD_DIR, { maxAge: "1h", fallthrough: true }),
     );
 
+    // Serve the static "winnings" gallery files. Same /uploads/ prefix so
+    // the existing safeUrl() check on the landing page accepts them.
+    app.use(
+      FALLBACK_PREFIX,
+      express.static(FALLBACK_DIR, { maxAge: "7d", fallthrough: true }),
+    );
+
+    await loadFallbackItems();
+
     app.get("/api/landing/telegram-media", async (_req: Request, res: Response) => {
       try {
         const items = await getActiveMedia();
+        // Always append the static fallback gallery AFTER live Telegram
+        // items, so the landing-page slider keeps showing winnings even
+        // during a Telegram outage and never goes empty.
         res.setHeader("Cache-Control", "public, max-age=30");
-        res.json({ items });
+        res.json({ items: [...items, ...fallbackItems] });
       } catch (e) {
         console.warn("[telegram] api error:", (e as Error).message);
-        res.json({ items: [] });
+        res.json({ items: fallbackItems });
       }
     });
 
