@@ -88,6 +88,19 @@ let isConnectingSince: number | null = null;
 // between attempts so Telegram only ever sees a slow trickle of connect
 // requests, never a storm. Reset to 0 on the first successful reconnect.
 let consecutiveConnectFailures = 0;
+
+// Hard suspension: the Telegram account was rate-limited / flagged for 24h
+// on 2026-05-02. Wait 30 hours before any reconnect attempt so we don't
+// extend the flag by hammering the MTProto layer while it's still angry.
+// Update or set to 0 to lift the suspension manually.
+const TELEGRAM_RESUME_AT_MS = Date.parse("2026-05-04T01:00:00Z");
+function isTelegramSuspended(): boolean {
+  return TELEGRAM_RESUME_AT_MS > 0 && Date.now() < TELEGRAM_RESUME_AT_MS;
+}
+function suspensionRemainingHours(): string {
+  const ms = TELEGRAM_RESUME_AT_MS - Date.now();
+  return (ms / 3_600_000).toFixed(1);
+}
 let nextAllowedConnectAt = 0; // ms epoch; 0 = no wait
 function backoffDelayForFailures(n: number): number {
   // Failures 1-2: no extra delay — rely on POLL_INTERVAL_MS (90s) so a
@@ -601,6 +614,14 @@ async function resetTelegramState(reason: string) {
 // all listener state. Once connected, pulls the latest 30 messages, ingests
 // anything new, and rotates the gallery immediately if new items are found.
 async function pollForNewMedia() {
+  // Hard suspension after a Telegram rate-limit / account flag. While
+  // active we skip the entire poll so no MTProto traffic is generated.
+  if (isTelegramSuspended()) {
+    console.log(
+      `[telegram] poll: suspended (account flagged) — ${suspensionRemainingHours()}h remaining before resume`,
+    );
+    return;
+  }
   // Health check: client reference must exist AND gramjs must report it as
   // connected. After an _updateLoop TIMEOUT, gramjs sets `connected = false`
   // internally while our reference stays truthy — so checking the reference
@@ -708,6 +729,16 @@ async function pollForNewMedia() {
 async function startTelegramListener() {
   // Prevent duplicate event handler registration and concurrent connect attempts.
   if (listenerStarted || isConnecting) return;
+
+  // Hard suspension after a Telegram rate-limit / account flag. While
+  // active we never connect — no MTProto traffic at all until the wait
+  // window has elapsed, so the flag isn't extended by reconnect attempts.
+  if (isTelegramSuspended()) {
+    console.log(
+      `[telegram] listener: suspended (account flagged) — ${suspensionRemainingHours()}h remaining before resume`,
+    );
+    return;
+  }
 
   // Only run the persistent listener in production. In development the dev
   // server and production VM would both attempt to authenticate with the same
@@ -955,6 +986,12 @@ export async function initTelegramService(app: Express) {
     // Start the persistent MTProto listener (best-effort). Even if connect()
     // hangs or the session is invalid, the polling interval below is the
     // reliable backbone that will always pick up new channel posts.
+    if (isTelegramSuspended()) {
+      const resume = new Date(TELEGRAM_RESUME_AT_MS).toISOString();
+      console.log(
+        `[telegram] init: SUSPENDED until ${resume} (${suspensionRemainingHours()}h) — listener and polling will skip until then. Update TELEGRAM_RESUME_AT_MS in telegramService.ts to lift early.`,
+      );
+    }
     void startTelegramListener();
 
     // Polling fallback: every 90 seconds, pull the latest 30 messages from the
