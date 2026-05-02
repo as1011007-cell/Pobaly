@@ -351,7 +351,31 @@
         margin-bottom: 6px;
         white-space: pre-wrap;
         word-break: break-word;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        line-clamp: 2;
+        overflow: hidden;
       }
+      .latest-caption.is-expanded {
+        -webkit-line-clamp: unset;
+        line-clamp: unset;
+        overflow: visible;
+      }
+      .latest-readmore {
+        appearance: none;
+        background: none;
+        border: 0;
+        padding: 0;
+        margin: 0 0 6px;
+        color: #E53935;
+        font: inherit;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        text-align: left;
+      }
+      .latest-readmore:hover { color: #ff5a4e; }
       .latest-time {
         color: #607D8B;
         font-size: 11px;
@@ -604,6 +628,26 @@
           });
           if (grid.children.length > 0) {
             section.classList.add('is-visible');
+            // After the section becomes visible (so layout has real
+            // dimensions), check each caption for overflow and add a
+            // "Read more..." toggle only when the clamped text is
+            // actually being cut off.
+            requestAnimationFrame(function () {
+              var caps = grid.querySelectorAll('.latest-caption');
+              caps.forEach(function (cap) {
+                if (cap.scrollHeight > cap.clientHeight + 1) {
+                  var btn = document.createElement('button');
+                  btn.type = 'button';
+                  btn.className = 'latest-readmore';
+                  btn.textContent = 'Read more...';
+                  btn.addEventListener('click', function () {
+                    var expanded = cap.classList.toggle('is-expanded');
+                    btn.textContent = expanded ? 'Show less' : 'Read more...';
+                  });
+                  cap.parentNode.insertBefore(btn, cap.nextSibling);
+                }
+              });
+            });
           } else {
             section.classList.remove('is-visible');
           }
