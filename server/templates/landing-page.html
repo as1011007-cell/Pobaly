@@ -225,13 +225,13 @@
         transform: translateY(0);
       }
       .store-btn-apple {
-        background: #fff;
-        color: #000;
+        background: #007AFF;
+        color: #fff;
       }
       .store-btn-google {
-        background: #1a1f2e;
+        background: #34A853;
         color: #fff;
-        border: 1px solid #2a3040;
+        border: 1px solid #2e9648;
       }
       .store-btn-web {
         background: linear-gradient(135deg, #1A237E 0%, #3949AB 100%);
@@ -284,7 +284,7 @@
       .latest-section {
         width: 100%;
         max-width: 1100px;
-        margin: 32px auto 0;
+        margin: 64px auto 0;
         padding: 0 16px;
         display: none;
       }
@@ -335,7 +335,7 @@
       }
       .latest-media {
         width: 100%;
-        aspect-ratio: 16 / 9;
+        aspect-ratio: 9 / 16;
         object-fit: cover;
         background: #0A0E1A;
         display: block;
@@ -674,9 +674,17 @@
             var mediaEl;
             if (it.type === 'video') {
               mediaEl = document.createElement('video');
-              mediaEl.controls = true;
-              mediaEl.preload = 'metadata';
+              // Autoplay requires the video to be muted on every modern
+              // browser; loop + playsInline keeps it running cleanly
+              // inside the card (no fullscreen takeover on iOS).
+              mediaEl.autoplay = true;
+              mediaEl.muted = true;
+              mediaEl.loop = true;
               mediaEl.playsInline = true;
+              mediaEl.setAttribute('muted', '');
+              mediaEl.setAttribute('playsinline', '');
+              mediaEl.controls = false;
+              mediaEl.preload = 'auto';
             } else {
               mediaEl = document.createElement('img');
               mediaEl.alt = 'Probaly latest';
