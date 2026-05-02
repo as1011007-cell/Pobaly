@@ -71,9 +71,6 @@ export default function SubscriptionScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
-  // Detect Expo Go so we can show appropriate messaging
-  const isExpoGo = Constants.executionEnvironment === "storeClient";
-
   // Platform-aware copy so Android users don't see "App Store / TestFlight" text
   const isAndroid = Platform.OS === "android";
   const STORE_NAME = isAndroid ? "Play Store" : "App Store";
@@ -85,14 +82,10 @@ export default function SubscriptionScreen() {
   const handleSubscribe = async () => {
     if (isPurchasing) return;
     if (!selectedPackage) {
-      if (isExpoGo) {
-        Alert.alert(t.expoGoLimitation, t.expoGoLimitationDesc, [{ text: t.ok }]);
-      } else {
-        Alert.alert(t.pricesUnavailable, t.couldNotConnectStore, [
-          { text: t.retry, onPress: () => refetchOfferings() },
-          { text: t.cancel, style: "cancel" },
-        ]);
-      }
+      Alert.alert(t.pricesUnavailable, t.couldNotConnectStore, [
+        { text: t.retry, onPress: () => refetchOfferings() },
+        { text: t.cancel, style: "cancel" },
+      ]);
       return;
     }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -240,7 +233,7 @@ export default function SubscriptionScreen() {
         }}
         showsVerticalScrollIndicator={false}
       >
-        {!isExpoGo && offeringsError ? (
+        {offeringsError ? (
           <View style={[styles.testModeBanner, { backgroundColor: `${theme.accent}15`, borderColor: theme.accent }]}>
             <Feather name="wifi-off" size={16} color={theme.accent} />
             <ThemedText type="small" style={{ color: theme.accent, marginLeft: Spacing.xs, flex: 1 }}>

@@ -16,7 +16,6 @@ import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
 import { Feather } from "@expo/vector-icons";
-import Constants from "expo-constants";
 
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { ThemedText } from "@/components/ThemedText";
@@ -76,12 +75,7 @@ export default function ProfileScreen() {
   const handleSubscribe = async () => {
     if (isPurchasing) return;
     if (!selectedPackage) {
-      const isExpoGo = Constants.executionEnvironment === "storeClient";
-      if (isExpoGo) {
-        Alert.alert(t.expoGoLimitation, t.expoGoLimitationDesc, [{ text: t.ok }]);
-      } else {
-        Alert.alert(t.pricesUnavailable, t.couldNotConnectStore, [{ text: t.ok }]);
-      }
+      Alert.alert(t.pricesUnavailable, t.couldNotConnectStore, [{ text: t.ok }]);
       return;
     }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
