@@ -371,9 +371,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // RevenueCat webhook — handles subscription lifecycle events from RC dashboard.
-  // No auth header required: RC dashboard does not reliably send one.
-  // The endpoint URL is private and the RC event payload structure is sufficient.
-  app.post("/api/revenuecat/webhook", async (req: Request, res: Response) => {
+  // Authenticated via the REVENUECAT_WEBHOOK_SECRET env var: RC sends whatever
+  // string you configure in their dashboard's "Authorization" field as the
+  // exact Authorization header value. requireWebhookAuth does a constant-time
+  // compare and accepts both "Bearer <secret>" and bare-secret formats. If the
+  // env var is unset, the middleware logs a warning and lets requests through
+  // (dev-only fallback) — production must have the secret configured.
+  // Without this, anyone who guessed the URL could POST a fake INITIAL_PURCHASE
+  // event and grant themselves premium for any userId.
+  app.post("/api/revenuecat/webhook", requireWebhookAuth("REVENUECAT_WEBHOOK_SECRET"), async (req: Request, res: Response) => {
     try {
       const event = req.body;
       const eventType: string | undefined = event?.event?.type;
