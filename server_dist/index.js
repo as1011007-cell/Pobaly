@@ -828,6 +828,14 @@ async function backfillRecent(client, Api) {
     return 0;
   }
 }
+function withTimeout2(p, ms, label) {
+  return Promise.race([
+    p,
+    new Promise(
+      (_, reject) => setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    )
+  ]);
+}
 async function resetTelegramState(reason) {
   if (isConnecting) {
     console.log(`[telegram] reset skipped (connect in flight): ${reason}`);
@@ -844,14 +852,25 @@ async function resetTelegramState(reason) {
   telegramApiRef = null;
   resolvedChannelId = null;
   listenerStarted = false;
+  isConnectingSince = null;
 }
 async function pollForNewMedia() {
   const clientConnected = telegramClient?.connected !== false;
   const clientHealthy = telegramClient && telegramApiRef && resolvedChannelId && clientConnected;
   if (!clientHealthy) {
     if (isConnecting) {
-      console.log("[telegram] poll: connect already in flight, deferring to next cycle");
-      return;
+      const heldFor = isConnectingSince ? Date.now() - isConnectingSince : 0;
+      if (heldFor < STALE_CONNECTING_MS) {
+        console.log(
+          `[telegram] poll: connect already in flight (${Math.round(heldFor / 1e3)}s), deferring to next cycle`
+        );
+        return;
+      }
+      console.warn(
+        `[telegram] poll: stale connect lock (${Math.round(heldFor / 1e3)}s) \u2014 force-clearing and reconnecting`
+      );
+      isConnecting = false;
+      isConnectingSince = null;
     }
     const reason = !telegramClient ? "no client" : !telegramApiRef || !resolvedChannelId ? "incomplete setup" : "client disconnected";
     console.log(`[telegram] poll: client not ready (${reason}) \u2014 reconnecting...`);
@@ -889,6 +908,7 @@ async function startTelegramListener() {
     return;
   }
   isConnecting = true;
+  isConnectingSince = Date.now();
   const apiIdRaw = process.env.TELEGRAM_API_ID || "";
   const apiHash = process.env.TELEGRAM_API_HASH || "";
   const sessionString = process.env.TELEGRAM_SESSION_STRING || "";
@@ -898,6 +918,7 @@ async function startTelegramListener() {
       "[telegram] secrets not configured \u2014 listener disabled (polling-only mode)"
     );
     isConnecting = false;
+    isConnectingSince = null;
     return;
   }
   console.log("[telegram] starting listener, apiId present, importing gramjs...");
@@ -934,19 +955,26 @@ async function startTelegramListener() {
       )
     ]);
     console.log("[telegram] connected, checking authorization...");
-    const authorized = await client.isUserAuthorized();
+    const authorized = await withTimeout2(
+      client.isUserAuthorized(),
+      GRAMJS_CALL_TIMEOUT_MS,
+      "isUserAuthorized"
+    );
     console.log(`[telegram] isUserAuthorized=${authorized}`);
     if (!authorized) {
       console.error(
         "[telegram] session string is not authorized \u2014 re-run scripts/telegramLogin.ts"
       );
       isConnecting = false;
+      isConnectingSince = null;
       return;
     }
     console.log("[telegram] resolving channel...");
     try {
-      const res = await client.invoke(
-        new Api.messages.ImportChatInvite({ hash: INVITE_HASH })
+      const res = await withTimeout2(
+        client.invoke(new Api.messages.ImportChatInvite({ hash: INVITE_HASH })),
+        GRAMJS_CALL_TIMEOUT_MS,
+        "ImportChatInvite"
       );
       const chat = res?.chats?.[0];
       if (chat?.id) resolvedChannelId = BigInt(chat.id.toString());
@@ -954,8 +982,10 @@ async function startTelegramListener() {
       const msg = e?.errorMessage || e?.message || "";
       if (msg.includes("USER_ALREADY_PARTICIPANT")) {
         try {
-          const inv = await client.invoke(
-            new Api.messages.CheckChatInvite({ hash: INVITE_HASH })
+          const inv = await withTimeout2(
+            client.invoke(new Api.messages.CheckChatInvite({ hash: INVITE_HASH })),
+            GRAMJS_CALL_TIMEOUT_MS,
+            "CheckChatInvite"
           );
           const chat = inv?.chat;
           if (chat?.id) resolvedChannelId = BigInt(chat.id.toString());
@@ -974,12 +1004,14 @@ async function startTelegramListener() {
         "[telegram] could not determine channel id \u2014 event handler disabled (polling still active)"
       );
       isConnecting = false;
+      isConnectingSince = null;
       return;
     }
     telegramClient = client;
     telegramApiRef = Api;
     listenerStarted = true;
     isConnecting = false;
+    isConnectingSince = null;
     console.log(`[telegram] listening to channel id=${resolvedChannelId}`);
     void (async () => {
       const newCount = await backfillRecent(client, Api);
@@ -1027,6 +1059,7 @@ async function startTelegramListener() {
       console.error("[telegram] failed to start listener:", errMsg);
     }
     isConnecting = false;
+    isConnectingSince = null;
   }
 }
 async function disconnectTelegramClient() {
@@ -1068,7 +1101,7 @@ async function initTelegramService(app2) {
     console.error("[telegram] init failed:", e.message);
   }
 }
-var UPLOAD_DIR, PUBLIC_PREFIX, MAX_DISPLAY_ITEMS, CLEANUP_INTERVAL_MS, ROTATION_CHECK_INTERVAL_MS, POLL_INTERVAL_MS, FIRST_POLL_DELAY_MS, ROTATION_HOUR_ET, MAX_FILE_SIZE_BYTES, INVITE_HASH, CONNECT_TIMEOUT_MS, listenerStarted, isConnecting, resolvedChannelId, lastRotationDateET, telegramClient, telegramApiRef;
+var UPLOAD_DIR, PUBLIC_PREFIX, MAX_DISPLAY_ITEMS, CLEANUP_INTERVAL_MS, ROTATION_CHECK_INTERVAL_MS, POLL_INTERVAL_MS, FIRST_POLL_DELAY_MS, ROTATION_HOUR_ET, MAX_FILE_SIZE_BYTES, INVITE_HASH, GRAMJS_CALL_TIMEOUT_MS, STALE_CONNECTING_MS, isConnectingSince, CONNECT_TIMEOUT_MS, listenerStarted, isConnecting, resolvedChannelId, lastRotationDateET, telegramClient, telegramApiRef;
 var init_telegramService = __esm({
   "server/services/telegramService.ts"() {
     "use strict";
@@ -1083,6 +1116,9 @@ var init_telegramService = __esm({
     ROTATION_HOUR_ET = 11;
     MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024;
     INVITE_HASH = process.env.TELEGRAM_INVITE_HASH || "5uZNUktfpeZiMjVi";
+    GRAMJS_CALL_TIMEOUT_MS = 15e3;
+    STALE_CONNECTING_MS = 9e4;
+    isConnectingSince = null;
     CONNECT_TIMEOUT_MS = 3e4;
     listenerStarted = false;
     isConnecting = false;

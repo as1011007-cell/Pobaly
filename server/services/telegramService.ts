@@ -24,6 +24,20 @@ const FIRST_POLL_DELAY_MS = 45 * 1000;
 const ROTATION_HOUR_ET = 11; // 11:00 America/New_York
 const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024;
 const INVITE_HASH = process.env.TELEGRAM_INVITE_HASH || "5uZNUktfpeZiMjVi";
+// Hard timeout for individual gramjs API calls after connect() succeeds.
+// gramjs's _updateLoop can die silently mid-handshake, leaving subsequent
+// invokes (isUserAuthorized, ImportChatInvite, etc.) hanging forever with no
+// error. Without this, isConnecting would stay true forever and polling
+// would deadlock with "connect already in flight, deferring..."
+const GRAMJS_CALL_TIMEOUT_MS = 15_000;
+// If isConnecting has been true longer than this, polling treats the lock
+// as stale (the in-flight startTelegramListener has hung) and forces a
+// reset. Must be larger than CONNECT_TIMEOUT_MS + 3*GRAMJS_CALL_TIMEOUT_MS
+// (worst-case healthy startTelegramListener duration) plus headroom.
+const STALE_CONNECTING_MS = 90_000;
+// Tracks when isConnecting was last set to true. Used by pollForNewMedia
+// to detect a stuck in-flight connect attempt.
+let isConnectingSince: number | null = null;
 // Timeout for the initial client.connect() call (ms). If Telegram doesn't
 // respond within this window we give up and retry on the next poll cycle.
 const CONNECT_TIMEOUT_MS = 30_000;
@@ -411,16 +425,26 @@ async function backfillRecent(client: any, Api: any): Promise<number> {
   }
 }
 
+// Race a promise against a timeout. gramjs invoke()s can hang silently
+// (no error thrown) when the underlying _updateLoop has died — without an
+// explicit timeout, await locks up forever. Throws Error("<label> timed
+// out after Nms") on timeout.
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms),
+    ),
+  ]);
+}
+
 // Reset listener state so the next pollForNewMedia call performs a full
 // reconnect via startTelegramListener (which otherwise short-circuits when
 // listenerStarted is true).
 //
-// IMPORTANT: This intentionally does NOT touch `isConnecting`. If a previous
-// startTelegramListener is still in-flight (e.g., stuck mid-handshake), its
-// own success/catch branches will eventually clear `isConnecting` themselves.
-// Forcing it false here would let a second startTelegramListener begin while
-// the first is still alive — two TelegramClients negotiating with the same
-// session string would trigger AUTH_KEY_DUPLICATED.
+// IMPORTANT: When called via the normal path (isConnecting === false), we
+// fully reset. When called while a connect is in-flight, callers in poll
+// must use the stale-lock check first; this function bails to avoid racing.
 async function resetTelegramState(reason: string) {
   if (isConnecting) {
     console.log(`[telegram] reset skipped (connect in flight): ${reason}`);
@@ -434,6 +458,7 @@ async function resetTelegramState(reason: string) {
   telegramApiRef = null;
   resolvedChannelId = null;
   listenerStarted = false;
+  isConnectingSince = null;
 }
 
 // Polling fallback: runs every POLL_INTERVAL_MS. Self-healing — detects both
@@ -453,9 +478,22 @@ async function pollForNewMedia() {
   if (!clientHealthy) {
     // If a prior startTelegramListener is still negotiating, don't race with
     // it — let it finish, the next 90-second poll will pick up the result.
+    // Safety net: if the lock has been held longer than STALE_CONNECTING_MS,
+    // the in-flight call is hung (e.g., a gramjs invoke that never resolves);
+    // force-clear the lock so this cycle can perform a fresh reconnect.
     if (isConnecting) {
-      console.log("[telegram] poll: connect already in flight, deferring to next cycle");
-      return;
+      const heldFor = isConnectingSince ? Date.now() - isConnectingSince : 0;
+      if (heldFor < STALE_CONNECTING_MS) {
+        console.log(
+          `[telegram] poll: connect already in flight (${Math.round(heldFor / 1000)}s), deferring to next cycle`,
+        );
+        return;
+      }
+      console.warn(
+        `[telegram] poll: stale connect lock (${Math.round(heldFor / 1000)}s) — force-clearing and reconnecting`,
+      );
+      isConnecting = false;
+      isConnectingSince = null;
     }
     const reason = !telegramClient
       ? "no client"
@@ -516,6 +554,7 @@ async function startTelegramListener() {
   }
 
   isConnecting = true;
+  isConnectingSince = Date.now();
 
   const apiIdRaw = process.env.TELEGRAM_API_ID || "";
   const apiHash = process.env.TELEGRAM_API_HASH || "";
@@ -527,6 +566,7 @@ async function startTelegramListener() {
       "[telegram] secrets not configured — listener disabled (polling-only mode)",
     );
     isConnecting = false;
+    isConnectingSince = null;
     return;
   }
 
@@ -572,21 +612,28 @@ async function startTelegramListener() {
     ]);
     console.log("[telegram] connected, checking authorization...");
 
-    const authorized = await client.isUserAuthorized();
+    const authorized = await withTimeout(
+      client.isUserAuthorized(),
+      GRAMJS_CALL_TIMEOUT_MS,
+      "isUserAuthorized",
+    );
     console.log(`[telegram] isUserAuthorized=${authorized}`);
     if (!authorized) {
       console.error(
         "[telegram] session string is not authorized — re-run scripts/telegramLogin.ts",
       );
       isConnecting = false;
+      isConnectingSince = null;
       return;
     }
 
     // Resolve channel via invite link (idempotent: already-member falls back to CheckChatInvite)
     console.log("[telegram] resolving channel...");
     try {
-      const res: any = await client.invoke(
-        new Api.messages.ImportChatInvite({ hash: INVITE_HASH }),
+      const res: any = await withTimeout(
+        client.invoke(new Api.messages.ImportChatInvite({ hash: INVITE_HASH })),
+        GRAMJS_CALL_TIMEOUT_MS,
+        "ImportChatInvite",
       );
       const chat = res?.chats?.[0];
       if (chat?.id) resolvedChannelId = BigInt(chat.id.toString());
@@ -594,8 +641,10 @@ async function startTelegramListener() {
       const msg = e?.errorMessage || e?.message || "";
       if (msg.includes("USER_ALREADY_PARTICIPANT")) {
         try {
-          const inv: any = await client.invoke(
-            new Api.messages.CheckChatInvite({ hash: INVITE_HASH }),
+          const inv: any = await withTimeout(
+            client.invoke(new Api.messages.CheckChatInvite({ hash: INVITE_HASH })),
+            GRAMJS_CALL_TIMEOUT_MS,
+            "CheckChatInvite",
           );
           const chat = inv?.chat;
           if (chat?.id) resolvedChannelId = BigInt(chat.id.toString());
@@ -615,6 +664,7 @@ async function startTelegramListener() {
         "[telegram] could not determine channel id — event handler disabled (polling still active)",
       );
       isConnecting = false;
+      isConnectingSince = null;
       return;
     }
 
@@ -623,7 +673,8 @@ async function startTelegramListener() {
     telegramApiRef = Api;
 
     listenerStarted = true;
-    isConnecting = false; // clear so future retry logic doesn't get stuck
+    isConnecting = false;
+    isConnectingSince = null; // clear so future retry logic doesn't get stuck
     console.log(`[telegram] listening to channel id=${resolvedChannelId}`);
 
     // Backfill + initial rotation in the background.
@@ -680,6 +731,7 @@ async function startTelegramListener() {
       console.error("[telegram] failed to start listener:", errMsg);
     }
     isConnecting = false;
+    isConnectingSince = null;
   }
 }
 
