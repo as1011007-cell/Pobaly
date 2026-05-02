@@ -211,6 +211,10 @@ var init_schema = __esm({
 });
 
 // server/db.ts
+var db_exports = {};
+__export(db_exports, {
+  db: () => db
+});
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 var queryClient, db;
@@ -275,9 +279,9 @@ function getApnsJwt() {
   }
 }
 function getApnsClient() {
-  return new Promise((resolve2, reject) => {
+  return new Promise((resolve3, reject) => {
     if (apnsClient && !apnsClient.destroyed) {
-      resolve2(apnsClient);
+      resolve3(apnsClient);
       return;
     }
     const client = http2.connect(`https://${APNS_HOST}`);
@@ -289,7 +293,7 @@ function getApnsClient() {
       apnsClient = null;
     });
     apnsClient = client;
-    resolve2(client);
+    resolve3(client);
   });
 }
 async function sendApnsNotification(deviceToken, title, body, data) {
@@ -298,7 +302,7 @@ async function sendApnsNotification(deviceToken, title, body, data) {
     throw new Error("[APNs] No JWT \u2014 check APNS_KEY_ID, APNS_TEAM_ID, APNS_KEY_PATH");
   }
   const client = await getApnsClient();
-  return new Promise((resolve2, reject) => {
+  return new Promise((resolve3, reject) => {
     const reqHeaders = {
       ":method": "POST",
       ":path": `/3/device/${deviceToken}`,
@@ -319,7 +323,7 @@ async function sendApnsNotification(deviceToken, title, body, data) {
     });
     req.on("end", () => {
       if (statusCode === 200) {
-        resolve2();
+        resolve3();
       } else {
         reject(new Error(`APNs ${statusCode}: ${responseBody}`));
       }
@@ -508,8 +512,589 @@ var init_pushNotificationService = __esm({
   }
 });
 
-// server/index.ts
+// server/services/telegramService.ts
+var telegramService_exports = {};
+__export(telegramService_exports, {
+  disconnectTelegramClient: () => disconnectTelegramClient,
+  initTelegramService: () => initTelegramService
+});
 import express from "express";
+import * as fs2 from "fs/promises";
+import * as path2 from "path";
+import { sql as sql6 } from "drizzle-orm";
+async function ensureTable() {
+  await db.execute(sql6`
+    CREATE TABLE IF NOT EXISTS telegram_media (
+      id SERIAL PRIMARY KEY,
+      telegram_message_id BIGINT NOT NULL UNIQUE,
+      media_type TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      mime_type TEXT,
+      width INTEGER,
+      height INTEGER,
+      caption TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      expires_at TIMESTAMP NOT NULL
+    )
+  `);
+  await db.execute(sql6`
+    CREATE INDEX IF NOT EXISTS idx_telegram_media_expires_at ON telegram_media(expires_at)
+  `);
+  await db.execute(sql6`
+    ALTER TABLE telegram_media ADD COLUMN IF NOT EXISTS activated_at TIMESTAMP
+  `);
+  await db.execute(sql6`
+    CREATE INDEX IF NOT EXISTS idx_telegram_media_activated_at ON telegram_media(activated_at)
+  `);
+}
+function todayInET() {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  });
+  return fmt.format(/* @__PURE__ */ new Date());
+}
+function currentHourInET() {
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "2-digit",
+    hour12: false
+  });
+  const parts = fmt.formatToParts(/* @__PURE__ */ new Date());
+  const h = parts.find((p) => p.type === "hour")?.value ?? "0";
+  const n = parseInt(h, 10);
+  return n === 24 ? 0 : n;
+}
+async function rotateDailyDisplay() {
+  try {
+    const result = await db.execute(sql6`
+      UPDATE telegram_media
+      SET activated_at = NOW(),
+          expires_at = NOW() + INTERVAL '24 hours'
+      WHERE id IN (
+        SELECT id FROM telegram_media
+        ORDER BY created_at DESC
+        LIMIT ${MAX_DISPLAY_ITEMS}
+      )
+      RETURNING id
+    `);
+    const rows = result.rows || result || [];
+    console.log(
+      `[telegram] rotation activated ${rows.length} item(s) for the next 24h`
+    );
+    return rows.length;
+  } catch (e) {
+    console.warn("[telegram] rotation failed:", e.message);
+    return -1;
+  }
+}
+async function checkRotation() {
+  try {
+    const dateET = todayInET();
+    const hourET = currentHourInET();
+    if (hourET >= ROTATION_HOUR_ET && lastRotationDateET !== dateET) {
+      const n = await rotateDailyDisplay();
+      if (n > 0) lastRotationDateET = dateET;
+    }
+  } catch (e) {
+    console.warn("[telegram] rotation check failed:", e.message);
+  }
+}
+async function ensureInitialRotation() {
+  try {
+    const result = await db.execute(sql6`
+      SELECT COUNT(*)::int AS n FROM telegram_media
+      WHERE activated_at IS NOT NULL AND expires_at > NOW()
+    `);
+    const rows = result.rows || result || [];
+    const n = Number(rows[0]?.n ?? 0);
+    if (n === 0) {
+      console.log(
+        "[telegram] no active display items found \u2014 running initial rotation"
+      );
+      const activated = await rotateDailyDisplay();
+      if (activated > 0 && currentHourInET() >= ROTATION_HOUR_ET) {
+        lastRotationDateET = todayInET();
+      }
+    }
+  } catch (e) {
+    console.warn(
+      "[telegram] initial rotation check failed:",
+      e.message
+    );
+  }
+}
+async function ensureUploadDir() {
+  await fs2.mkdir(UPLOAD_DIR, { recursive: true });
+}
+async function cleanupExpired() {
+  try {
+    const result = await db.execute(sql6`
+      DELETE FROM telegram_media
+      WHERE expires_at <= NOW()
+      RETURNING file_path
+    `);
+    const rows = result.rows || result || [];
+    for (const row of rows) {
+      const filePath = path2.join(UPLOAD_DIR, row.file_path);
+      try {
+        await fs2.unlink(filePath);
+      } catch {
+      }
+    }
+    if (rows.length > 0) {
+      console.log(`[telegram] cleanup removed ${rows.length} expired item(s)`);
+    }
+    try {
+      const onDisk = await fs2.readdir(UPLOAD_DIR);
+      if (onDisk.length > 0) {
+        const live = await db.execute(
+          sql6`SELECT file_path FROM telegram_media`
+        );
+        const liveRows = live.rows || live || [];
+        const liveSet = new Set(liveRows.map((r) => r.file_path));
+        const graceMs = 5 * 60 * 1e3;
+        const now = Date.now();
+        let orphans = 0;
+        for (const name of onDisk) {
+          if (liveSet.has(name)) continue;
+          try {
+            const stat2 = await fs2.stat(path2.join(UPLOAD_DIR, name));
+            if (now - stat2.mtimeMs < graceMs) continue;
+            await fs2.unlink(path2.join(UPLOAD_DIR, name));
+            orphans++;
+          } catch {
+          }
+        }
+        if (orphans > 0) {
+          console.log(`[telegram] disk sweep removed ${orphans} orphan file(s)`);
+        }
+      }
+    } catch {
+    }
+  } catch (e) {
+    console.warn("[telegram] cleanup failed:", e.message);
+  }
+}
+async function getActiveMedia() {
+  const result = await db.execute(sql6`
+    SELECT id, telegram_message_id, media_type, file_path, mime_type,
+           width, height, caption, created_at, expires_at
+    FROM telegram_media
+    WHERE activated_at IS NOT NULL AND expires_at > NOW()
+    ORDER BY activated_at DESC, created_at DESC
+    LIMIT ${MAX_DISPLAY_ITEMS}
+  `);
+  const rows = result.rows || result || [];
+  return rows.map((r) => ({
+    id: r.id,
+    type: r.media_type,
+    url: `${PUBLIC_PREFIX}/${r.file_path}`,
+    mimeType: r.mime_type,
+    width: r.width,
+    height: r.height,
+    caption: r.caption,
+    createdAt: r.created_at,
+    expiresAt: r.expires_at
+  }));
+}
+async function ingestMessage(client, msg, Api) {
+  const messageId = BigInt(msg.id);
+  const media = msg.media;
+  let mediaType = null;
+  let mimeType = null;
+  let width = null;
+  let height = null;
+  let ext = "bin";
+  let sizeBytes = 0;
+  const className = media?.className || "";
+  if (className === "MessageMediaPhoto" || media instanceof Api.MessageMediaPhoto) {
+    mediaType = "photo";
+    mimeType = "image/jpeg";
+    ext = "jpg";
+    const photo = media.photo;
+    const sizes = photo?.sizes || [];
+    let largest = null;
+    for (const s of sizes) {
+      const sz = Number(s?.size || 0);
+      if (!largest || sz > Number(largest.size || 0)) largest = s;
+    }
+    if (largest) {
+      width = largest.w || null;
+      height = largest.h || null;
+      sizeBytes = Number(largest.size || 0);
+    }
+  } else if (className === "MessageMediaDocument" || media instanceof Api.MessageMediaDocument) {
+    const doc = media.document;
+    const mime = doc?.mimeType || "";
+    sizeBytes = Number(doc?.size || 0);
+    if (mime.startsWith("video/")) {
+      mediaType = "video";
+      mimeType = mime;
+      ext = mime.split("/")[1] || "mp4";
+      const va = doc?.attributes?.find((a) => a.className === "DocumentAttributeVideo");
+      if (va) {
+        width = va.w || null;
+        height = va.h || null;
+      }
+    } else if (mime.startsWith("image/")) {
+      mediaType = "photo";
+      mimeType = mime;
+      ext = mime.split("/")[1] || "jpg";
+    }
+  }
+  if (!mediaType) return false;
+  if (sizeBytes > MAX_FILE_SIZE_BYTES) {
+    console.warn(
+      `[telegram] skipping message ${messageId} \u2014 too large (${sizeBytes} bytes)`
+    );
+    return false;
+  }
+  const existing = await db.execute(sql6`
+    SELECT id FROM telegram_media WHERE telegram_message_id = ${messageId.toString()} LIMIT 1
+  `);
+  const existingRows = existing.rows || existing || [];
+  if (existingRows.length > 0) return false;
+  const postedAtSecs = Number(msg.date || 0) || Math.floor(Date.now() / 1e3);
+  const ageMs = Date.now() - postedAtSecs * 1e3;
+  if (ageMs >= 24 * 60 * 60 * 1e3) {
+    return false;
+  }
+  const buffer = await client.downloadMedia(msg, {});
+  if (!buffer || !buffer.length) return false;
+  const filename = `${postedAtSecs}_${messageId.toString()}.${ext}`;
+  const fullPath = path2.join(UPLOAD_DIR, filename);
+  await fs2.writeFile(fullPath, buffer);
+  const caption = msg.message || null;
+  try {
+    const inserted = await db.execute(sql6`
+      INSERT INTO telegram_media
+        (telegram_message_id, media_type, file_path, mime_type, width, height, caption, created_at, expires_at)
+      VALUES (
+        ${messageId.toString()}, ${mediaType}, ${filename}, ${mimeType},
+        ${width}, ${height}, ${caption},
+        to_timestamp(${postedAtSecs}),
+        to_timestamp(${postedAtSecs}) + INTERVAL '24 hours'
+      )
+      ON CONFLICT (telegram_message_id) DO NOTHING
+      RETURNING id
+    `);
+    const insertedRows = inserted.rows || inserted || [];
+    if (insertedRows.length === 0) {
+      try {
+        await fs2.unlink(fullPath);
+      } catch {
+      }
+      return false;
+    }
+    console.log(
+      `[telegram] ingested ${mediaType} message=${messageId} file=${filename} size=${sizeBytes}`
+    );
+    return true;
+  } catch (e) {
+    try {
+      await fs2.unlink(fullPath);
+    } catch {
+    }
+    throw e;
+  }
+}
+async function backfillRecent(client, Api) {
+  if (!resolvedChannelId) return 0;
+  try {
+    const peer = new Api.PeerChannel({ channelId: resolvedChannelId });
+    const messages2 = await client.getMessages(peer, { limit: 30 });
+    let newCount = 0;
+    for (const m of messages2) {
+      if (!m?.media) continue;
+      try {
+        const wasNew = await ingestMessage(client, m, Api);
+        if (wasNew) newCount++;
+      } catch (err) {
+        console.warn(
+          "[telegram] backfill message failed:",
+          err.message
+        );
+      }
+    }
+    console.log(
+      `[telegram] backfill checked ${messages2.length} recent message(s), ${newCount} new`
+    );
+    return newCount;
+  } catch (e) {
+    console.warn("[telegram] backfill failed:", e.message);
+    return 0;
+  }
+}
+async function resetTelegramState(reason) {
+  if (isConnecting) {
+    console.log(`[telegram] reset skipped (connect in flight): ${reason}`);
+    return;
+  }
+  console.log(`[telegram] resetting state: ${reason}`);
+  if (telegramClient) {
+    try {
+      await telegramClient.disconnect();
+    } catch {
+    }
+  }
+  telegramClient = null;
+  telegramApiRef = null;
+  resolvedChannelId = null;
+  listenerStarted = false;
+}
+async function pollForNewMedia() {
+  const clientConnected = telegramClient?.connected !== false;
+  const clientHealthy = telegramClient && telegramApiRef && resolvedChannelId && clientConnected;
+  if (!clientHealthy) {
+    if (isConnecting) {
+      console.log("[telegram] poll: connect already in flight, deferring to next cycle");
+      return;
+    }
+    const reason = !telegramClient ? "no client" : !telegramApiRef || !resolvedChannelId ? "incomplete setup" : "client disconnected";
+    console.log(`[telegram] poll: client not ready (${reason}) \u2014 reconnecting...`);
+    await resetTelegramState(reason);
+    await startTelegramListener();
+    if (!telegramClient || !telegramApiRef || !resolvedChannelId) {
+      console.log("[telegram] poll: connection retry failed, will try again next cycle");
+      return;
+    }
+  }
+  try {
+    console.log("[telegram] poll: checking for new media...");
+    const newCount = await backfillRecent(telegramClient, telegramApiRef);
+    if (newCount > 0) {
+      console.log(`[telegram] poll: ${newCount} new item(s) \u2014 rotating gallery`);
+      const n = await rotateDailyDisplay();
+      if (n > 0 && currentHourInET() >= ROTATION_HOUR_ET) {
+        lastRotationDateET = todayInET();
+      }
+    }
+  } catch (e) {
+    const errMsg = e.message || "";
+    console.warn("[telegram] poll error:", errMsg);
+    if (errMsg.includes("TIMEOUT") || errMsg.includes("Not connected") || errMsg.includes("DISCONNECTED") || errMsg.includes("closed") || errMsg.includes("AUTH_KEY") || telegramClient?.connected === false) {
+      await resetTelegramState(`api error: ${errMsg.slice(0, 80)}`);
+    }
+  }
+}
+async function startTelegramListener() {
+  if (listenerStarted || isConnecting) return;
+  if (process.env.NODE_ENV !== "production") {
+    console.log(
+      "[telegram] listener skipped in development mode (runs in production only)"
+    );
+    return;
+  }
+  isConnecting = true;
+  const apiIdRaw = process.env.TELEGRAM_API_ID || "";
+  const apiHash = process.env.TELEGRAM_API_HASH || "";
+  const sessionString = process.env.TELEGRAM_SESSION_STRING || "";
+  const apiId = parseInt(apiIdRaw, 10);
+  if (!apiId || !apiHash || !sessionString) {
+    console.log(
+      "[telegram] secrets not configured \u2014 listener disabled (polling-only mode)"
+    );
+    isConnecting = false;
+    return;
+  }
+  console.log("[telegram] starting listener, apiId present, importing gramjs...");
+  try {
+    const tg = await import("telegram");
+    const sessionsMod = await import("telegram/sessions/index.js");
+    const eventsMod = await import("telegram/events/index.js");
+    const { TelegramClient, Api } = tg;
+    const { StringSession } = sessionsMod;
+    const { NewMessage } = eventsMod;
+    console.log("[telegram] gramjs imported, creating client...");
+    const session = new StringSession(sessionString);
+    const client = new TelegramClient(session, apiId, apiHash, {
+      // connectionRetries: 0 — we manage retries ourselves via pollForNewMedia.
+      // gramjs's internal retry loop creates new auth key negotiation attempts
+      // on each retry, which compounds AUTH_KEY_DUPLICATED conflicts.
+      connectionRetries: 0
+    });
+    if (client.setLogLevel) {
+      try {
+        client.setLogLevel("error");
+      } catch {
+      }
+    }
+    telegramClient = client;
+    console.log("[telegram] connecting (timeout 30s)...");
+    await Promise.race([
+      client.connect(),
+      new Promise(
+        (_, reject) => setTimeout(
+          () => reject(new Error("connect() timed out after 30s")),
+          CONNECT_TIMEOUT_MS
+        )
+      )
+    ]);
+    console.log("[telegram] connected, checking authorization...");
+    const authorized = await client.isUserAuthorized();
+    console.log(`[telegram] isUserAuthorized=${authorized}`);
+    if (!authorized) {
+      console.error(
+        "[telegram] session string is not authorized \u2014 re-run scripts/telegramLogin.ts"
+      );
+      isConnecting = false;
+      return;
+    }
+    console.log("[telegram] resolving channel...");
+    try {
+      const res = await client.invoke(
+        new Api.messages.ImportChatInvite({ hash: INVITE_HASH })
+      );
+      const chat = res?.chats?.[0];
+      if (chat?.id) resolvedChannelId = BigInt(chat.id.toString());
+    } catch (e) {
+      const msg = e?.errorMessage || e?.message || "";
+      if (msg.includes("USER_ALREADY_PARTICIPANT")) {
+        try {
+          const inv = await client.invoke(
+            new Api.messages.CheckChatInvite({ hash: INVITE_HASH })
+          );
+          const chat = inv?.chat;
+          if (chat?.id) resolvedChannelId = BigInt(chat.id.toString());
+        } catch (e2) {
+          console.error(
+            "[telegram] CheckChatInvite failed:",
+            e2?.errorMessage || e2?.message
+          );
+        }
+      } else {
+        console.error("[telegram] failed to resolve channel:", msg);
+      }
+    }
+    if (!resolvedChannelId) {
+      console.error(
+        "[telegram] could not determine channel id \u2014 event handler disabled (polling still active)"
+      );
+      isConnecting = false;
+      return;
+    }
+    telegramClient = client;
+    telegramApiRef = Api;
+    listenerStarted = true;
+    isConnecting = false;
+    console.log(`[telegram] listening to channel id=${resolvedChannelId}`);
+    void (async () => {
+      const newCount = await backfillRecent(client, Api);
+      if (newCount > 0) {
+        const n = await rotateDailyDisplay();
+        if (n > 0 && currentHourInET() >= ROTATION_HOUR_ET) {
+          lastRotationDateET = todayInET();
+        }
+      } else {
+        await ensureInitialRotation();
+      }
+    })();
+    client.addEventHandler(async (event) => {
+      try {
+        const msg = event.message;
+        if (!msg?.media) return;
+        const peer = msg.peerId;
+        const peerChannelId = peer?.channelId ? BigInt(peer.channelId.toString()) : null;
+        if (!peerChannelId || peerChannelId !== resolvedChannelId) return;
+        const wasNew = await ingestMessage(client, msg, Api);
+        if (wasNew) {
+          const n = await rotateDailyDisplay();
+          if (n > 0 && currentHourInET() >= ROTATION_HOUR_ET) {
+            lastRotationDateET = todayInET();
+          }
+        }
+      } catch (err) {
+        console.warn("[telegram] handler error:", err.message);
+      }
+    }, new NewMessage({}));
+    client.session.save();
+  } catch (e) {
+    const errMsg = e.message || "";
+    if (errMsg.includes("AUTH_KEY_DUPLICATED")) {
+      console.warn(
+        "[telegram] AUTH_KEY_DUPLICATED \u2014 disconnecting and backing off 2 min before retry..."
+      );
+      try {
+        await telegramClient?.disconnect();
+      } catch {
+      }
+      telegramClient = null;
+      await new Promise((resolve3) => setTimeout(resolve3, 2 * 60 * 1e3));
+    } else {
+      console.error("[telegram] failed to start listener:", errMsg);
+    }
+    isConnecting = false;
+  }
+}
+async function disconnectTelegramClient() {
+  if (telegramClient) {
+    try {
+      await telegramClient.disconnect();
+    } catch {
+    }
+    telegramClient = null;
+  }
+}
+async function initTelegramService(app2) {
+  try {
+    await ensureTable();
+    await ensureUploadDir();
+    app2.use(
+      PUBLIC_PREFIX,
+      express.static(UPLOAD_DIR, { maxAge: "1h", fallthrough: true })
+    );
+    app2.get("/api/landing/telegram-media", async (_req, res) => {
+      try {
+        const items = await getActiveMedia();
+        res.setHeader("Cache-Control", "public, max-age=30");
+        res.json({ items });
+      } catch (e) {
+        console.warn("[telegram] api error:", e.message);
+        res.json({ items: [] });
+      }
+    });
+    setInterval(cleanupExpired, CLEANUP_INTERVAL_MS);
+    void cleanupExpired();
+    setInterval(checkRotation, ROTATION_CHECK_INTERVAL_MS);
+    void ensureInitialRotation();
+    void startTelegramListener();
+    setTimeout(() => void pollForNewMedia(), FIRST_POLL_DELAY_MS);
+    setInterval(() => void pollForNewMedia(), POLL_INTERVAL_MS);
+    console.log("[telegram] service initialized");
+  } catch (e) {
+    console.error("[telegram] init failed:", e.message);
+  }
+}
+var UPLOAD_DIR, PUBLIC_PREFIX, MAX_DISPLAY_ITEMS, CLEANUP_INTERVAL_MS, ROTATION_CHECK_INTERVAL_MS, POLL_INTERVAL_MS, FIRST_POLL_DELAY_MS, ROTATION_HOUR_ET, MAX_FILE_SIZE_BYTES, INVITE_HASH, CONNECT_TIMEOUT_MS, listenerStarted, isConnecting, resolvedChannelId, lastRotationDateET, telegramClient, telegramApiRef;
+var init_telegramService = __esm({
+  "server/services/telegramService.ts"() {
+    "use strict";
+    init_db();
+    UPLOAD_DIR = path2.resolve(process.cwd(), "server", "uploads", "telegram");
+    PUBLIC_PREFIX = "/uploads/telegram";
+    MAX_DISPLAY_ITEMS = 3;
+    CLEANUP_INTERVAL_MS = 10 * 60 * 1e3;
+    ROTATION_CHECK_INTERVAL_MS = 60 * 1e3;
+    POLL_INTERVAL_MS = 90 * 1e3;
+    FIRST_POLL_DELAY_MS = 45 * 1e3;
+    ROTATION_HOUR_ET = 11;
+    MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024;
+    INVITE_HASH = process.env.TELEGRAM_INVITE_HASH || "5uZNUktfpeZiMjVi";
+    CONNECT_TIMEOUT_MS = 3e4;
+    listenerStarted = false;
+    isConnecting = false;
+    resolvedChannelId = null;
+    lastRotationDateET = null;
+    telegramClient = null;
+    telegramApiRef = null;
+  }
+});
+
+// server/index.ts
+import express2 from "express";
 import { runMigrations } from "stripe-replit-sync";
 
 // server/routes.ts
@@ -834,8 +1419,12 @@ function getJwtSecret() {
   return "fallback-dev-secret-not-for-production";
 }
 var JWT_EXPIRY = "365d";
-function signToken(userId) {
-  return jwt.sign({ sub: userId }, getJwtSecret(), { expiresIn: JWT_EXPIRY });
+function signToken(userId, tokenVersion) {
+  return jwt.sign(
+    { sub: userId, tv: tokenVersion },
+    getJwtSecret(),
+    { expiresIn: JWT_EXPIRY }
+  );
 }
 function verifyToken(token) {
   try {
@@ -844,25 +1433,74 @@ function verifyToken(token) {
     return null;
   }
 }
-function requireAuth(req, res, next) {
+var TOKEN_VERSION_TTL_MS = 6e4;
+var tokenVersionCache = /* @__PURE__ */ new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of tokenVersionCache) {
+    if (v.expiresAt < now) tokenVersionCache.delete(k);
+  }
+}, 5 * 6e4);
+function setCachedTokenVersion(userId, version) {
+  tokenVersionCache.set(userId, {
+    version,
+    expiresAt: Date.now() + TOKEN_VERSION_TTL_MS
+  });
+}
+async function getCurrentTokenVersion(userId) {
+  const cached = tokenVersionCache.get(userId);
+  if (cached && cached.expiresAt > Date.now()) return cached.version;
+  try {
+    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { sql: sql7 } = await import("drizzle-orm");
+    const result = await db2.execute(
+      sql7`SELECT token_version FROM users WHERE id = ${userId}`
+    );
+    const rows = Array.isArray(result) ? result : result?.rows ?? [];
+    if (rows.length === 0) return null;
+    const version = Number(rows[0]?.token_version ?? 0);
+    setCachedTokenVersion(userId, version);
+    return version;
+  } catch (err) {
+    console.warn("[AUTH] token_version lookup failed:", err.message);
+    return null;
+  }
+}
+async function requireAuth(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "Authentication required" });
+    return res.status(401).json({ error: "Authentication required", code: "NO_TOKEN" });
   }
   const token = authHeader.slice(7);
   const payload = verifyToken(token);
   if (!payload?.sub) {
-    return res.status(401).json({ error: "Invalid or expired token" });
+    return res.status(401).json({ error: "Invalid or expired token", code: "INVALID_TOKEN" });
+  }
+  const currentVersion = await getCurrentTokenVersion(payload.sub);
+  const tokenTv = typeof payload.tv === "number" ? payload.tv : 0;
+  if (currentVersion !== null && tokenTv !== currentVersion) {
+    return res.status(401).json({
+      error: "Your session ended because this account signed in on another device.",
+      code: "SESSION_REVOKED"
+    });
   }
   req.userId = payload.sub;
   next();
 }
-function optionalAuth(req, _res, next) {
+async function optionalAuth(req, res, next) {
   const authHeader = req.headers.authorization;
   if (authHeader?.startsWith("Bearer ")) {
     const token = authHeader.slice(7);
     const payload = verifyToken(token);
     if (payload?.sub) {
+      const currentVersion = await getCurrentTokenVersion(payload.sub);
+      const tokenTv = typeof payload.tv === "number" ? payload.tv : 0;
+      if (currentVersion !== null && tokenTv !== currentVersion) {
+        return res.status(401).json({
+          error: "Your session ended because this account signed in on another device.",
+          code: "SESSION_REVOKED"
+        });
+      }
       req.userId = payload.sub;
     }
   }
@@ -995,6 +1633,178 @@ async function checkRCSubscription(userId) {
   }
 }
 
+// server/emailValidation.ts
+import { promises as dns } from "node:dns";
+var DNS_TIMEOUT_MS = 4e3;
+var CACHE_TTL_MS = 60 * 60 * 1e3;
+var domainCache = /* @__PURE__ */ new Map();
+var DISPOSABLE_DOMAINS = /* @__PURE__ */ new Set([
+  "mailinator.com",
+  "tempmail.com",
+  "temp-mail.org",
+  "guerrillamail.com",
+  "guerrillamail.net",
+  "guerrillamail.org",
+  "guerrillamail.biz",
+  "sharklasers.com",
+  "10minutemail.com",
+  "10minutemail.net",
+  "yopmail.com",
+  "throwawaymail.com",
+  "trashmail.com",
+  "trashmail.net",
+  "getnada.com",
+  "dispostable.com",
+  "fakeinbox.com",
+  "mintemail.com",
+  "mailnesia.com",
+  "mohmal.com",
+  "maildrop.cc",
+  "mailcatch.com",
+  "mailbox.org",
+  "spambog.com",
+  "spamgourmet.com",
+  "moakt.com",
+  "mailtemp.info",
+  "tempr.email",
+  "tempinbox.com",
+  "fakemail.net",
+  "emailondeck.com",
+  "anonbox.net",
+  "deadaddress.com",
+  "throwaway.email",
+  "instantemailaddress.com",
+  "harakirimail.com",
+  "burnermail.io",
+  "mytemp.email",
+  "qowo.com",
+  "gausi.com",
+  "jui.com",
+  "gma.com"
+]);
+var INVALID_MX_HOSTS = /* @__PURE__ */ new Set([
+  "",
+  ".",
+  "localhost",
+  "localhost.",
+  "0.0.0.0",
+  "127.0.0.1",
+  "::",
+  "::1",
+  "0"
+]);
+function withTimeout(p, ms, label) {
+  return Promise.race([
+    p,
+    new Promise(
+      (_, reject) => setTimeout(() => reject(new Error(`${label}_TIMEOUT`)), ms)
+    )
+  ]);
+}
+function isTransientDnsError(err) {
+  const code = err?.code;
+  if (!code) return /TIMEOUT/.test(String(err?.message || ""));
+  return code === "ETIMEOUT" || code === "ESERVFAIL" || code === "EREFUSED" || code === "ECONNREFUSED";
+}
+async function checkMx(domain) {
+  try {
+    const records = await withTimeout(dns.resolveMx(domain), DNS_TIMEOUT_MS, "MX");
+    if (!Array.isArray(records) || records.length === 0) return "no_records";
+    const hasNullMx = records.some((r) => {
+      const ex = (r.exchange || "").trim().toLowerCase();
+      const prio = r.priority;
+      return (ex === "" || ex === ".") && (prio === 0 || prio === void 0);
+    });
+    if (hasNullMx) return "null_mx";
+    const validExchanges = records.filter((r) => {
+      const ex = (r.exchange || "").trim().toLowerCase().replace(/\.$/, "");
+      return ex.length > 0 && !INVALID_MX_HOSTS.has(ex) && ex.includes(".");
+    });
+    if (validExchanges.length > 0) return "yes";
+    return "bogus_mx";
+  } catch (err) {
+    if (err?.code === "ENOTFOUND" || err?.code === "ENODATA") return "no_records";
+    if (isTransientDnsError(err)) return "transient";
+    return "no_records";
+  }
+}
+async function checkAddressRecord(domain) {
+  const v4 = withTimeout(dns.resolve4(domain), DNS_TIMEOUT_MS, "A").then(
+    (r) => r && r.length > 0 ? "yes" : "no",
+    (err) => isTransientDnsError(err) ? "transient" : "no"
+  );
+  const v6 = withTimeout(dns.resolve6(domain), DNS_TIMEOUT_MS, "AAAA").then(
+    (r) => r && r.length > 0 ? "yes" : "no",
+    (err) => isTransientDnsError(err) ? "transient" : "no"
+  );
+  const [a, aaaa] = await Promise.all([v4, v6]);
+  if (a === "yes" || aaaa === "yes") return "yes";
+  if (a === "transient" || aaaa === "transient") return "transient";
+  return "no";
+}
+async function isDomainDeliverable(domain) {
+  const key = domain.toLowerCase();
+  if (DISPOSABLE_DOMAINS.has(key)) {
+    return { deliverable: false, cacheable: true };
+  }
+  const cached = domainCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) {
+    return { deliverable: cached.deliverable, cacheable: false };
+  }
+  const mx = await checkMx(key);
+  if (mx === "yes") return { deliverable: true, cacheable: true };
+  if (mx === "null_mx") return { deliverable: false, cacheable: true };
+  if (mx === "bogus_mx") return { deliverable: false, cacheable: true };
+  if (mx === "no_records") {
+    const addr = await checkAddressRecord(key);
+    if (addr === "yes") return { deliverable: true, cacheable: true };
+    if (addr === "no") return { deliverable: false, cacheable: true };
+    return { deliverable: true, cacheable: false };
+  }
+  return { deliverable: true, cacheable: false };
+}
+function toAsciiDomain(domain) {
+  try {
+    const u = new URL(`http://${domain}`);
+    return u.hostname || null;
+  } catch {
+    return null;
+  }
+}
+async function validateEmailDeliverable(email) {
+  const trimmed = email.trim();
+  const at = trimmed.lastIndexOf("@");
+  if (at <= 0 || at === trimmed.length - 1) {
+    return { valid: false, reason: "Please enter a valid email address." };
+  }
+  const rawDomain = trimmed.slice(at + 1);
+  if (!rawDomain || rawDomain.length > 253) {
+    return { valid: false, reason: "Please enter a valid email address." };
+  }
+  const ascii = toAsciiDomain(rawDomain);
+  if (!ascii || !ascii.includes(".") || ascii.startsWith(".") || ascii.endsWith(".") || ascii.includes("..")) {
+    return { valid: false, reason: "Please enter a valid email address." };
+  }
+  try {
+    const { deliverable, cacheable } = await isDomainDeliverable(ascii);
+    if (cacheable) {
+      domainCache.set(ascii.toLowerCase(), {
+        deliverable,
+        expiresAt: Date.now() + CACHE_TTL_MS
+      });
+    }
+    if (!deliverable) {
+      return {
+        valid: false,
+        reason: "This email doesn't appear to exist. Please use a real email address."
+      };
+    }
+    return { valid: true };
+  } catch {
+    return { valid: true };
+  }
+}
+
 // server/routes.ts
 init_db();
 init_schema();
@@ -1004,10 +1814,10 @@ import { sql as sql5, and as and2 } from "drizzle-orm";
 init_db();
 init_schema();
 import OpenAI from "openai";
-import { eq as eq2, and, gte, isNull, desc as desc2, sql as sql4, or } from "drizzle-orm";
+import { eq as eq2, and, gte, isNull, desc as desc2, asc, sql as sql4, or } from "drizzle-orm";
 
 // server/services/sportsApiService.ts
-var CACHE_TTL_MS = 60 * 60 * 1e3;
+var CACHE_TTL_MS2 = 60 * 60 * 1e3;
 var matchCache = null;
 var espnFallbackCache = null;
 var ESPN_CACHE_TTL = 2 * 60 * 60 * 1e3;
@@ -1066,9 +1876,9 @@ async function fetchGamesFromApi(sportKey) {
     return [];
   }
 }
-async function getUpcomingMatchesFromApi() {
+async function getUpcomingMatchesFromApi(espnOnly = false) {
   const now = Date.now();
-  if (matchCache && now - matchCache.fetchedAt < CACHE_TTL_MS) {
+  if (!espnOnly && matchCache && now - matchCache.fetchedAt < CACHE_TTL_MS2) {
     const upcoming = matchCache.data.filter((m) => m.matchTime.getTime() > now);
     if (upcoming.length > 0) {
       console.log(`Using cached matches (${upcoming.length} upcoming, cache age: ${Math.round((now - matchCache.fetchedAt) / 6e4)}m)`);
@@ -1076,8 +1886,8 @@ async function getUpcomingMatchesFromApi() {
     }
   }
   const apiKey = process.env.ODDS_API_KEY;
-  if (!apiKey) {
-    console.log("ODDS_API_KEY not set \u2014 fetching real matches from ESPN");
+  if (espnOnly || !apiKey) {
+    console.log(espnOnly ? "ESPN-only fetch requested \u2014 skipping Odds API to preserve quota" : "ODDS_API_KEY not set \u2014 fetching real matches from ESPN");
     const espnMatches = await getESPNMatches();
     matchCache = { data: espnMatches, fetchedAt: Date.now() };
     _usingFallback = true;
@@ -1158,22 +1968,77 @@ async function getESPNMatches() {
   const allMatches = [];
   const currentTime = /* @__PURE__ */ new Date();
   const seenMatchups = /* @__PURE__ */ new Set();
-  function parseESPNEvents(events, sport, league) {
-    const results = [];
-    for (const event of events.slice(0, 10)) {
-      const matchTime = new Date(event.date);
-      if (isNaN(matchTime.getTime()) || matchTime < currentTime) continue;
-      const competitors = event.competitions?.[0]?.competitors || [];
-      if (competitors.length < 2) continue;
-      const homeComp = competitors.find((c) => c.homeAway === "home") || competitors[0];
-      const awayComp = competitors.find((c) => c.homeAway === "away") || competitors[1];
-      const homeTeam = homeComp.team?.displayName || homeComp.athlete?.displayName || event.name?.split(" vs ")?.[0] || "TBD";
-      const awayTeam = awayComp.team?.displayName || awayComp.athlete?.displayName || event.name?.split(" vs ")?.[1] || "TBD";
-      if (homeTeam === "TBD" || awayTeam === "TBD") continue;
-      const key = `${homeTeam}|${awayTeam}|${sport}`;
+  function extractFromCompetition(comp, fallbackDate, sport, league) {
+    const matchTime = new Date(comp?.date || fallbackDate);
+    if (isNaN(matchTime.getTime()) || matchTime < currentTime) return null;
+    const statusName = comp?.status?.type?.name;
+    if (statusName === "STATUS_FINAL" || statusName === "STATUS_IN_PROGRESS") return null;
+    const competitors = comp?.competitors || [];
+    if (competitors.length < 2) return null;
+    const homeComp = competitors.find((c) => c.homeAway === "home") || competitors[0];
+    const awayComp = competitors.find((c) => c.homeAway === "away") || competitors[1];
+    const homeTeam = homeComp?.team?.displayName || homeComp?.athlete?.displayName || "TBD";
+    const awayTeam = awayComp?.team?.displayName || awayComp?.athlete?.displayName || "TBD";
+    if (homeTeam === "TBD" || awayTeam === "TBD") return null;
+    const key = `${homeTeam}|${awayTeam}|${sport}`;
+    if (seenMatchups.has(key)) return null;
+    seenMatchups.add(key);
+    return { homeTeam, awayTeam, sport, matchTime, league };
+  }
+  function extractGolfMatchups(event, league) {
+    const out = [];
+    const comp = event?.competitions?.[0];
+    if (!comp) return out;
+    if (comp?.status?.type?.name === "STATUS_FINAL") return out;
+    const endDate = new Date(event?.endDate || comp?.endDate || event?.date);
+    if (isNaN(endDate.getTime()) || endDate < currentTime) return out;
+    const competitors = comp?.competitors || [];
+    if (competitors.length < 2) return out;
+    const ordered = [...competitors].sort(
+      (a, b) => (a?.order ?? 999) - (b?.order ?? 999)
+    );
+    const pairCount = Math.min(3, Math.floor(ordered.length / 2));
+    for (let i = 0; i < pairCount; i++) {
+      const a = ordered[i * 2];
+      const b = ordered[i * 2 + 1];
+      const homeTeam = a?.team?.displayName || a?.athlete?.displayName;
+      const awayTeam = b?.team?.displayName || b?.athlete?.displayName;
+      if (!homeTeam || !awayTeam) continue;
+      const key = `${homeTeam}|${awayTeam}|golf`;
       if (seenMatchups.has(key)) continue;
       seenMatchups.add(key);
-      results.push({ homeTeam, awayTeam, sport, matchTime, league });
+      out.push({ homeTeam, awayTeam, sport: "golf", matchTime: endDate, league });
+    }
+    return out;
+  }
+  function parseESPNEvents(events, sport, league) {
+    const results = [];
+    const eventLimit = sport === "tennis" ? events.length : 10;
+    for (const event of events.slice(0, eventLimit)) {
+      const fallbackDate = event.date;
+      if (sport === "golf") {
+        for (const m of extractGolfMatchups(event, league)) results.push(m);
+        continue;
+      }
+      const tennisCapHit = () => sport === "tennis" && results.length >= 30;
+      if (event.competitions?.length > 0 && !tennisCapHit()) {
+        for (const comp of event.competitions) {
+          if (tennisCapHit()) break;
+          const m = extractFromCompetition(comp, fallbackDate, sport, league);
+          if (m) results.push(m);
+        }
+      }
+      if (event.groupings?.length > 0 && !tennisCapHit()) {
+        for (const group of event.groupings) {
+          if (tennisCapHit()) break;
+          for (const comp of group.competitions || []) {
+            if (tennisCapHit()) break;
+            const m = extractFromCompetition(comp, fallbackDate, sport, league);
+            if (m) results.push(m);
+          }
+        }
+      }
+      if (tennisCapHit()) break;
     }
     return results;
   }
@@ -1200,7 +2065,7 @@ async function getESPNMatches() {
     { base: "https://site.api.espn.com/apis/site/v2/sports/tennis/atp/scoreboard", sport: "tennis", league: "ATP Tour" },
     { base: "https://site.api.espn.com/apis/site/v2/sports/cricket/icc/scoreboard", sport: "cricket", league: "ICC" }
   ];
-  for (let dayOffset = 1; dayOffset <= 3; dayOffset++) {
+  for (let dayOffset = 0; dayOffset <= 3; dayOffset++) {
     const d = new Date(currentTime);
     d.setUTCDate(d.getUTCDate() + dayOffset);
     const dateStr = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`;
@@ -1223,10 +2088,10 @@ async function getESPNMatches() {
   console.log("ESPN returned no matches");
   return [];
 }
-async function refreshUpcomingMatches() {
+async function refreshUpcomingMatches(espnOnly = false) {
   matchCache = null;
   espnFallbackCache = null;
-  return getUpcomingMatchesFromApi();
+  return getUpcomingMatchesFromApi(espnOnly);
 }
 var LIVE_CACHE_TTL = 2 * 60 * 1e3;
 var liveMatchCache = null;
@@ -1292,11 +2157,11 @@ async function getLiveMatches() {
   console.log(`Fetched ${liveMatches.length} live matches from ESPN`);
   return liveMatches;
 }
-async function getRecentCompletedGames() {
+async function getRecentCompletedGames(includeOddsApi = false) {
   const apiKey = process.env.ODDS_API_KEY;
   const [espnGames, oddsGames, sportsDbGames] = await Promise.all([
     fetchCompletedFromESPN(),
-    apiKey ? fetchCompletedFromOddsApi(apiKey) : Promise.resolve([]),
+    includeOddsApi && apiKey ? fetchCompletedFromOddsApi(apiKey) : Promise.resolve([]),
     fetchCompletedFromSportsDB()
   ]);
   if (espnGames.length === 0 && oddsGames.length === 0 && sportsDbGames.length === 0) {
@@ -1633,8 +2498,8 @@ var groq = new Proxy({}, {
   }
 });
 var GROQ_MODEL = "llama-3.3-70b-versatile";
-var sleep = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
-async function withOpenAIRetry(fn, maxRetries = 3) {
+var sleep = (ms) => new Promise((resolve3) => setTimeout(resolve3, ms));
+async function withGroqRetry(fn, maxRetries = 3) {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
@@ -1646,14 +2511,14 @@ async function withOpenAIRetry(fn, maxRetries = 3) {
           if (ra) return Number(ra) * (ra.toString().length <= 3 ? 1e3 : 1);
           return (attempt + 1) * 22e3;
         })();
-        console.warn(`[OpenAI] Rate limited \u2014 retrying in ${Math.round(retryAfterMs / 1e3)}s (attempt ${attempt + 1}/${maxRetries})`);
+        console.warn(`[Groq] Rate limited \u2014 retrying in ${Math.round(retryAfterMs / 1e3)}s (attempt ${attempt + 1}/${maxRetries})`);
         await sleep(retryAfterMs);
         continue;
       }
       throw err;
     }
   }
-  throw new Error("withOpenAIRetry: exhausted retries");
+  throw new Error("withGroqRetry: exhausted retries");
 }
 function generateSportsbookOdds(probability, outcome) {
   const toAmericanOdds = (prob) => {
@@ -1865,7 +2730,7 @@ MATCHES:
 
 ${matchLines}`;
     try {
-      const resp = await withOpenAIRetry(() => groq.chat.completions.create({
+      const resp = await withGroqRetry(() => groq.chat.completions.create({
         model: GROQ_MODEL,
         messages: [{ role: "user", content: prompt }],
         max_tokens: Math.min(4500, batch.length * 800),
@@ -1955,8 +2820,6 @@ async function generateDailyFreePrediction() {
     isGeneratingFreeTip = false;
   }
 }
-var FREE_TIP_PREFERRED_SPORTS = /* @__PURE__ */ new Set(["basketball", "football", "mma"]);
-var FREE_TIP_AVOID_SPORTS = /* @__PURE__ */ new Set(["baseball", "hockey", "tennis", "cricket", "golf"]);
 async function _generateDailyFreeTip() {
   console.log("Generating daily free prediction \u2014 batch scoring all candidates...");
   const matches = await getUpcomingMatches();
@@ -1964,24 +2827,52 @@ async function _generateDailyFreeTip() {
     console.error("No upcoming matches available for free prediction");
     return;
   }
-  const tomorrowStart = /* @__PURE__ */ new Date();
-  tomorrowStart.setUTCHours(0, 0, 0, 0);
-  tomorrowStart.setUTCDate(tomorrowStart.getUTCDate() + 1);
-  const tomorrowEnd = new Date(tomorrowStart);
-  tomorrowEnd.setUTCDate(tomorrowEnd.getUTCDate() + 1);
-  const tomorrowMatches = matches.filter(
-    (m) => m.matchTime >= tomorrowStart && m.matchTime < tomorrowEnd
-  );
-  const pool = tomorrowMatches.length > 0 ? tomorrowMatches : matches;
-  console.log(
-    tomorrowMatches.length > 0 ? `[FREE-TIP] Using ${tomorrowMatches.length} tomorrow's games (${tomorrowStart.toISOString().slice(0, 10)})` : `[FREE-TIP] No tomorrow games \u2014 using all ${matches.length} upcoming games as fallback`
-  );
-  const preferred = pool.filter((m) => FREE_TIP_PREFERRED_SPORTS.has(m.sport));
-  const neutral = pool.filter((m) => !FREE_TIP_PREFERRED_SPORTS.has(m.sport) && !FREE_TIP_AVOID_SPORTS.has(m.sport));
-  const avoid = pool.filter((m) => FREE_TIP_AVOID_SPORTS.has(m.sport));
-  const ordered = [...preferred, ...neutral, ...avoid];
+  const ET_OFFSET_MS = 4 * 60 * 60 * 1e3;
+  const nowInEt = new Date(Date.now() - ET_OFFSET_MS);
+  let windowStart = new Date(nowInEt);
+  windowStart.setUTCHours(0, 0, 0, 0);
+  windowStart.setUTCDate(windowStart.getUTCDate() + 1);
+  windowStart = new Date(windowStart.getTime() + ET_OFFSET_MS);
+  let windowEnd = new Date(windowStart.getTime() + 24 * 60 * 60 * 1e3);
+  let pool = matches.filter((m) => m.matchTime >= windowStart && m.matchTime < windowEnd);
+  let daysAhead = 1;
+  while (pool.length === 0 && daysAhead < 7) {
+    windowStart = new Date(windowEnd);
+    windowEnd = new Date(windowStart);
+    windowEnd.setUTCDate(windowEnd.getUTCDate() + 1);
+    pool = matches.filter((m) => m.matchTime >= windowStart && m.matchTime < windowEnd);
+    daysAhead++;
+  }
+  if (pool.length === 0) {
+    console.warn(`[FREE-TIP] No games found in next 7 days \u2014 skipping free tip generation`);
+    return;
+  }
+  const tomorrowStart = windowStart;
+  const tomorrowEnd = windowEnd;
+  console.log(`[FREE-TIP] Using ${pool.length} games for ${tomorrowStart.toISOString().slice(0, 10)} (${daysAhead === 1 ? "tomorrow" : `${daysAhead} days ahead \u2014 tomorrow had none`})`);
+  const bySport = /* @__PURE__ */ new Map();
+  for (const m of pool) {
+    const list = bySport.get(m.sport) ?? [];
+    list.push(m);
+    bySport.set(m.sport, list);
+  }
+  const sportQueues = Array.from(bySport.values());
+  const ordered = [];
+  let added = true;
+  while (added) {
+    added = false;
+    for (const queue of sportQueues) {
+      const next = queue.shift();
+      if (next) {
+        ordered.push(next);
+        added = true;
+      }
+    }
+  }
   const SEARCH_LIMIT = Math.min(25, ordered.length);
   const candidates = ordered.slice(0, SEARCH_LIMIT).map((m) => ({ match: m, betType: "winner" }));
+  const sportSummary = Array.from(new Set(candidates.map((c) => c.match.sport))).join(", ");
+  console.log(`[FREE-TIP] Candidate sports mix: ${sportSummary}`);
   console.log(`[FREE-TIP] Batch-scoring ${candidates.length} candidates...`);
   const results = await generatePredictionsBatch(candidates);
   let best = null;
@@ -1996,7 +2887,49 @@ async function _generateDailyFreeTip() {
   }
   console.log(`[FREE-TIP] Best pick: ${best ? `${best.match.homeTeam} vs ${best.match.awayTeam} (${best.analysis.probability}%)` : "none found"}`);
   if (!best) {
-    console.error("Could not generate any free prediction");
+    console.warn("[FREE-TIP] Batch scoring produced no results (likely Groq rate-limited) \u2014 trying fallback to best existing premium pick");
+    try {
+      const candidates2 = await db.select().from(predictions).where(
+        and(
+          eq2(predictions.isPremium, true),
+          eq2(predictions.isLive, false),
+          isNull(predictions.userId),
+          sql4`${predictions.matchTime} >= ${tomorrowStart}`,
+          sql4`${predictions.matchTime} < ${tomorrowEnd}`,
+          sql4`${predictions.matchTitle} NOT LIKE '%(O/U)'`,
+          sql4`${predictions.explanation} NOT LIKE '[DEMO]%'`,
+          isNull(predictions.result)
+        )
+      ).orderBy(desc2(predictions.probability), predictions.matchTime).limit(10);
+      const pick = candidates2[0];
+      if (!pick) {
+        console.error("[FREE-TIP] Fallback failed: no premium predictions available to clone");
+        return;
+      }
+      const fbDisplayProbability = Math.max(pick.probability, 71);
+      const fbDisplayConfidence = fbDisplayProbability >= 75 ? "high" : pick.confidence;
+      const fbSportsbookOdds = generateSportsbookOdds(fbDisplayProbability, pick.predictedOutcome);
+      await db.insert(predictions).values({
+        userId: null,
+        matchTitle: pick.matchTitle,
+        sport: pick.sport,
+        matchTime: pick.matchTime,
+        predictedOutcome: pick.predictedOutcome,
+        probability: fbDisplayProbability,
+        confidence: fbDisplayConfidence,
+        explanation: pick.explanation,
+        factors: pick.factors,
+        sportsbookOdds: fbSportsbookOdds,
+        riskIndex: Math.min(pick.riskIndex ?? 3, 4),
+        isLive: false,
+        isPremium: false,
+        result: null,
+        expiresAt: new Date(pick.matchTime.getTime() + 3 * 60 * 60 * 1e3)
+      });
+      console.log(`[FREE-TIP] Fallback success: cloned premium pick "${pick.matchTitle}" (real ${pick.probability}% \u2192 display ${fbDisplayProbability}%, sport: ${pick.sport})`);
+    } catch (fallbackErr) {
+      console.error("[FREE-TIP] Fallback failed with error:", fallbackErr);
+    }
     return;
   }
   const displayProbability = Math.max(best.analysis.probability, 71);
@@ -2074,6 +3007,11 @@ async function generatePremiumPredictionsForUser(userId) {
     const { match, betType, effectiveTitle } = items[i];
     const analysis = results[i];
     if (!analysis || analysis.probability < 65) continue;
+    const leadTimeMs = match.matchTime.getTime() - Date.now();
+    if (leadTimeMs < 90 * 60 * 1e3) {
+      console.warn(`[PREMIUM-USER] Skipping ${effectiveTitle} for ${userId}: starts in ${Math.round(leadTimeMs / 6e4)}min (< 90min lead time, likely corrupt source data) \u2014 matchTime=${match.matchTime.toISOString()}`);
+      continue;
+    }
     const sportsbookOdds = generateSportsbookOdds(analysis.probability, analysis.predictedOutcome);
     try {
       await db.insert(predictions).values({
@@ -2221,16 +3159,26 @@ async function generateDemoPredictions() {
   console.log("Generating demo predictions for all sports...");
   const matches = await getUpcomingMatches();
   const usingFallback = isUsingFallbackData();
-  if (usingFallback) {
-    console.log("API unavailable \u2014 using fallback matches, predictions will be marked as [DEMO]");
+  const existingSystemPicks = await db.select({
+    matchTitle: predictions.matchTitle,
+    matchTime: predictions.matchTime
+  }).from(predictions).where(isNull(predictions.userId));
+  const normalizeTeam = (t) => t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+  const buildKey = (home, away, matchTime, betType) => {
+    const pair = [normalizeTeam(home), normalizeTeam(away)].sort().join("|");
+    const date = matchTime.toISOString().slice(0, 10);
+    return `${pair}|${date}|${betType}`;
+  };
+  const existingKeys = /* @__PURE__ */ new Set();
+  for (const p of existingSystemPicks) {
+    const isOU = / \(O\/U\)$/.test(p.matchTitle);
+    const cleanTitle = p.matchTitle.replace(/ \(O\/U\)$/, "");
+    const idx = cleanTitle.indexOf(" vs ");
+    if (idx <= 0) continue;
+    const home = cleanTitle.substring(0, idx);
+    const away = cleanTitle.substring(idx + 4);
+    existingKeys.add(buildKey(home, away, p.matchTime, isOU ? "overunder" : "winner"));
   }
-  const existingDemo = await db.select().from(predictions).where(
-    and(
-      eq2(predictions.isPremium, true),
-      isNull(predictions.userId)
-    )
-  );
-  const existingTitles = new Set(existingDemo.map((p) => p.matchTitle));
   const ouSports = ["basketball", "baseball", "hockey"];
   const demoOuSet = /* @__PURE__ */ new Set();
   for (const sport of ouSports) {
@@ -2243,13 +3191,23 @@ async function generateDemoPredictions() {
   }
   const HIGH_VARIANCE_SPORTS = /* @__PURE__ */ new Set(["baseball", "hockey", "tennis", "golf", "cricket"]);
   const items = [];
+  const queuedKeys = /* @__PURE__ */ new Set();
+  let dedupSkipped = 0;
   for (const match of matches) {
     const matchTitle = `${match.homeTeam} vs ${match.awayTeam}`;
     const useOU = ouSports.includes(match.sport) && demoOuSet.has(matchTitle);
+    const betType = useOU ? "overunder" : "winner";
     const effectiveTitle = useOU ? `${matchTitle} (O/U)` : matchTitle;
-    if (!existingTitles.has(effectiveTitle)) {
-      items.push({ match, betType: useOU ? "overunder" : "winner", effectiveTitle });
+    const key = buildKey(match.homeTeam, match.awayTeam, match.matchTime, betType);
+    if (existingKeys.has(key) || queuedKeys.has(key)) {
+      dedupSkipped++;
+      continue;
     }
+    items.push({ match, betType, effectiveTitle });
+    queuedKeys.add(key);
+  }
+  if (dedupSkipped > 0) {
+    console.log(`[DEMO] Dedup skipped ${dedupSkipped} matches already covered by existing predictions`);
   }
   if (items.length === 0) {
     console.log("All demo predictions already exist, skipping generation");
@@ -2270,7 +3228,13 @@ async function generateDemoPredictions() {
       console.log(`Skipping low-confidence prediction (${analysis.probability}% < ${minProbability}%): ${effectiveTitle}`);
       continue;
     }
-    const explanation = usingFallback ? `[DEMO] ${analysis.explanation}` : analysis.explanation;
+    const leadTimeMs = match.matchTime.getTime() - Date.now();
+    const MIN_LEAD_TIME_MS = 90 * 60 * 1e3;
+    if (leadTimeMs < MIN_LEAD_TIME_MS) {
+      console.warn(`[DEMO] Skipping ${effectiveTitle}: starts in ${Math.round(leadTimeMs / 6e4)}min (< 90min lead time, likely corrupt source data) \u2014 matchTime=${match.matchTime.toISOString()}`);
+      continue;
+    }
+    const explanation = analysis.explanation;
     const sportsbookOdds = generateSportsbookOdds(analysis.probability, analysis.predictedOutcome);
     try {
       await db.insert(predictions).values({
@@ -2290,7 +3254,7 @@ async function generateDemoPredictions() {
         result: null,
         expiresAt: new Date(match.matchTime.getTime() + 3 * 60 * 60 * 1e3)
       });
-      existingTitles.add(effectiveTitle);
+      existingKeys.add(buildKey(match.homeTeam, match.awayTeam, match.matchTime, betType));
       inserted++;
       console.log(`Generated ${usingFallback ? "fallback" : "real"} ${betType === "overunder" ? "O/U" : "winner"} prediction: ${effectiveTitle} (${match.sport})`);
     } catch (error) {
@@ -2309,10 +3273,11 @@ async function forceNewFreeTip() {
     and(
       eq2(predictions.isPremium, false),
       isNull(predictions.userId),
-      gte(predictions.createdAt, startOfToday)
+      gte(predictions.createdAt, startOfToday),
+      sql4`(${predictions.result} IS NULL OR ${predictions.result} = 'incorrect')`
     )
   );
-  console.log("Deleted today's free tip \u2014 generating fresh one...");
+  console.log("Deleted today's unresolved/incorrect free tips \u2014 generating fresh one (any winners preserved for history)...");
   isGeneratingFreeTip = false;
   await _generateDailyFreeTip();
   try {
@@ -2419,7 +3384,7 @@ async function getHistoryPredictions(userId, isPremiumUser, premiumSince) {
       sql4`${predictions.matchTime} >= ${thirtyDaysAgo.toISOString()}::timestamp`,
       sql4`${predictions.expiresAt} > ${predictions.matchTime}`
     )
-  ).orderBy(desc2(predictions.matchTime), desc2(predictions.isPremium));
+  ).orderBy(desc2(predictions.matchTime), asc(predictions.isPremium));
   const seen = /* @__PURE__ */ new Set();
   const deduped = [];
   for (const r of rows) {
@@ -2507,7 +3472,7 @@ async function getSportPredictionCounts(userId, isPremiumUser) {
   }
   return counts;
 }
-async function resolvePredictionResults() {
+async function resolvePredictionResults(includeOddsApi = false) {
   const now = /* @__PURE__ */ new Date();
   const FINISH_BUFFER_HOURS = 2;
   const finishBufferAgo = new Date(now.getTime() - FINISH_BUFFER_HOURS * 60 * 60 * 1e3);
@@ -2523,7 +3488,7 @@ async function resolvePredictionResults() {
     console.log("No predictions to resolve");
     return;
   }
-  const completedGames = await getRecentCompletedGames();
+  const completedGames = await getRecentCompletedGames(includeOddsApi);
   if (completedGames.length === 0) {
     console.log("No completed games to resolve against");
     return;
@@ -2628,6 +3593,18 @@ async function resolvePredictionResults() {
     }
   }
   console.log(`Resolved predictions: ${correct} correct, ${incorrect} marked incorrect out of ${unresolved.length}`);
+  const sixHoursAgoForFlip = new Date(now.getTime() - 6 * 60 * 60 * 1e3);
+  const flipped = await db.update(predictions).set({ result: "unresolved" }).where(
+    and(
+      isNull(predictions.userId),
+      isNull(predictions.result),
+      sql4`${predictions.matchTime} < ${sixHoursAgoForFlip.toISOString()}::timestamp`,
+      sql4`${predictions.matchTime} >= ${fourteenDaysAgo.toISOString()}::timestamp`
+    )
+  ).returning({ id: predictions.id, matchTitle: predictions.matchTitle });
+  if (flipped.length > 0) {
+    console.log(`[RESOLVE] Flipped ${flipped.length} stuck NULL predictions to 'unresolved' for AI fallback: ${flipped.map((f) => f.matchTitle).join(", ")}`);
+  }
   const activeTip = await getTodaysActiveFreePrediction();
   if (!activeTip) {
     console.log("Free tip was lost or expired \u2014 auto-generating replacement...");
@@ -2727,10 +3704,6 @@ async function fixPrematurelyResolvedPredictions() {
   if (resetted.length > 0) {
     console.log(`Reset ${resetted.length} prematurely resolved predictions: ${resetted.map((r) => r.matchTitle).join(", ")}`);
   }
-  const removed = await db.delete(predictions).where(eq2(predictions.result, "incorrect")).returning({ id: predictions.id, matchTitle: predictions.matchTitle });
-  if (removed.length > 0) {
-    console.log(`Removed ${removed.length} incorrect predictions: ${removed.map((r) => r.matchTitle).join(", ")}`);
-  }
   const fabricated = await db.delete(predictions).where(
     and(
       eq2(predictions.isPremium, true),
@@ -2783,10 +3756,11 @@ async function resetAndGenerateDailyFreeTip() {
       eq2(predictions.isPremium, false),
       isNull(predictions.userId),
       sql4`${predictions.createdAt} < ${startOfToday.toISOString()}::timestamp`,
-      sql4`${predictions.expiresAt} > ${predictions.matchTime}`
+      sql4`${predictions.expiresAt} > ${predictions.matchTime}`,
+      sql4`(${predictions.result} IS NULL OR ${predictions.result} = 'incorrect')`
     )
   );
-  console.log("Midnight reset: cleared previous day's free tip");
+  console.log("Midnight reset: cleared previous day's unresolved/incorrect free tips (winners preserved for history)");
   isGeneratingFreeTip = false;
   await _generateDailyFreeTip();
 }
@@ -2796,15 +3770,10 @@ async function dailyPredictionRefresh() {
     await runWithRetry(() => purgeFakeHistoryEntries(), "purgeFakeHistoryEntries");
     await runWithRetry(() => fixPrematurelyResolvedPredictions(), "fixPrematurelyResolvedPredictions");
     await runWithRetry(() => reverifyResolutionsAfterWindowFix(), "reverifyResolutionsAfterWindowFix");
-    await runWithRetry(() => resolvePredictionResults(), "resolvePredictionResults");
+    await runWithRetry(() => resolvePredictionResults(true), "resolvePredictionResults");
     await runWithRetry(() => clearExpiredPredictions(), "clearExpiredPredictions");
     await runWithRetry(() => resetAndGenerateDailyFreeTip(), "resetAndGenerateDailyFreeTip");
     await runWithRetry(() => refreshDemoPredictions(), "refreshDemoPredictions");
-    try {
-      await resolveStuckPredictionsViaAI();
-    } catch (err) {
-      console.error("[MIDNIGHT] AI fallback resolver failed:", err);
-    }
     console.log("Daily prediction refresh completed successfully");
     const { notifyDailyFreePredictionReady: notifyDailyFreePredictionReady2 } = await Promise.resolve().then(() => (init_pushNotificationService(), pushNotificationService_exports));
     await notifyDailyFreePredictionReady2();
@@ -2813,90 +3782,8 @@ async function dailyPredictionRefresh() {
     throw error;
   }
 }
-async function resolveStuckPredictionsViaAI(maxBatch = 50) {
-  const stuck = await db.select().from(predictions).where(
-    sql4`${predictions.result} = 'unresolved'`
-  ).orderBy(desc2(predictions.matchTime)).limit(maxBatch);
-  if (stuck.length === 0) return { correct: 0, incorrect: 0, unknown: 0 };
-  console.log(`[AI-RESOLVE] Found ${stuck.length} stuck predictions. Pass 1: batch mini resolve...`);
-  let aiCorrect = 0;
-  let aiIncorrect = 0;
-  let aiUnknown = 0;
-  const BATCH_SIZE = 10;
-  const stillUnknown = [];
-  for (let i = 0; i < stuck.length; i += BATCH_SIZE) {
-    const batch = stuck.slice(i, i + BATCH_SIZE);
-    const batchLines = batch.map((p, idx) => {
-      const title = (p.matchTitle || "").replace(/\s*\(O\/U\)$/, "");
-      const date = p.matchTime ? new Date(p.matchTime).toISOString().split("T")[0] : "unknown";
-      const isOU = (p.matchTitle || "").includes("(O/U)");
-      return `[${idx}] ${title} | sport: ${p.sport} | date: ${date} | bet: ${isOU ? "over/under" : "winner"} | predicted: "${p.predictedOutcome}"`;
-    }).join("\n");
-    const batchPrompt = `You are a sports results assistant. Using only your training knowledge, resolve the following predictions. Only set "found": true when you are fully certain of the result \u2014 if there is ANY doubt, set "found": false.
-
-Resolution rules:
-- Winner bets: extract team name from predictedOutcome (e.g. "Lakers Win" \u2192 Lakers). predictionCorrect = true if that team won.
-- O/U bets: parse line from predictedOutcome (e.g. "Over 224.5"). Sum homeScore+awayScore = total. Over wins if total > line, Under wins if total < line.
-- If postponed, cancelled, or uncertain: found: false.
-
-MATCHES:
-${batchLines}
-
-Return ONLY this JSON object (no prose, no markdown):
-{"results": [
-  {"index": 0, "found": true, "homeScore": 3, "awayScore": 1, "predictionCorrect": true, "reasoning": "X won 3-1"},
-  {"index": 1, "found": false, "reasoning": "Not certain of result"},
-  ...
-]}`;
-    try {
-      const resp = await withOpenAIRetry(() => groq.chat.completions.create({
-        model: GROQ_MODEL,
-        messages: [{ role: "user", content: batchPrompt }],
-        max_tokens: 600,
-        temperature: 0.1,
-        response_format: { type: "json_object" }
-      }));
-      let raw = resp.choices[0]?.message?.content || "[]";
-      raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-      let parsed;
-      try {
-        const obj = JSON.parse(raw);
-        parsed = Array.isArray(obj) ? obj : obj.results || obj.predictions || Object.values(obj);
-      } catch {
-        parsed = [];
-      }
-      for (const item of parsed) {
-        const idx = item.index ?? item.idx;
-        if (typeof idx !== "number" || idx < 0 || idx >= batch.length) continue;
-        const pred = batch[idx];
-        if (!item.found || item.predictionCorrect === null || item.predictionCorrect === void 0) {
-          stillUnknown.push(pred);
-          continue;
-        }
-        const newResult = item.predictionCorrect ? "correct" : "incorrect";
-        await db.update(predictions).set({ result: newResult }).where(eq2(predictions.id, pred.id));
-        if (item.predictionCorrect) aiCorrect++;
-        else aiIncorrect++;
-        const scoreStr = item.homeScore != null && item.awayScore != null ? `${item.homeScore}-${item.awayScore}` : "score n/a";
-        const matchupClean = (pred.matchTitle || "").replace(/\s*\(O\/U\)$/, "");
-        console.log(`[AI-RESOLVE][mini] ${matchupClean}: ${scoreStr}, predicted "${pred.predictedOutcome}" \u2192 ${newResult.toUpperCase()}`);
-      }
-      const respondedIndexes = new Set(parsed.map((p) => p.index ?? p.idx));
-      for (let j = 0; j < batch.length; j++) {
-        if (!respondedIndexes.has(j)) stillUnknown.push(batch[j]);
-      }
-      await sleep(5e3);
-    } catch (err) {
-      console.error(`[AI-RESOLVE][mini] Batch ${i / BATCH_SIZE + 1} failed:`, err instanceof Error ? err.message : err);
-      stillUnknown.push(...batch);
-    }
-  }
-  aiUnknown += stillUnknown.length;
-  console.log(`[AI-RESOLVE] Done: ${aiCorrect} correct, ${aiIncorrect} incorrect, ${aiUnknown} still unknown out of ${stuck.length}`);
-  return { correct: aiCorrect, incorrect: aiIncorrect, unknown: aiUnknown };
-}
-async function refreshDemoPredictions() {
-  console.log("Refreshing premium predictions with real API games...");
+async function refreshDemoPredictions(espnOnly = false) {
+  console.log(`Refreshing premium predictions with real API games...${espnOnly ? " [ESPN-only mode]" : ""}`);
   const now = /* @__PURE__ */ new Date();
   const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1e3);
   const unresolved = await db.update(predictions).set({ result: "unresolved" }).where(
@@ -2916,7 +3803,7 @@ async function refreshDemoPredictions() {
       sql4`${predictions.matchTime} > ${now.toISOString()}::timestamp`
     )
   );
-  const usingEspnOnly = isUsingFallbackData();
+  const usingEspnOnly = espnOnly || isUsingFallbackData();
   const PER_SPORT_TARGET = 3;
   const TOTAL_TARGET = 40;
   const coreSports = ["football", "basketball", "baseball", "hockey", "mma"];
@@ -2936,7 +3823,7 @@ async function refreshDemoPredictions() {
   } else {
     console.log(`Only ${existing.length}/${TOTAL_TARGET} premium predictions, fetching more real games from API...`);
   }
-  await refreshUpcomingMatches();
+  await refreshUpcomingMatches(espnOnly);
   await generateDemoPredictions();
 }
 async function checkAndReplaceFreeTip() {
@@ -2992,6 +3879,7 @@ async function logDailyResolutionSummary() {
 }
 function startDailyRefreshScheduler() {
   const THIRTY_MINUTES = 30 * 60 * 1e3;
+  const SIX_HOURS = 6 * 60 * 60 * 1e3;
   const RETRY_DELAY = 5 * 60 * 1e3;
   console.log("Daily prediction refresh scheduler started");
   async function runRefreshWithRetry() {
@@ -3068,6 +3956,23 @@ function startDailyRefreshScheduler() {
     }, msUntil8am);
   }
   schedule8amResolution();
+  function scheduleNoonEspnTopUp() {
+    const now = /* @__PURE__ */ new Date();
+    const nextNoon = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12, 0, 0));
+    if (nextNoon <= now) nextNoon.setUTCDate(nextNoon.getUTCDate() + 1);
+    const msUntilNoon = nextNoon.getTime() - now.getTime();
+    console.log(`Noon ESPN-only top-up scheduled at 12 PM UTC (in ${Math.round(msUntilNoon / 6e4)} minutes)`);
+    setTimeout(async () => {
+      console.log("[NOON TOPUP] Running ESPN-only prediction top-up...");
+      try {
+        await refreshDemoPredictions(true);
+      } catch (err) {
+        console.error("[NOON TOPUP] Failed:", err);
+      }
+      scheduleNoonEspnTopUp();
+    }, msUntilNoon);
+  }
+  scheduleNoonEspnTopUp();
   setInterval(async () => {
     try {
       await resolvePredictionResults();
@@ -3114,6 +4019,10 @@ var addHistorySchema = z.object({
 var fixMigratedSchema = z.object({
   ids: z.array(z.number().int().positive()).min(1).max(500)
 });
+function isAnnualProduct(productId) {
+  const id = String(productId || "").toLowerCase();
+  return id.includes("annual") || id.includes("yearly") || /(^|[^a-z])year([^a-z]|$)/.test(id);
+}
 function safeErrorMessage(error, fallback = "An unexpected error occurred") {
   if (error instanceof z.ZodError) {
     return error.errors.map((e) => e.message).join(", ");
@@ -3139,8 +4048,8 @@ function redactPrediction(p) {
     riskIndex: 0
   };
 }
-var loginRateLimit = rateLimit({ windowMs: 15 * 60 * 1e3, max: 5 });
-var registerRateLimit = rateLimit({ windowMs: 60 * 60 * 1e3, max: 5 });
+var loginRateLimit = rateLimit({ windowMs: 15 * 60 * 1e3, max: 20 });
+var registerRateLimit = rateLimit({ windowMs: 60 * 60 * 1e3, max: 10 });
 var contactRateLimit = rateLimit({ windowMs: 60 * 60 * 1e3, max: 5 });
 var generateRateLimit = rateLimit({ windowMs: 60 * 1e3, max: 3 });
 var apiReadRateLimit = rateLimit({ windowMs: 60 * 1e3, max: 60 });
@@ -3149,7 +4058,12 @@ async function registerRoutes(app2) {
   app2.post("/api/auth/register", registerRateLimit, async (req, res) => {
     try {
       const { email, password, name, referralCode } = registerSchema.parse(req.body);
-      const existingUser = await storage.getUserByEmail(email.toLowerCase().trim());
+      const normalizedEmail = email.toLowerCase().trim();
+      const deliverability = await validateEmailDeliverable(normalizedEmail);
+      if (!deliverability.valid) {
+        return res.status(400).json({ error: deliverability.reason || "Please enter a valid email address." });
+      }
+      const existingUser = await storage.getUserByEmail(normalizedEmail);
       if (existingUser) {
         return res.status(400).json({ error: "Unable to create account. Please try a different email or sign in." });
       }
@@ -3159,7 +4073,8 @@ async function registerRoutes(app2) {
         password: hashedPassword,
         name: name.trim()
       }, referralCode);
-      const token = signToken(user.id);
+      setCachedTokenVersion(user.id, 0);
+      const token = signToken(user.id, 0);
       return res.json({
         user: {
           id: user.id,
@@ -3194,7 +4109,23 @@ async function registerRoutes(app2) {
       if (!isValidPassword) {
         return res.status(401).json({ error: "Invalid credentials" });
       }
-      const token = signToken(user.id);
+      let newTokenVersion;
+      try {
+        const result = await db.execute(
+          sql5`UPDATE users SET token_version = token_version + 1 WHERE id = ${user.id} RETURNING token_version`
+        );
+        const rows = Array.isArray(result) ? result : result?.rows ?? [];
+        const bumped = rows[0]?.token_version;
+        if (bumped === void 0 || bumped === null) {
+          throw new Error("token_version bump returned no rows");
+        }
+        newTokenVersion = Number(bumped);
+      } catch (err) {
+        console.error("[AUTH] failed to bump token_version on login:", err.message);
+        return res.status(500).json({ error: "Could not start session. Please try again." });
+      }
+      setCachedTokenVersion(user.id, newTokenVersion);
+      const token = signToken(user.id, newTokenVersion);
       return res.json({
         user: {
           id: user.id,
@@ -3345,9 +4276,13 @@ async function registerRoutes(app2) {
         return res.status(404).json({ error: "User not found" });
       }
       if (!user.isPremium) {
-        checkRCSubscription(userId).then(async (rcStatus) => {
+        try {
+          const rcStatus = await Promise.race([
+            checkRCSubscription(userId),
+            new Promise((resolve3) => setTimeout(() => resolve3(null), 4e3))
+          ]);
           if (rcStatus?.isPremium) {
-            const isAnnual = String(rcStatus.productIdentifier || "").includes("annual");
+            const isAnnual = isAnnualProduct(rcStatus.productIdentifier);
             const expiry = rcStatus.expiryDate ?? (() => {
               const d = /* @__PURE__ */ new Date();
               isAnnual ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
@@ -3358,10 +4293,12 @@ async function registerRoutes(app2) {
               subscriptionExpiry: expiry,
               premiumSince: /* @__PURE__ */ new Date()
             });
-            console.log(`[RC] background check activated premium for user ${userId}`);
+            user = { ...user, isPremium: true, subscriptionExpiry: expiry };
+            console.log(`[RC] sync check activated premium for user ${userId}`);
           }
-        }).catch(() => {
-        });
+        } catch (err) {
+          console.error(`[RC] sync check failed for user ${userId}:`, err);
+        }
       }
       if (!user.stripeSubscriptionId) {
         return res.json({
@@ -3410,7 +4347,7 @@ async function registerRoutes(app2) {
           if (rcStatus?.isPremium) {
             expiry = rcStatus.expiryDate ?? (() => {
               const d = /* @__PURE__ */ new Date();
-              const isAnn = String(productIdentifier || "").includes("annual");
+              const isAnn = isAnnualProduct(productIdentifier);
               isAnn ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
               return d;
             })();
@@ -3421,7 +4358,7 @@ async function registerRoutes(app2) {
           } else {
             expiry = (() => {
               const d = /* @__PURE__ */ new Date();
-              const isAnn = String(productIdentifier || "").includes("annual");
+              const isAnn = isAnnualProduct(productIdentifier);
               isAnn ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
               return d;
             })();
@@ -3429,7 +4366,7 @@ async function registerRoutes(app2) {
         } else {
           expiry = (() => {
             const d = /* @__PURE__ */ new Date();
-            const isAnn = String(productIdentifier || "").includes("annual");
+            const isAnn = isAnnualProduct(productIdentifier);
             isAnn ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
             return d;
           })();
@@ -3443,7 +4380,7 @@ async function registerRoutes(app2) {
           updateData.premiumSince = /* @__PURE__ */ new Date();
         }
         await storage.updateUserStripeInfo(userId, updateData);
-        const isAnnual = String(productIdentifier || "").includes("annual");
+        const isAnnual = isAnnualProduct(productIdentifier);
         console.log(`RevenueCat sync [${source}]: user ${userId} \u2192 isPremium=true (${isAnnual ? "annual" : "monthly"})`);
         return res.json({ isPremium: true, subscriptionExpiry: expiry });
       } else {
@@ -3462,12 +4399,46 @@ async function registerRoutes(app2) {
     try {
       const event = req.body;
       const eventType = event?.event?.type;
-      const appUserId = event?.event?.app_user_id;
       const productId = event?.event?.product_id;
       const expirationAtMs = event?.event?.expiration_at_ms;
-      console.log(`RevenueCat webhook received: type=${eventType} user=${appUserId} product=${productId}`);
-      if (!appUserId || !eventType) {
-        console.warn("RevenueCat webhook: missing appUserId or eventType", JSON.stringify(event).slice(0, 200));
+      const transferredFrom = Array.isArray(event?.event?.transferred_from) ? event.event.transferred_from : [];
+      const transferredTo = Array.isArray(event?.event?.transferred_to) ? event.event.transferred_to : [];
+      const appUserId = event?.event?.app_user_id || (eventType === "TRANSFER" ? transferredTo[0] : void 0);
+      console.log(
+        `RevenueCat webhook received: type=${eventType} user=${appUserId} product=${productId}` + (eventType === "TRANSFER" ? ` from=[${transferredFrom.join(",")}] to=[${transferredTo.join(",")}]` : "")
+      );
+      if (!eventType) {
+        console.warn("RevenueCat webhook: missing eventType", JSON.stringify(event).slice(0, 200));
+        return res.status(400).json({ error: "Invalid webhook payload" });
+      }
+      if (eventType === "TRANSFER") {
+        for (const fromId of transferredFrom) {
+          const fromUser = await storage.getUser(String(fromId));
+          if (fromUser) {
+            await storage.updateUserStripeInfo(String(fromId), { isPremium: false });
+            console.log(`RevenueCat webhook: TRANSFER \u2192 isPremium=false for ${fromId}`);
+          }
+        }
+        for (const toId of transferredTo) {
+          const toUser = await storage.getUser(String(toId));
+          if (!toUser) {
+            console.log(`RevenueCat webhook: TRANSFER target ${toId} not in DB (skipping activation)`);
+            continue;
+          }
+          const expiry = expirationAtMs ? new Date(expirationAtMs) : (() => {
+            const d = /* @__PURE__ */ new Date();
+            isAnnualProduct(productId) ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
+            return d;
+          })();
+          const update = { isPremium: true, subscriptionExpiry: expiry };
+          if (!toUser.isPremium) update.premiumSince = /* @__PURE__ */ new Date();
+          await storage.updateUserStripeInfo(String(toId), update);
+          console.log(`RevenueCat webhook: TRANSFER \u2192 isPremium=true for ${toId}`);
+        }
+        return res.json({ received: true });
+      }
+      if (!appUserId) {
+        console.warn("RevenueCat webhook: missing appUserId", JSON.stringify(event).slice(0, 200));
         return res.status(400).json({ error: "Invalid webhook payload" });
       }
       const user = await storage.getUser(String(appUserId));
@@ -3475,7 +4446,7 @@ async function registerRoutes(app2) {
         console.log(`RevenueCat webhook: user ${appUserId} not in DB (skipping)`);
         return res.json({ received: true });
       }
-      const activatingEvents = ["INITIAL_PURCHASE", "RENEWAL", "PRODUCT_CHANGE", "UNCANCELLATION", "TRANSFER"];
+      const activatingEvents = ["INITIAL_PURCHASE", "RENEWAL", "PRODUCT_CHANGE", "UNCANCELLATION"];
       const deactivatingEvents = ["CANCELLATION", "EXPIRATION", "BILLING_ISSUE"];
       if (activatingEvents.includes(eventType)) {
         let expiry;
@@ -3483,7 +4454,7 @@ async function registerRoutes(app2) {
           expiry = new Date(expirationAtMs);
         } else {
           expiry = /* @__PURE__ */ new Date();
-          const isAnnual = String(productId || "").includes("annual");
+          const isAnnual = isAnnualProduct(productId);
           isAnnual ? expiry.setFullYear(expiry.getFullYear() + 1) : expiry.setMonth(expiry.getMonth() + 1);
         }
         const webhookUpdate = { isPremium: true, subscriptionExpiry: expiry };
@@ -3674,7 +4645,8 @@ async function registerRoutes(app2) {
         const u = await storage.getUser(req.userId);
         isPremiumUser = u?.isPremium === true;
       }
-      const result = prediction.isPremium && !isPremiumUser ? redactPrediction(prediction) : prediction;
+      const isResolved = prediction.result === "correct" || prediction.result === "incorrect";
+      const result = prediction.isPremium && !isPremiumUser && !isResolved ? redactPrediction(prediction) : prediction;
       res.json({ prediction: result });
     } catch (error) {
       res.status(500).json({ error: safeErrorMessage(error) });
@@ -3696,12 +4668,107 @@ async function registerRoutes(app2) {
       res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
+  const editContentSchema = z.object({
+    explanation: z.string().max(5e3).optional(),
+    factors: z.array(z.object({
+      title: z.string().max(200),
+      impact: z.string().max(50),
+      description: z.string().max(1e3)
+    })).max(20).optional()
+  });
+  const fixMatchTimeSchema = z.object({
+    matchTime: z.string().datetime(),
+    resetResult: z.boolean().optional().default(true)
+  });
+  app2.post("/api/predictions/:id/fix-match-time", requireAdmin, adminRateLimit, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id) || id <= 0 || id > 2147483647) {
+        return res.status(400).json({ error: "Invalid prediction ID" });
+      }
+      const parsed = fixMatchTimeSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: safeErrorMessage(parsed.error) });
+      }
+      const { matchTime, resetResult } = parsed.data;
+      const newMatchTime = new Date(matchTime);
+      if (isNaN(newMatchTime.getTime())) {
+        return res.status(400).json({ error: "Invalid matchTime" });
+      }
+      const newExpiresAt = new Date(newMatchTime.getTime() + 3 * 60 * 60 * 1e3);
+      if (resetResult) {
+        await db.execute(sql5`
+          UPDATE predictions
+          SET match_time = ${newMatchTime.toISOString()}::timestamp,
+              expires_at = ${newExpiresAt.toISOString()}::timestamp,
+              result = NULL
+          WHERE id = ${id}
+        `);
+      } else {
+        await db.execute(sql5`
+          UPDATE predictions
+          SET match_time = ${newMatchTime.toISOString()}::timestamp,
+              expires_at = ${newExpiresAt.toISOString()}::timestamp
+          WHERE id = ${id}
+        `);
+      }
+      res.json({ success: true, id, matchTime: newMatchTime.toISOString(), expiresAt: newExpiresAt.toISOString(), resetResult });
+    } catch (error) {
+      console.error("Fix prediction matchTime error:", error);
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+  app2.post("/api/predictions/:id/edit-content", requireAdmin, adminRateLimit, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id) || id <= 0 || id > 2147483647) {
+        return res.status(400).json({ error: "Invalid prediction ID" });
+      }
+      const parsed = editContentSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: safeErrorMessage(parsed.error) });
+      }
+      const { explanation, factors } = parsed.data;
+      if (explanation === void 0 && factors === void 0) {
+        return res.status(400).json({ error: "Provide explanation and/or factors to update" });
+      }
+      if (explanation !== void 0 && factors !== void 0) {
+        await db.execute(sql5`
+          UPDATE predictions
+          SET explanation = ${explanation},
+              factors = ${JSON.stringify(factors)}::jsonb
+          WHERE id = ${id}
+        `);
+      } else if (explanation !== void 0) {
+        await db.execute(sql5`
+          UPDATE predictions SET explanation = ${explanation} WHERE id = ${id}
+        `);
+      } else {
+        await db.execute(sql5`
+          UPDATE predictions SET factors = ${JSON.stringify(factors)}::jsonb WHERE id = ${id}
+        `);
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Edit prediction content error:", error);
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
   const replaceTipSchema = z.object({
     matchTitle: z.string().min(1).max(500),
     sport: z.string().min(1).max(50),
+    matchTime: z.string().datetime().optional(),
     predictedOutcome: z.string().max(500).optional(),
     probability: z.number().min(0).max(100).optional(),
-    confidence: z.enum(["high", "medium", "low"]).optional()
+    confidence: z.enum(["high", "medium", "low"]).optional(),
+    explanation: z.string().max(5e3).optional(),
+    factors: z.array(z.object({
+      title: z.string().max(200),
+      impact: z.string().max(50),
+      description: z.string().max(1e3)
+    })).optional(),
+    sportsbookOdds: z.any().optional(),
+    riskIndex: z.number().int().min(0).max(10).optional()
   });
   app2.post("/api/predictions/replace-free-tip", requireAdmin, adminRateLimit, async (req, res) => {
     try {
@@ -4158,11 +5225,11 @@ var WebhookHandlers = class {
 // server/index.ts
 init_db();
 init_schema();
-import * as fs2 from "fs";
-import * as path2 from "path";
+import * as fs3 from "fs";
+import * as path3 from "path";
 import * as bcrypt2 from "bcryptjs";
 import { eq as eq4 } from "drizzle-orm";
-var app = express();
+var app = express2();
 var log = console.log;
 async function seedTestUser() {
   try {
@@ -4285,7 +5352,7 @@ function setupCors(app2) {
 function setupRequestLogging(app2) {
   app2.use((req, res, next) => {
     const start = Date.now();
-    const path3 = req.path;
+    const path4 = req.path;
     let capturedJsonResponse = void 0;
     const originalResJson = res.json;
     res.json = function(bodyJson, ...args) {
@@ -4293,9 +5360,9 @@ function setupRequestLogging(app2) {
       return originalResJson.apply(res, [bodyJson, ...args]);
     };
     res.on("finish", () => {
-      if (!path3.startsWith("/api")) return;
+      if (!path4.startsWith("/api")) return;
       const duration = Date.now() - start;
-      let logLine = `${req.method} ${path3} ${res.statusCode} in ${duration}ms`;
+      let logLine = `${req.method} ${path4} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
@@ -4309,8 +5376,8 @@ function setupRequestLogging(app2) {
 }
 function getAppName() {
   try {
-    const appJsonPath = path2.resolve(process.cwd(), "app.json");
-    const appJsonContent = fs2.readFileSync(appJsonPath, "utf-8");
+    const appJsonPath = path3.resolve(process.cwd(), "app.json");
+    const appJsonContent = fs3.readFileSync(appJsonPath, "utf-8");
     const appJson = JSON.parse(appJsonContent);
     return appJson.expo?.name || "App Landing Page";
   } catch {
@@ -4318,19 +5385,19 @@ function getAppName() {
   }
 }
 function serveExpoManifest(platform, res) {
-  const manifestPath = path2.resolve(
+  const manifestPath = path3.resolve(
     process.cwd(),
     "static-build",
     platform,
     "manifest.json"
   );
-  if (!fs2.existsSync(manifestPath)) {
+  if (!fs3.existsSync(manifestPath)) {
     return res.status(404).json({ error: `Manifest not found for platform: ${platform}` });
   }
   res.setHeader("expo-protocol-version", "1");
   res.setHeader("expo-sfv-version", "0");
   res.setHeader("content-type", "application/json");
-  const manifest = fs2.readFileSync(manifestPath, "utf-8");
+  const manifest = fs3.readFileSync(manifestPath, "utf-8");
   res.send(manifest);
 }
 function serveLandingPage({
@@ -4352,8 +5419,8 @@ function serveLandingPage({
   res.status(200).send(html);
 }
 function configureExpoAndLanding(app2) {
-  const distPath = path2.resolve(process.cwd(), "dist");
-  const webBuildExists = fs2.existsSync(path2.join(distPath, "index.html"));
+  const distPath = path3.resolve(process.cwd(), "dist");
+  const webBuildExists = fs3.existsSync(path3.join(distPath, "index.html"));
   log(`Serving ${webBuildExists ? "web app from dist/" : "Expo landing page"}`);
   app2.use((req, res, next) => {
     if (req.path.startsWith("/api")) {
@@ -4365,52 +5432,76 @@ function configureExpoAndLanding(app2) {
     }
     next();
   });
-  app2.use("/assets", express.static(path2.resolve(process.cwd(), "assets")));
+  app2.use("/assets", express2.static(path3.resolve(process.cwd(), "assets")));
   app2.get("/google5558d3209820d790.html", (_req, res) => {
-    const verifyPath = path2.resolve(process.cwd(), "server", "templates", "google5558d3209820d790.html");
+    const verifyPath = path3.resolve(process.cwd(), "server", "templates", "google5558d3209820d790.html");
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.sendFile(verifyPath);
   });
+  app2.get("/yandex_6b694df7940e1f88.html", (_req, res) => {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(
+      '<html>\n    <head>\n        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">\n    </head>\n    <body>Verification: 6b694df7940e1f88</body>\n</html>'
+    );
+  });
+  app2.get("/robots.txt", (_req, res) => {
+    const robotsPath = path3.resolve(process.cwd(), "server", "templates", "robots.txt");
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.sendFile(robotsPath);
+  });
+  app2.get("/sitemap.xml", (_req, res) => {
+    const sitemapPath = path3.resolve(process.cwd(), "server", "templates", "sitemap.xml");
+    res.setHeader("Content-Type", "application/xml; charset=utf-8");
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.sendFile(sitemapPath);
+  });
   app2.get("/contact", (_req, res) => {
-    const contactPath = path2.resolve(process.cwd(), "server", "templates", "contact.html");
+    const contactPath = path3.resolve(process.cwd(), "server", "templates", "contact.html");
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.sendFile(contactPath);
   });
-  const servePrivacyPolicy = (_req, res) => {
-    const policyPath = path2.resolve(process.cwd(), "server", "templates", "privacy-policy.html");
+  app2.get("/privacy-policy", (_req, res) => {
+    const policyPath = path3.resolve(process.cwd(), "server", "templates", "privacy-policy.html");
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.sendFile(policyPath);
-  };
-  app2.get("/privacypolicy", servePrivacyPolicy);
-  app2.get("/privacy-policy", servePrivacyPolicy);
-  const serveTerms = (_req, res) => {
-    const termsPath = path2.resolve(process.cwd(), "server", "templates", "terms.html");
+  });
+  app2.get("/privacypolicy", (_req, res) => {
+    res.redirect(301, "/privacy-policy");
+  });
+  app2.get("/terms", (_req, res) => {
+    const termsPath = path3.resolve(process.cwd(), "server", "templates", "terms.html");
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.sendFile(termsPath);
-  };
-  app2.get("/term", serveTerms);
-  app2.get("/terms", serveTerms);
-  app2.get("/termsofservice", serveTerms);
-  app2.get("/terms-of-service", serveTerms);
-  app2.get("/termsandconditions", serveTerms);
-  app2.get("/terms-and-conditions", serveTerms);
+  });
+  for (const alias of [
+    "/term",
+    "/termsofservice",
+    "/terms-of-service",
+    "/termsandconditions",
+    "/terms-and-conditions"
+  ]) {
+    app2.get(alias, (_req, res) => {
+      res.redirect(301, "/terms");
+    });
+  }
   app2.get("/checkout/success", (_req, res) => {
-    const successPath = path2.resolve(process.cwd(), "server", "templates", "checkout-success.html");
+    const successPath = path3.resolve(process.cwd(), "server", "templates", "checkout-success.html");
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.sendFile(successPath);
   });
   app2.get("/checkout/cancel", (_req, res) => {
-    const cancelPath = path2.resolve(process.cwd(), "server", "templates", "checkout-cancel.html");
+    const cancelPath = path3.resolve(process.cwd(), "server", "templates", "checkout-cancel.html");
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.sendFile(cancelPath);
   });
-  const templatePath = path2.resolve(
+  const templatePath = path3.resolve(
     process.cwd(),
     "server",
     "templates",
     "landing-page.html"
   );
-  const landingPageTemplate = fs2.readFileSync(templatePath, "utf-8");
+  const landingPageTemplate = fs3.readFileSync(templatePath, "utf-8");
   const appName = getAppName();
   app2.get("/", (req, res) => {
     serveLandingPage({ req, res, landingPageTemplate, appName });
@@ -4418,13 +5509,13 @@ function configureExpoAndLanding(app2) {
   if (webBuildExists) {
     const serveWebApp = (_req, res) => {
       res.setHeader("Cache-Control", "no-cache, must-revalidate");
-      res.sendFile(path2.join(distPath, "index.html"));
+      res.sendFile(path3.join(distPath, "index.html"));
     };
     app2.get("/app", serveWebApp);
     app2.get("/app/*path", serveWebApp);
-    app2.use(express.static(distPath, { index: false, maxAge: "7d" }));
+    app2.use(express2.static(distPath, { index: false, maxAge: "7d" }));
   }
-  app2.use(express.static(path2.resolve(process.cwd(), "static-build"), { index: false }));
+  app2.use(express2.static(path3.resolve(process.cwd(), "static-build"), { index: false }));
   const landingPagePaths = /* @__PURE__ */ new Set([
     "/",
     "/contact",
@@ -4437,11 +5528,11 @@ function configureExpoAndLanding(app2) {
     "/checkout/cancel"
   ]);
   app2.use((req, res, next) => {
-    if (req.path.startsWith("/api")) {
+    if (req.path.startsWith("/api") || req.path.startsWith("/uploads/")) {
       return next();
     }
     if (webBuildExists && !landingPagePaths.has(req.path)) {
-      return res.sendFile(path2.join(distPath, "index.html"));
+      return res.sendFile(path3.join(distPath, "index.html"));
     }
     serveLandingPage({ req, res, landingPageTemplate, appName });
   });
@@ -4465,7 +5556,7 @@ function setupErrorHandler(app2) {
   setupCors(app);
   app.post(
     "/api/stripe/webhook",
-    express.raw({ type: "application/json" }),
+    express2.raw({ type: "application/json" }),
     async (req, res) => {
       const signature = req.headers["stripe-signature"];
       if (!signature) {
@@ -4486,17 +5577,37 @@ function setupErrorHandler(app2) {
     }
   );
   app.use(
-    express.json({
+    express2.json({
       verify: (req, _res, buf) => {
         req.rawBody = buf;
       }
     })
   );
-  app.use(express.urlencoded({ extended: false }));
+  app.use(express2.urlencoded({ extended: false }));
   setupRequestLogging(app);
   configureExpoAndLanding(app);
   const server = await registerRoutes(app);
+  try {
+    const { initTelegramService: initTelegramService2, disconnectTelegramClient: disconnectTelegramClient2 } = await Promise.resolve().then(() => (init_telegramService(), telegramService_exports));
+    await initTelegramService2(app);
+    process.on("SIGTERM", () => {
+      void disconnectTelegramClient2().finally(() => process.exit(0));
+    });
+  } catch (err) {
+    log(`Telegram service init failed (continuing): ${err.message}`);
+  }
   setupErrorHandler(app);
+  try {
+    const { sql: sql7 } = await import("drizzle-orm");
+    await db.execute(sql7`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0
+    `);
+    log("Ensured users.token_version column exists");
+  } catch (err) {
+    log(`FATAL: token_version migration failed: ${err.message}`);
+    throw err;
+  }
   const port = parseInt(process.env.PORT || "5000", 10);
   server.listen(
     {
@@ -4512,6 +5623,18 @@ function setupErrorHandler(app2) {
         const deleted = await db.delete(predictions2).where(eq4(predictions2.id, 4113)).returning();
         if (deleted.length > 0) log(`Removed prediction ID 4113 (${deleted[0].matchTitle}) from DB`);
       } catch {
+      }
+      try {
+        const { sql: sql7 } = await import("drizzle-orm");
+        const result = await db.execute(sql7`
+          UPDATE predictions
+          SET explanation = SUBSTRING(explanation FROM 8)
+          WHERE explanation LIKE '[DEMO] %'
+        `);
+        const updated = result?.rowCount ?? result?.count ?? 0;
+        if (updated > 0) log(`Stripped [DEMO] prefix from ${updated} prediction(s)`);
+      } catch (err) {
+        log(`[DEMO] cleanup skipped: ${err.message}`);
       }
       const { initPushTokensTable: initPushTokensTable2 } = await Promise.resolve().then(() => (init_pushNotificationService(), pushNotificationService_exports));
       await initPushTokensTable2();

@@ -9,9 +9,18 @@ const PUBLIC_PREFIX = "/uploads/telegram";
 const MAX_DISPLAY_ITEMS = 3;
 const CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
 const ROTATION_CHECK_INTERVAL_MS = 60 * 1000;
-// Poll Telegram every 5 minutes to catch missed messages (reliable fallback
+// Poll Telegram every 90 seconds to catch missed messages (reliable fallback
 // when the persistent MTProto event handler drops silently in production).
-const POLL_INTERVAL_MS = 5 * 60 * 1000;
+// Also serves as the self-healing reconnect cycle: a broken connection
+// recovers within ~90 seconds rather than the previous 5-minute window.
+const POLL_INTERVAL_MS = 90 * 1000;
+// First poll runs 45 seconds after server start — strictly LONGER than
+// CONNECT_TIMEOUT_MS (30s) so the initial startTelegramListener call from
+// initTelegramService has already either succeeded or timed-out before the
+// poll's reconnect path can race with it. Without this gap, two concurrent
+// TelegramClient instances would negotiate with the same session string,
+// triggering AUTH_KEY_DUPLICATED.
+const FIRST_POLL_DELAY_MS = 45 * 1000;
 const ROTATION_HOUR_ET = 11; // 11:00 America/New_York
 const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024;
 const INVITE_HASH = process.env.TELEGRAM_INVITE_HASH || "5uZNUktfpeZiMjVi";
@@ -402,17 +411,60 @@ async function backfillRecent(client: any, Api: any): Promise<number> {
   }
 }
 
-// Polling fallback: runs every POLL_INTERVAL_MS. If the client isn't connected
-// yet (e.g. first connect failed with AUTH_KEY_DUPLICATED), retry the
-// connection — this gives production a fresh chance every 5 minutes. Once
-// connected, pulls the latest 30 messages, ingests anything new, and rotates
-// the gallery immediately if new items are found.
+// Reset listener state so the next pollForNewMedia call performs a full
+// reconnect via startTelegramListener (which otherwise short-circuits when
+// listenerStarted is true).
+//
+// IMPORTANT: This intentionally does NOT touch `isConnecting`. If a previous
+// startTelegramListener is still in-flight (e.g., stuck mid-handshake), its
+// own success/catch branches will eventually clear `isConnecting` themselves.
+// Forcing it false here would let a second startTelegramListener begin while
+// the first is still alive — two TelegramClients negotiating with the same
+// session string would trigger AUTH_KEY_DUPLICATED.
+async function resetTelegramState(reason: string) {
+  if (isConnecting) {
+    console.log(`[telegram] reset skipped (connect in flight): ${reason}`);
+    return;
+  }
+  console.log(`[telegram] resetting state: ${reason}`);
+  if (telegramClient) {
+    try { await telegramClient.disconnect(); } catch {}
+  }
+  telegramClient = null;
+  telegramApiRef = null;
+  resolvedChannelId = null;
+  listenerStarted = false;
+}
+
+// Polling fallback: runs every POLL_INTERVAL_MS. Self-healing — detects both
+// "never connected" (initial setup failed) and "stale connection" (gramjs
+// _updateLoop died silently) cases, and forces a clean reconnect by resetting
+// all listener state. Once connected, pulls the latest 30 messages, ingests
+// anything new, and rotates the gallery immediately if new items are found.
 async function pollForNewMedia() {
-  // If not yet connected, try to establish connection (retry after prior failure).
-  if (!telegramClient || !telegramApiRef || !resolvedChannelId) {
-    console.log("[telegram] poll: client not ready — retrying connection...");
+  // Health check: client reference must exist AND gramjs must report it as
+  // connected. After an _updateLoop TIMEOUT, gramjs sets `connected = false`
+  // internally while our reference stays truthy — so checking the reference
+  // alone is not enough.
+  const clientConnected = (telegramClient as any)?.connected !== false;
+  const clientHealthy =
+    telegramClient && telegramApiRef && resolvedChannelId && clientConnected;
+
+  if (!clientHealthy) {
+    // If a prior startTelegramListener is still negotiating, don't race with
+    // it — let it finish, the next 90-second poll will pick up the result.
+    if (isConnecting) {
+      console.log("[telegram] poll: connect already in flight, deferring to next cycle");
+      return;
+    }
+    const reason = !telegramClient
+      ? "no client"
+      : !telegramApiRef || !resolvedChannelId
+      ? "incomplete setup"
+      : "client disconnected";
+    console.log(`[telegram] poll: client not ready (${reason}) — reconnecting...`);
+    await resetTelegramState(reason);
     await startTelegramListener();
-    // If still not ready after retry, skip this poll cycle.
     if (!telegramClient || !telegramApiRef || !resolvedChannelId) {
       console.log("[telegram] poll: connection retry failed, will try again next cycle");
       return;
@@ -429,7 +481,21 @@ async function pollForNewMedia() {
       }
     }
   } catch (e) {
-    console.warn("[telegram] poll error:", (e as Error).message);
+    const errMsg = (e as Error).message || "";
+    console.warn("[telegram] poll error:", errMsg);
+    // If the API call failed because the underlying connection is dead, reset
+    // state now so the next poll cycle performs a clean reconnect rather than
+    // continuing to use the stale reference.
+    if (
+      errMsg.includes("TIMEOUT") ||
+      errMsg.includes("Not connected") ||
+      errMsg.includes("DISCONNECTED") ||
+      errMsg.includes("closed") ||
+      errMsg.includes("AUTH_KEY") ||
+      (telegramClient as any)?.connected === false
+    ) {
+      await resetTelegramState(`api error: ${errMsg.slice(0, 80)}`);
+    }
   }
 }
 
@@ -659,11 +725,12 @@ export async function initTelegramService(app: Express) {
     // reliable backbone that will always pick up new channel posts.
     void startTelegramListener();
 
-    // Polling fallback: every 5 minutes, pull the latest 30 messages from the
+    // Polling fallback: every 90 seconds, pull the latest 30 messages from the
     // channel and ingest anything new. This is the primary mechanism that
     // ensures production stays current even when the persistent event handler
-    // drops silently. pollForNewMedia is a no-op until telegramClient is set
-    // (which happens inside startTelegramListener after a successful connect).
+    // drops silently. pollForNewMedia is also self-healing — it detects a
+    // broken/never-connected client and forces a clean reconnect.
+    setTimeout(() => void pollForNewMedia(), FIRST_POLL_DELAY_MS);
     setInterval(() => void pollForNewMedia(), POLL_INTERVAL_MS);
 
     console.log("[telegram] service initialized");
