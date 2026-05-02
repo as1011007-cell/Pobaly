@@ -282,9 +282,10 @@
         padding: 0 16px;
       }
       .latest-section {
+        width: 100%;
         max-width: 1100px;
-        margin: 0 auto;
-        padding: 24px 16px 8px;
+        margin: 32px auto 0;
+        padding: 0 16px;
         display: none;
       }
       .latest-section.is-visible { display: block; }
@@ -302,13 +303,21 @@
         color: #607D8B;
         margin-bottom: 20px;
       }
-      .latest-grid {
-        display: grid;
+      .latest-slider {
+        display: flex;
         gap: 16px;
-        grid-template-columns: 1fr;
+        overflow-x: auto;
+        overflow-y: hidden;
+        scroll-snap-type: x mandatory;
+        -webkit-overflow-scrolling: touch;
+        padding: 4px 4px 16px;
+        margin: 0 -4px;
+        scrollbar-width: thin;
       }
-      @media (min-width: 720px) {
-        .latest-grid { grid-template-columns: repeat(3, 1fr); }
+      .latest-slider::-webkit-scrollbar { height: 6px; }
+      .latest-slider::-webkit-scrollbar-thumb {
+        background: rgba(255,255,255,0.15);
+        border-radius: 3px;
       }
       .latest-card {
         background: rgba(255,255,255,0.04);
@@ -317,10 +326,16 @@
         overflow: hidden;
         display: flex;
         flex-direction: column;
+        flex: 0 0 85%;
+        max-width: 420px;
+        scroll-snap-align: start;
+      }
+      @media (min-width: 720px) {
+        .latest-card { flex-basis: 360px; }
       }
       .latest-media {
         width: 100%;
-        aspect-ratio: 4 / 3;
+        aspect-ratio: 16 / 9;
         object-fit: cover;
         background: #0A0E1A;
         display: block;
@@ -466,6 +481,12 @@
         </a>
       </div>
 
+      <section class="latest-section" id="latest-section" aria-labelledby="latest-heading">
+        <h2 id="latest-heading" class="latest-heading">Yesterday's winnings with Probaly</h2>
+        <p class="latest-sub">Fresh picks and highlights from our channel — refreshed daily.</p>
+        <div class="latest-slider" id="latest-slider"></div>
+      </section>
+
       <div class="features">
         <div class="feature">
           <span class="feature-icon" role="img" aria-label="AI">&#x1F9E0;</span>
@@ -501,15 +522,10 @@
       </div>
     </main>
 
-    <section class="latest-section" id="latest-section" aria-labelledby="latest-heading">
-      <h2 id="latest-heading" class="latest-heading">Latest from Probaly</h2>
-      <p class="latest-sub">Fresh picks and highlights from our channel — refreshed daily.</p>
-      <div class="latest-grid" id="latest-grid"></div>
-    </section>
     <script>
       (function () {
         var section = document.getElementById('latest-section');
-        var grid = document.getElementById('latest-grid');
+        var grid = document.getElementById('latest-slider');
         if (!section || !grid) return;
 
         function escapeHtml(str) {
@@ -606,7 +622,6 @@
     </script>
 
     <section class="seo-section" aria-labelledby="seo-heading">
-      <h2>Yesterday's Winnings</h2>
       <h2 id="seo-heading">AI Sports Predictions, Free Picks &amp; Probability-Scored Insights</h2>
       <p>
         Probaly is an AI sports prediction app built for fans who want smarter, data-driven picks
