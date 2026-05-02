@@ -162,10 +162,9 @@ export default function SubscriptionScreen() {
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       console.error("Purchase error:", error);
-      const message =
-        error?.message?.includes("browser") || error?.message?.includes("mock")
-          ? t.purchasesRequireBuildHint
-          : error?.message || t.somethingWentWrong;
+      const isMockError =
+        error?.message?.includes("browser") || error?.message?.includes("mock");
+      const message = isMockError ? t.somethingWentWrong : error?.message || t.somethingWentWrong;
       Alert.alert(t.purchaseFailed, message, [{ text: t.ok }]);
     }
   };
@@ -241,14 +240,7 @@ export default function SubscriptionScreen() {
         }}
         showsVerticalScrollIndicator={false}
       >
-        {isExpoGo ? (
-          <View style={[styles.testModeBanner, { backgroundColor: `${theme.warning}20`, borderColor: theme.warning }]}>
-            <Feather name="info" size={16} color={theme.warning} />
-            <ThemedText type="small" style={{ color: theme.warning, marginLeft: Spacing.xs, flex: 1, lineHeight: 18 }}>
-              {t.purchasesRequireBuildHint}
-            </ThemedText>
-          </View>
-        ) : offeringsError ? (
+        {!isExpoGo && offeringsError ? (
           <View style={[styles.testModeBanner, { backgroundColor: `${theme.accent}15`, borderColor: theme.accent }]}>
             <Feather name="wifi-off" size={16} color={theme.accent} />
             <ThemedText type="small" style={{ color: theme.accent, marginLeft: Spacing.xs, flex: 1 }}>

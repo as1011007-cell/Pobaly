@@ -136,10 +136,9 @@ export default function ProfileScreen() {
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       console.error("Purchase error:", error);
-      const message =
-        error?.message?.includes("browser") || error?.message?.includes("mock")
-          ? t.purchasesRequireBuildHint
-          : error?.message || t.somethingWentWrong;
+      const isMockError =
+        error?.message?.includes("browser") || error?.message?.includes("mock");
+      const message = isMockError ? t.somethingWentWrong : error?.message || t.somethingWentWrong;
       Alert.alert(t.purchaseFailed, message, [{ text: t.ok }]);
     }
   };
