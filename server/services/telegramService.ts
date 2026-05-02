@@ -54,11 +54,26 @@ const EXCLUDED_IDS_SQL_FRAGMENT = (() => {
 })();
 const CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
 const ROTATION_CHECK_INTERVAL_MS = 60 * 1000;
-// Poll Telegram every 90 seconds to catch missed messages (reliable fallback
-// when the persistent MTProto event handler drops silently in production).
-// Also serves as the self-healing reconnect cycle: a broken connection
-// recovers within ~90 seconds rather than the previous 5-minute window.
-const POLL_INTERVAL_MS = 90 * 1000;
+// Poll Telegram on a randomised cadence to catch missed messages (reliable
+// fallback when the persistent MTProto event handler drops silently in
+// production). Also serves as the self-healing reconnect cycle. To avoid
+// presenting a
+// machine-like cadence to Telegram (which can contribute to MTProto session
+// flagging when combined with reconnect attempts), each poll cycle picks a
+// random interval from POLL_INTERVAL_OPTIONS_MS. Average ≈ 1.425h, range
+// 1.1–1.7h — enough cover for organic-looking traffic while still keeping
+// the landing page reasonably fresh.
+const POLL_INTERVAL_OPTIONS_MS = [
+  1.1 * 60 * 60 * 1000,
+  1.3 * 60 * 60 * 1000,
+  1.6 * 60 * 60 * 1000,
+  1.7 * 60 * 60 * 1000,
+];
+function pickRandomPollIntervalMs(): number {
+  return POLL_INTERVAL_OPTIONS_MS[
+    Math.floor(Math.random() * POLL_INTERVAL_OPTIONS_MS.length)
+  ];
+}
 // First poll runs 45 seconds after server start — strictly LONGER than
 // CONNECT_TIMEOUT_MS (30s) so the initial startTelegramListener call from
 // initTelegramService has already either succeeded or timed-out before the
@@ -103,7 +118,7 @@ function suspensionRemainingHours(): string {
 }
 let nextAllowedConnectAt = 0; // ms epoch; 0 = no wait
 function backoffDelayForFailures(n: number): number {
-  // Failures 1-2: no extra delay — rely on POLL_INTERVAL_MS (90s) so a
+  // Failures 1-2: no extra delay — rely on the next random poll tick so a
   //   single transient hiccup recovers fast.
   // Failure 3: 5 min — start spacing things out.
   // Failure 4: 15 min — Telegram is clearly unhappy; back off harder.
@@ -608,7 +623,8 @@ async function resetTelegramState(reason: string) {
   isConnectingSince = null;
 }
 
-// Polling fallback: runs every POLL_INTERVAL_MS. Self-healing — detects both
+// Polling fallback: runs at a random interval from POLL_INTERVAL_OPTIONS_MS
+// (1.1–1.7h). Self-healing — detects both
 // "never connected" (initial setup failed) and "stale connection" (gramjs
 // _updateLoop died silently) cases, and forces a clean reconnect by resetting
 // all listener state. Once connected, pulls the latest 30 messages, ingests
@@ -643,7 +659,8 @@ async function pollForNewMedia() {
       return;
     }
     // If a prior startTelegramListener is still negotiating, don't race with
-    // it — let it finish, the next 90-second poll will pick up the result.
+    // it — let it finish, the next random poll tick (1.1–1.7h) will pick up
+    // the result.
     // Safety net: if the lock has been held longer than STALE_CONNECTING_MS,
     // the in-flight call is hung (e.g., a gramjs invoke that never resolves);
     // force-clear the lock so this cycle can perform a fresh reconnect.
@@ -677,7 +694,7 @@ async function pollForNewMedia() {
       nextAllowedConnectAt = backoffMs > 0 ? Date.now() + backoffMs : 0;
       const nextS = backoffMs > 0
         ? `${Math.round(backoffMs / 1000)}s (backoff)`
-        : `${Math.round(POLL_INTERVAL_MS / 1000)}s (next poll)`;
+        : `next random poll tick (1.1–1.7h)`;
       console.log(
         `[telegram] poll: reconnect failed (#${consecutiveConnectFailures}). Next attempt in ${nextS}.`,
       );
@@ -994,13 +1011,45 @@ export async function initTelegramService(app: Express) {
     }
     void startTelegramListener();
 
-    // Polling fallback: every 90 seconds, pull the latest 30 messages from the
-    // channel and ingest anything new. This is the primary mechanism that
-    // ensures production stays current even when the persistent event handler
-    // drops silently. pollForNewMedia is also self-healing — it detects a
+    // Polling fallback: pulls the latest 30 messages from the channel and
+    // ingests anything new. This is the primary mechanism that ensures
+    // production stays current even when the persistent event handler drops
+    // silently. pollForNewMedia is also self-healing — it detects a
     // broken/never-connected client and forces a clean reconnect.
-    setTimeout(() => void pollForNewMedia(), FIRST_POLL_DELAY_MS);
-    setInterval(() => void pollForNewMedia(), POLL_INTERVAL_MS);
+    //
+    // The cadence is randomised per cycle (1.1h / 1.3h / 1.6h / 1.7h, picked
+    // fresh each tick) to avoid presenting a machine-like signal to Telegram.
+    // We use a recursive setTimeout chain instead of setInterval so each tick
+    // can pick a new random delay. The chain is unconditional — even when
+    // the suspension is active or a poll fails, we always re-schedule the
+    // next tick (poll early-returns on suspension; the chain self-resumes
+    // automatically once Date.now() passes TELEGRAM_RESUME_AT_MS).
+    // Hard ceiling on a single poll cycle. If pollForNewMedia hangs (e.g., a
+    // gramjs invoke that never resolves), this guarantees the chain re-arms
+    // — without it, one stuck call would orphan polling forever. 5 minutes
+    // is comfortably longer than CONNECT_TIMEOUT_MS (30s) + worst-case
+    // backfill (~30 messages × per-media download), so legitimate runs
+    // finish well inside the window.
+    const POLL_HARD_TIMEOUT_MS = 5 * 60 * 1000;
+    const schedulePoll = (delayMs: number) => {
+      setTimeout(async () => {
+        try {
+          await withTimeout(
+            pollForNewMedia(),
+            POLL_HARD_TIMEOUT_MS,
+            "pollForNewMedia",
+          );
+        } catch (e) {
+          console.warn("[telegram] poll: unexpected error:", (e as Error).message);
+        }
+        const nextMs = pickRandomPollIntervalMs();
+        console.log(
+          `[telegram] poll: next tick in ${(nextMs / 3_600_000).toFixed(2)}h`,
+        );
+        schedulePoll(nextMs);
+      }, delayMs);
+    };
+    schedulePoll(FIRST_POLL_DELAY_MS);
 
     console.log("[telegram] service initialized");
   } catch (e) {
