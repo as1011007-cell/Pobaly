@@ -189,6 +189,44 @@ function serveExpoManifest(platform: string, res: Response) {
   res.send(manifest);
 }
 
+function getAppName(): string {
+  try {
+    const appJsonPath = path.resolve(process.cwd(), "app.json");
+    const appJsonContent = fs.readFileSync(appJsonPath, "utf-8");
+    const appJson = JSON.parse(appJsonContent);
+    return appJson.expo?.name || "Probaly";
+  } catch {
+    return "Probaly";
+  }
+}
+
+function serveLandingPage({
+  req,
+  res,
+  landingPageTemplate,
+  appName,
+}: {
+  req: Request;
+  res: Response;
+  landingPageTemplate: string;
+  appName: string;
+}) {
+  const forwardedProto = req.header("x-forwarded-proto");
+  const protocol = forwardedProto || req.protocol || "https";
+  const forwardedHost = req.header("x-forwarded-host");
+  const host = forwardedHost || req.get("host");
+  const baseUrl = `${protocol}://${host}`;
+  const expsUrl = `${host}`;
+
+  const html = landingPageTemplate
+    .replace(/BASE_URL_PLACEHOLDER/g, baseUrl)
+    .replace(/EXPS_URL_PLACEHOLDER/g, expsUrl)
+    .replace(/APP_NAME_PLACEHOLDER/g, appName);
+
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.status(200).send(html);
+}
+
 function configureLegalPages(app: express.Application) {
   // Expo Go manifest middleware so the dev client can connect.
   app.use((req: Request, res: Response, next: NextFunction) => {
@@ -202,6 +240,44 @@ function configureLegalPages(app: express.Application) {
     }
 
     next();
+  });
+
+  // Static assets used by the landing page.
+  app.use("/assets", express.static(path.resolve(process.cwd(), "assets")));
+
+  // Google Search Console verification.
+  app.get("/google5558d3209820d790.html", (_req: Request, res: Response) => {
+    const verifyPath = path.resolve(process.cwd(), "server", "templates", "google5558d3209820d790.html");
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.sendFile(verifyPath);
+  });
+
+  // Yandex Webmaster verification (re-checked periodically — do not delete).
+  app.get("/yandex_6b694df7940e1f88.html", (_req: Request, res: Response) => {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(
+      '<html>\n    <head>\n        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">\n    </head>\n    <body>Verification: 6b694df7940e1f88</body>\n</html>'
+    );
+  });
+
+  app.get("/robots.txt", (_req: Request, res: Response) => {
+    const robotsPath = path.resolve(process.cwd(), "server", "templates", "robots.txt");
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.sendFile(robotsPath);
+  });
+
+  app.get("/sitemap.xml", (_req: Request, res: Response) => {
+    const sitemapPath = path.resolve(process.cwd(), "server", "templates", "sitemap.xml");
+    res.setHeader("Content-Type", "application/xml; charset=utf-8");
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.sendFile(sitemapPath);
+  });
+
+  app.get("/contact", (_req: Request, res: Response) => {
+    const contactPath = path.resolve(process.cwd(), "server", "templates", "contact.html");
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.sendFile(contactPath);
   });
 
   // Privacy Policy — required for App Store / Play Store compliance.
@@ -232,21 +308,28 @@ function configureLegalPages(app: express.Application) {
     });
   }
 
-  // Root: identify as the Probaly API server.
-  app.get("/", (_req: Request, res: Response) => {
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    res.status(200).send("Probaly API");
+  // Landing page (Probaly marketing/web app).
+  const templatePath = path.resolve(process.cwd(), "server", "templates", "landing-page.html");
+  const landingPageTemplate = fs.readFileSync(templatePath, "utf-8");
+  const appName = getAppName();
+
+  app.get("/", (req: Request, res: Response) => {
+    serveLandingPage({ req, res, landingPageTemplate, appName });
   });
 
-  // 404 for any other browser request.
+  // Static built assets (Expo static-build manifests etc.) without serving an index.
+  app.use(express.static(path.resolve(process.cwd(), "static-build"), { index: false }));
+
+  // SPA-style fallback to landing page for any other browser path. API and
+  // runtime upload routes pass through to their own handlers.
   app.use((req: Request, res: Response, next: NextFunction) => {
     if (req.path.startsWith("/api") || req.path.startsWith("/uploads/")) {
       return next();
     }
-    res.status(404).type("text/plain").send("Not found");
+    serveLandingPage({ req, res, landingPageTemplate, appName });
   });
 
-  log("Configured Expo manifest middleware + legal pages");
+  log("Configured Expo manifest middleware + landing page + legal pages");
 }
 
 function setupErrorHandler(app: express.Application) {
