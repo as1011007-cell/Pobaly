@@ -497,8 +497,13 @@ function setupErrorHandler(app: express.Application) {
   // private channel and exposes them to the landing page for 24h.
   // Mounts /api/landing/telegram-media + /uploads/telegram static serve.
   try {
-    const { initTelegramService } = await import("./services/telegramService");
+    const { initTelegramService, disconnectTelegramClient } = await import("./services/telegramService");
     await initTelegramService(app);
+    // Graceful shutdown: release the Telegram auth key before this process
+    // exits so the next deployment instance doesn't get AUTH_KEY_DUPLICATED.
+    process.on("SIGTERM", () => {
+      void disconnectTelegramClient().finally(() => process.exit(0));
+    });
   } catch (err) {
     log(`Telegram service init failed (continuing): ${(err as Error).message}`);
   }

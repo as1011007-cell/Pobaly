@@ -481,11 +481,16 @@ async function startTelegramListener() {
 
     const session = new StringSession(sessionString);
     const client = new TelegramClient(session, apiId, apiHash, {
-      connectionRetries: 3,
+      // connectionRetries: 0 — we manage retries ourselves via pollForNewMedia.
+      // gramjs's internal retry loop creates new auth key negotiation attempts
+      // on each retry, which compounds AUTH_KEY_DUPLICATED conflicts.
+      connectionRetries: 0,
     });
     if (client.setLogLevel) {
       try { client.setLogLevel("error"); } catch {}
     }
+    // Store early so the catch block can call disconnect() even on failure.
+    telegramClient = client;
 
     console.log("[telegram] connecting (timeout 30s)...");
     // Race client.connect() against a 30-second timeout so a hung TCP
@@ -592,9 +597,31 @@ async function startTelegramListener() {
 
     client.session.save();
   } catch (e) {
-    console.error("[telegram] failed to start listener:", (e as Error).message);
-    // Reset isConnecting so the next pollForNewMedia tick can retry.
+    const errMsg = (e as Error).message || "";
+    if (errMsg.includes("AUTH_KEY_DUPLICATED")) {
+      // Another connection is using this auth key. Explicitly disconnect the
+      // client we just created so Telegram knows we're done with it, then
+      // back off 2 minutes before the next poll cycle retries.
+      console.warn(
+        "[telegram] AUTH_KEY_DUPLICATED — disconnecting and backing off 2 min before retry...",
+      );
+      try { await telegramClient?.disconnect(); } catch {}
+      telegramClient = null;
+      // 2-minute back-off inside this call so the next pollForNewMedia cycle
+      // (scheduled 5 min from now) finds a clear channel.
+      await new Promise(resolve => setTimeout(resolve, 2 * 60 * 1000));
+    } else {
+      console.error("[telegram] failed to start listener:", errMsg);
+    }
     isConnecting = false;
+  }
+}
+
+/** Call on process shutdown to release the Telegram auth key gracefully. */
+export async function disconnectTelegramClient(): Promise<void> {
+  if (telegramClient) {
+    try { await telegramClient.disconnect(); } catch {}
+    telegramClient = null;
   }
 }
 
