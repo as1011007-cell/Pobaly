@@ -7,7 +7,6 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { useFonts } from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
-import { Feather } from "@expo/vector-icons";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 // Keep splash visible until Feather font is loaded so the tab-bar / header
@@ -124,9 +123,16 @@ export default function App() {
   // can use it from the very first frame. Without this, tab-bar / header
   // icons render as empty squares for a moment (or permanently in some
   // EAS / Expo Go scenarios).
-  // Feather.font is { [familyName]: ttfModule } — pass it straight to useFonts
-  // so the registered font key matches what @expo/vector-icons expects.
-  const [fontsLoaded, fontError] = useFonts(Feather.font);
+  // Register the Feather font from our LOCAL copy of the TTF rather than the
+  // asset reference baked into @expo/vector-icons. On iOS Expo Go that
+  // internal asset path can silently fail to register with CoreText even
+  // when useFonts reports success — symptom: web works, Expo Go shows blank
+  // tab-bar / settings icons. Loading from ./assets/fonts/Feather.ttf under
+  // the lowercase 'feather' key (what @expo/vector-icons looks up at render
+  // time) registers the font reliably across web, Expo Go, and EAS builds.
+  const [fontsLoaded, fontError] = useFonts({
+    feather: require("../assets/fonts/Feather.ttf"),
+  });
 
   useEffect(() => {
     // Set up notification listeners after native bridge is ready
