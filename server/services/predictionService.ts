@@ -2257,24 +2257,20 @@ export async function resolveStuckPredictionsViaAI(maxBatch: number = 50): Promi
   let aiIncorrect = 0;
   let aiUnknown = 0;
 
-  // ── PASS 1: Batch resolve with gpt-4o-mini (no web search) ──────────────
-  // Groups of 10 per API call instead of 1 call per prediction.
-  // gpt-4o-mini is 16x cheaper than gpt-4o. We only mark a result if the
-  // model is confident — unknown/uncertain ones fall through to Pass 2.
-  const BATCH_SIZE = 10;
+  // ── Single-pass batch resolve ───────────────────────────────────────────
+  // All stuck predictions in one Groq call. We only mark a result if the
+  // model is confident — unknown/uncertain ones are returned as `unknown`
+  // so the caller can re-attempt them via structured sources later.
   const stillUnknown: typeof stuck = [];
 
-  for (let i = 0; i < stuck.length; i += BATCH_SIZE) {
-    const batch = stuck.slice(i, i + BATCH_SIZE);
+  const batchLines = stuck.map((p, idx) => {
+    const title = (p.matchTitle || '').replace(/\s*\(O\/U\)$/, '');
+    const date = p.matchTime ? new Date(p.matchTime).toISOString().split('T')[0] : 'unknown';
+    const isOU = (p.matchTitle || '').includes('(O/U)');
+    return `[${idx}] ${title} | sport: ${p.sport} | date: ${date} | bet: ${isOU ? 'over/under' : 'winner'} | predicted: "${p.predictedOutcome}"`;
+  }).join('\n');
 
-    const batchLines = batch.map((p, idx) => {
-      const title = (p.matchTitle || '').replace(/\s*\(O\/U\)$/, '');
-      const date = p.matchTime ? new Date(p.matchTime).toISOString().split('T')[0] : 'unknown';
-      const isOU = (p.matchTitle || '').includes('(O/U)');
-      return `[${idx}] ${title} | sport: ${p.sport} | date: ${date} | bet: ${isOU ? 'over/under' : 'winner'} | predicted: "${p.predictedOutcome}"`;
-    }).join('\n');
-
-    const batchPrompt = `You are a sports results assistant. Using only your training knowledge, resolve the following predictions. Only set "found": true when you are fully certain of the result — if there is ANY doubt, set "found": false.
+  const batchPrompt = `You are a sports results assistant. Using only your training knowledge, resolve the following predictions. Only set "found": true when you are fully certain of the result — if there is ANY doubt, set "found": false.
 
 Resolution rules:
 - Winner bets: extract team name from predictedOutcome (e.g. "Lakers Win" → Lakers). predictionCorrect = true if that team won.
@@ -2284,65 +2280,63 @@ Resolution rules:
 MATCHES:
 ${batchLines}
 
-Return ONLY this JSON object (no prose, no markdown):
+Return ONLY this JSON object (no prose, no markdown). Include one entry per index above:
 {"results": [
   {"index": 0, "found": true, "homeScore": 3, "awayScore": 1, "predictionCorrect": true, "reasoning": "X won 3-1"},
-  {"index": 1, "found": false, "reasoning": "Not certain of result"},
-  ...
+  {"index": 1, "found": false, "reasoning": "Not certain of result"}
 ]}`;
 
+  try {
+    // ~80 tokens per result + buffer; clamp to a safe Groq response ceiling.
+    const dynamicMaxTokens = Math.min(8000, Math.max(800, stuck.length * 100));
+    const resp = await withGroqRetry(() => groq.chat.completions.create({
+      model: GROQ_MODEL,
+      messages: [{ role: "user", content: batchPrompt }],
+      max_tokens: dynamicMaxTokens,
+      temperature: 0.1,
+      response_format: { type: "json_object" },
+    }));
+
+    let raw = resp.choices[0]?.message?.content || "[]";
+    raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+
+    let parsed: any[];
     try {
-      const resp = await withGroqRetry(() => groq.chat.completions.create({
-        model: GROQ_MODEL,
-        messages: [{ role: "user", content: batchPrompt }],
-        max_tokens: 600,
-        temperature: 0.1,
-        response_format: { type: "json_object" },
-      }));
-
-      let raw = resp.choices[0]?.message?.content || "[]";
-      raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-
-      let parsed: any[];
-      try {
-        const obj = JSON.parse(raw);
-        parsed = Array.isArray(obj) ? obj : (obj.results || obj.predictions || Object.values(obj));
-      } catch {
-        parsed = [];
-      }
-
-      for (const item of parsed) {
-        const idx = item.index ?? item.idx;
-        if (typeof idx !== 'number' || idx < 0 || idx >= batch.length) continue;
-        const pred = batch[idx];
-
-        if (!item.found || item.predictionCorrect === null || item.predictionCorrect === undefined) {
-          stillUnknown.push(pred);
-          continue;
-        }
-
-        const newResult = item.predictionCorrect ? "correct" : "incorrect";
-        await db.update(predictions).set({ result: newResult }).where(eq(predictions.id, pred.id));
-
-        if (item.predictionCorrect) aiCorrect++;
-        else aiIncorrect++;
-
-        const scoreStr = item.homeScore != null && item.awayScore != null ? `${item.homeScore}-${item.awayScore}` : 'score n/a';
-        const matchupClean = (pred.matchTitle || '').replace(/\s*\(O\/U\)$/, '');
-        console.log(`[AI-RESOLVE][mini] ${matchupClean}: ${scoreStr}, predicted "${pred.predictedOutcome}" → ${newResult.toUpperCase()}`);
-      }
-
-      // Predictions not in the response → unknown
-      const respondedIndexes = new Set((parsed as any[]).map(p => p.index ?? p.idx));
-      for (let j = 0; j < batch.length; j++) {
-        if (!respondedIndexes.has(j)) stillUnknown.push(batch[j]);
-      }
-
-      await sleep(5000);
-    } catch (err) {
-      console.error(`[AI-RESOLVE][mini] Batch ${i / BATCH_SIZE + 1} failed:`, err instanceof Error ? err.message : err);
-      stillUnknown.push(...batch);
+      const obj = JSON.parse(raw);
+      parsed = Array.isArray(obj) ? obj : (obj.results || obj.predictions || Object.values(obj));
+    } catch {
+      parsed = [];
     }
+
+    for (const item of parsed) {
+      const idx = item.index ?? item.idx;
+      if (typeof idx !== 'number' || idx < 0 || idx >= stuck.length) continue;
+      const pred = stuck[idx];
+
+      if (!item.found || item.predictionCorrect === null || item.predictionCorrect === undefined) {
+        stillUnknown.push(pred);
+        continue;
+      }
+
+      const newResult = item.predictionCorrect ? "correct" : "incorrect";
+      await db.update(predictions).set({ result: newResult }).where(eq(predictions.id, pred.id));
+
+      if (item.predictionCorrect) aiCorrect++;
+      else aiIncorrect++;
+
+      const scoreStr = item.homeScore != null && item.awayScore != null ? `${item.homeScore}-${item.awayScore}` : 'score n/a';
+      const matchupClean = (pred.matchTitle || '').replace(/\s*\(O\/U\)$/, '');
+      console.log(`[AI-RESOLVE] ${matchupClean}: ${scoreStr}, predicted "${pred.predictedOutcome}" → ${newResult.toUpperCase()}`);
+    }
+
+    // Predictions not in the response → unknown
+    const respondedIndexes = new Set((parsed as any[]).map(p => p.index ?? p.idx));
+    for (let j = 0; j < stuck.length; j++) {
+      if (!respondedIndexes.has(j)) stillUnknown.push(stuck[j]);
+    }
+  } catch (err) {
+    console.error(`[AI-RESOLVE] Single-pass call failed:`, err instanceof Error ? err.message : err);
+    stillUnknown.push(...stuck);
   }
 
   aiUnknown += stillUnknown.length;
