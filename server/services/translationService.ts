@@ -276,21 +276,27 @@ export async function translatePredictions<T extends TranslatablePrediction>(
   });
 
   if (missing.length > 0) {
+    // Fire all batches in parallel — Groq handles concurrent requests fine
+    // and this turns N sequential 1-3s calls into roughly one round-trip.
+    const batches: { id: number; predictedOutcome: string; explanation: string; factors: TranslatableFactor[] }[][] = [];
     for (let i = 0; i < missing.length; i += TRANSLATE_BATCH_SIZE) {
-      const batch = missing.slice(i, i + TRANSLATE_BATCH_SIZE).map((p) => ({
-        id: Number(p.id),
-        predictedOutcome: String(p.predictedOutcome ?? ""),
-        explanation: String(p.explanation ?? ""),
-        factors: Array.isArray(p.factors) ? (p.factors as TranslatableFactor[]) : [],
-      }));
-      const translated = await translateBatch(batch, lang);
-      // Persist + merge into the in-memory cache for this request.
-      await Promise.all(
+      batches.push(
+        missing.slice(i, i + TRANSLATE_BATCH_SIZE).map((p) => ({
+          id: Number(p.id),
+          predictedOutcome: String(p.predictedOutcome ?? ""),
+          explanation: String(p.explanation ?? ""),
+          factors: Array.isArray(p.factors) ? (p.factors as TranslatableFactor[]) : [],
+        })),
+      );
+    }
+    const results = await Promise.all(batches.map((b) => translateBatch(b, lang)));
+    await Promise.all(
+      results.flatMap((translated) =>
         Array.from(translated.entries()).map(([id, data]) =>
           storeCached(id, lang, data).then(() => cached.set(id, data)),
         ),
-      );
-    }
+      ),
+    );
   }
 
   return preds.map((p) => {
@@ -298,6 +304,63 @@ export async function translatePredictions<T extends TranslatablePrediction>(
     const t = Number.isInteger(id) ? cached.get(id) : undefined;
     return t ? applyTranslation(p, t) : p;
   });
+}
+
+/**
+ * Non-blocking variant for list endpoints (history, sport feeds, etc.).
+ * Returns cached translations immediately and falls back to English text for
+ * any cache miss — never waits on Groq. Missing items are translated in the
+ * background so the *next* request for the same items returns fully localized
+ * data from cache. Trade-off: first viewer of a fresh prediction in a fresh
+ * language sees English copy for ~one request, then it's localized forever.
+ */
+export async function translatePredictionsBackground<T extends TranslatablePrediction>(
+  preds: T[],
+  lang: SupportedLanguage,
+): Promise<T[]> {
+  if (lang === "en" || preds.length === 0) return preds;
+
+  const validIds = preds.map((p) => Number(p.id)).filter((id) => Number.isInteger(id));
+  const cached = await loadCached(validIds, lang);
+
+  const missing = preds.filter((p) => {
+    const id = Number(p.id);
+    if (!Number.isInteger(id)) return false;
+    if (cached.has(id)) return false;
+    return Boolean((p.explanation && p.explanation.trim()) || (p.predictedOutcome && p.predictedOutcome.trim()));
+  });
+
+  if (missing.length > 0) {
+    // Fire-and-forget: warm the cache in the background. Errors are swallowed
+    // so they can never crash the request that triggered them.
+    void warmTranslationCache(missing, lang).catch((e) =>
+      console.warn(`[i18n] background warm failed (lang=${lang}):`, (e as Error).message),
+    );
+  }
+
+  return preds.map((p) => {
+    const id = Number(p.id);
+    const t = Number.isInteger(id) ? cached.get(id) : undefined;
+    return t ? applyTranslation(p, t) : p;
+  });
+}
+
+async function warmTranslationCache<T extends TranslatablePrediction>(
+  missing: T[],
+  lang: SupportedLanguage,
+): Promise<void> {
+  for (let i = 0; i < missing.length; i += TRANSLATE_BATCH_SIZE) {
+    const batch = missing.slice(i, i + TRANSLATE_BATCH_SIZE).map((p) => ({
+      id: Number(p.id),
+      predictedOutcome: String(p.predictedOutcome ?? ""),
+      explanation: String(p.explanation ?? ""),
+      factors: Array.isArray(p.factors) ? (p.factors as TranslatableFactor[]) : [],
+    }));
+    const translated = await translateBatch(batch, lang);
+    await Promise.all(
+      Array.from(translated.entries()).map(([id, data]) => storeCached(id, lang, data)),
+    );
+  }
 }
 
 /** Convenience wrapper for endpoints that return a single prediction (or null). */

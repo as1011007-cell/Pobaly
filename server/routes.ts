@@ -30,7 +30,7 @@ import {
   dailyPredictionRefresh,
 } from "./services/predictionService";
 import { getLiveMatches } from "./services/sportsApiService";
-import { normalizeLang, translatePredictions, translatePrediction } from "./services/translationService";
+import { normalizeLang, translatePredictions, translatePrediction, translatePredictionsBackground } from "./services/translationService";
 
 const registerSchema = z.object({
   email: z.string().email().max(254),
@@ -608,7 +608,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         premiumSince = u?.premiumSince || null;
       }
       const predictions = await getHistoryPredictions(userId, isPremiumUser, premiumSince);
-      const localized = await translatePredictions(predictions as any[], lang);
+      // Non-blocking translate: returns cached translations immediately and
+      // warms the cache for misses in the background. History can have
+      // hundreds of items — blocking on Groq would stall the response by
+      // tens of seconds on first view in a fresh language.
+      const localized = await translatePredictionsBackground(predictions as any[], lang);
       res.json({ predictions: localized });
     } catch (error: any) {
       res.status(500).json({ error: safeErrorMessage(error) });
@@ -641,7 +645,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .map((p: any) => Number(p.id)),
       );
       const visible = preds.filter((p: any) => visibleIds.has(Number(p.id)));
-      const localizedVisible = await translatePredictions(visible as any[], lang);
+      // Non-blocking: same rationale as /history. A sport feed can hold
+      // dozens of un-cached items in a fresh language.
+      const localizedVisible = await translatePredictionsBackground(visible as any[], lang);
       const localizedById = new Map(localizedVisible.map((p: any) => [Number(p.id), p]));
       const out = preds.map((p: any) => {
         if (!visibleIds.has(Number(p.id))) return redactPrediction(p);
