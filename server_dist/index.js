@@ -526,7 +526,11 @@ function backoffDelayForFailures(n) {
   if (n <= 2) return 0;
   if (n === 3) return 5 * 60 * 1e3;
   if (n === 4) return 15 * 60 * 1e3;
-  return 30 * 60 * 1e3;
+  if (n === 5) return 30 * 60 * 1e3;
+  if (n === 6) return 60 * 60 * 1e3;
+  if (n === 7) return 2 * 60 * 60 * 1e3;
+  if (n === 8) return 4 * 60 * 60 * 1e3;
+  return 6 * 60 * 60 * 1e3;
 }
 async function ensureTable() {
   await db.execute(sql6`
@@ -904,6 +908,11 @@ async function pollForNewMedia() {
       console.log(
         `[telegram] poll: reconnect failed (#${consecutiveConnectFailures}). Next attempt in ${nextS}.`
       );
+      if (consecutiveConnectFailures >= 5) {
+        console.warn(
+          `[telegram] ACTION REQUIRED: ${consecutiveConnectFailures} consecutive failures \u2014 the session is almost certainly flagged at the MTProto layer (TCP connects but isUserAuthorized hangs). Regenerate TELEGRAM_SESSION_STRING via "npx tsx scripts/telegramLogin.ts" and update the secret. Until then we will retry only every few hours.`
+        );
+      }
       return;
     }
     if (consecutiveConnectFailures > 0) {

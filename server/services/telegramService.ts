@@ -49,11 +49,22 @@ function backoffDelayForFailures(n: number): number {
   //   single transient hiccup recovers fast.
   // Failure 3: 5 min — start spacing things out.
   // Failure 4: 15 min — Telegram is clearly unhappy; back off harder.
-  // Failure 5+: 30 min (capped) — long cool-down to let any flag clear.
+  // Failure 5: 30 min — long cool-down to let any flag clear.
+  // Failure 6: 1 hour — at this point the session is almost certainly
+  //   blacklisted at the MTProto layer (TCP connects succeed but
+  //   isUserAuthorized hangs silently). No point in hammering.
+  // Failure 7: 2 hours.
+  // Failure 8: 4 hours.
+  // Failure 9+: 6 hours (capped) — wait out any temporary flag while
+  //   the operator regenerates TELEGRAM_SESSION_STRING.
   if (n <= 2) return 0;
   if (n === 3) return 5 * 60 * 1000;
   if (n === 4) return 15 * 60 * 1000;
-  return 30 * 60 * 1000;
+  if (n === 5) return 30 * 60 * 1000;
+  if (n === 6) return 60 * 60 * 1000;
+  if (n === 7) return 2 * 60 * 60 * 1000;
+  if (n === 8) return 4 * 60 * 60 * 1000;
+  return 6 * 60 * 60 * 1000;
 }
 // Timeout for the initial client.connect() call (ms). If Telegram doesn't
 // respond within this window we give up and retry on the next poll cycle.
@@ -552,6 +563,11 @@ async function pollForNewMedia() {
       console.log(
         `[telegram] poll: reconnect failed (#${consecutiveConnectFailures}). Next attempt in ${nextS}.`,
       );
+      if (consecutiveConnectFailures >= 5) {
+        console.warn(
+          `[telegram] ACTION REQUIRED: ${consecutiveConnectFailures} consecutive failures — the session is almost certainly flagged at the MTProto layer (TCP connects but isUserAuthorized hangs). Regenerate TELEGRAM_SESSION_STRING via "npx tsx scripts/telegramLogin.ts" and update the secret. Until then we will retry only every few hours.`,
+        );
+      }
       return;
     }
     // Success — clear backoff so future failures start fresh.
