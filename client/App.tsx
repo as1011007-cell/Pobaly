@@ -5,7 +5,14 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
+import { useFonts } from "expo-font";
+import * as SplashScreen from "expo-splash-screen";
+import { Feather } from "@expo/vector-icons";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
+
+// Keep splash visible until Feather font is loaded so the tab-bar / header
+// icons never render as empty squares on first frame (Expo Go especially).
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/query-client";
@@ -111,11 +118,31 @@ function RevenueCatSyncHandler() {
 }
 
 export default function App() {
+  // Preload the Feather icon font before rendering anything. The expo-font
+  // config plugin in app.json embeds the TTF in native EAS builds, but we
+  // still need to register it with the JS Font module so @expo/vector-icons
+  // can use it from the very first frame. Without this, tab-bar / header
+  // icons render as empty squares for a moment (or permanently in some
+  // EAS / Expo Go scenarios).
+  // Feather.font is { [familyName]: ttfModule } — pass it straight to useFonts
+  // so the registered font key matches what @expo/vector-icons expects.
+  const [fontsLoaded, fontError] = useFonts(Feather.font);
+
   useEffect(() => {
     // Set up notification listeners after native bridge is ready
     const cleanup = setupNotificationHandlers();
     return cleanup;
   }, []);
+
+  useEffect(() => {
+    if (fontsLoaded || fontError) {
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [fontsLoaded, fontError]);
+
+  if (!fontsLoaded && !fontError) {
+    return null;
+  }
 
   return (
     <ErrorBoundary>
