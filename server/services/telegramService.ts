@@ -8,11 +8,14 @@ const UPLOAD_DIR = path.resolve(process.cwd(), "server", "uploads", "telegram");
 const PUBLIC_PREFIX = "/uploads/telegram";
 const MAX_DISPLAY_ITEMS = 3;
 const CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
+const ROTATION_CHECK_INTERVAL_MS = 60 * 1000;
+const ROTATION_HOUR_ET = 11; // 11:00 America/New_York
 const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024;
 const INVITE_HASH = process.env.TELEGRAM_INVITE_HASH || "5uZNUktfpeZiMjVi";
 
 let listenerStarted = false;
 let resolvedChannelId: bigint | null = null;
+let lastRotationDateET: string | null = null;
 
 async function ensureTable() {
   await db.execute(sql`
@@ -32,6 +35,117 @@ async function ensureTable() {
   await db.execute(sql`
     CREATE INDEX IF NOT EXISTS idx_telegram_media_expires_at ON telegram_media(expires_at)
   `);
+  // Daily display rotation: items become visible only after a 11 AM ET tick
+  // marks them active. Adding the column idempotently lets older rows live
+  // until the next rotation picks them up.
+  await db.execute(sql`
+    ALTER TABLE telegram_media ADD COLUMN IF NOT EXISTS activated_at TIMESTAMP
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_telegram_media_activated_at ON telegram_media(activated_at)
+  `);
+}
+
+function todayInET(): string {
+  // YYYY-MM-DD in America/New_York
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return fmt.format(new Date());
+}
+
+function currentHourInET(): number {
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "2-digit",
+    hour12: false,
+  });
+  // formatToParts is more reliable than format() across Node versions
+  const parts = fmt.formatToParts(new Date());
+  const h = parts.find((p) => p.type === "hour")?.value ?? "0";
+  const n = parseInt(h, 10);
+  return n === 24 ? 0 : n; // some locales render midnight as "24"
+}
+
+async function rotateDailyDisplay(): Promise<boolean> {
+  // Activate the 3 newest items (by post time) as the visible set for the
+  // next 24 hours. Updating expires_at to NOW() + 24h means activated items
+  // survive the cleanup sweep until the next rotation, even if their
+  // original 24h post-time window has elapsed. Returns true on a successful
+  // DB UPDATE (even if 0 rows match — the table is just empty); false on
+  // error so callers can retry on the next tick.
+  try {
+    const result: any = await db.execute(sql`
+      UPDATE telegram_media
+      SET activated_at = NOW(),
+          expires_at = NOW() + INTERVAL '24 hours'
+      WHERE id IN (
+        SELECT id FROM telegram_media
+        ORDER BY created_at DESC
+        LIMIT ${MAX_DISPLAY_ITEMS}
+      )
+      RETURNING id
+    `);
+    const rows: any[] = result.rows || result || [];
+    console.log(
+      `[telegram] rotation activated ${rows.length} item(s) for the next 24h`,
+    );
+    return true;
+  } catch (e) {
+    console.warn("[telegram] rotation failed:", (e as Error).message);
+    return false;
+  }
+}
+
+async function checkRotation() {
+  try {
+    const dateET = todayInET();
+    const hourET = currentHourInET();
+    // Run as soon as we cross 11 AM ET (or any time after, on the same ET
+    // day, if we haven't rotated yet — covers restarts later in the day).
+    if (hourET >= ROTATION_HOUR_ET && lastRotationDateET !== dateET) {
+      const ok = await rotateDailyDisplay();
+      // Only mark today as "done" if rotation actually succeeded; otherwise
+      // leave lastRotationDateET unchanged so the next 60s tick retries.
+      if (ok) lastRotationDateET = dateET;
+    }
+  } catch (e) {
+    console.warn("[telegram] rotation check failed:", (e as Error).message);
+  }
+}
+
+async function ensureInitialRotation() {
+  // If there are no items currently in the active display set, do a one-off
+  // rotation so the gallery isn't empty after a fresh deploy or a long
+  // server downtime. This may run before 11 AM ET — we still need that
+  // day's normal 11 AM tick, so only mark today "done" if we're already
+  // past the 11 AM threshold (otherwise leave lastRotationDateET = null
+  // so checkRotation runs on schedule).
+  try {
+    const result: any = await db.execute(sql`
+      SELECT COUNT(*)::int AS n FROM telegram_media
+      WHERE activated_at IS NOT NULL AND expires_at > NOW()
+    `);
+    const rows: any[] = result.rows || result || [];
+    const n = Number(rows[0]?.n ?? 0);
+    if (n === 0) {
+      console.log(
+        "[telegram] no active display items found — running initial rotation",
+      );
+      const ok = await rotateDailyDisplay();
+      if (ok && currentHourInET() >= ROTATION_HOUR_ET) {
+        lastRotationDateET = todayInET();
+      }
+    }
+  } catch (e) {
+    console.warn(
+      "[telegram] initial rotation check failed:",
+      (e as Error).message,
+    );
+  }
 }
 
 async function ensureUploadDir() {
@@ -100,12 +214,14 @@ async function cleanupExpired() {
 }
 
 async function getActiveMedia() {
+  // Only items the most recent 11 AM ET rotation activated are visible.
+  // Newly ingested items wait for the next rotation before showing.
   const result: any = await db.execute(sql`
     SELECT id, telegram_message_id, media_type, file_path, mime_type,
            width, height, caption, created_at, expires_at
     FROM telegram_media
-    WHERE expires_at > NOW()
-    ORDER BY created_at DESC
+    WHERE activated_at IS NOT NULL AND expires_at > NOW()
+    ORDER BY activated_at DESC, created_at DESC
     LIMIT ${MAX_DISPLAY_ITEMS}
   `);
   const rows: any[] = result.rows || result || [];
@@ -390,6 +506,12 @@ export async function initTelegramService(app: Express) {
 
     setInterval(cleanupExpired, CLEANUP_INTERVAL_MS);
     void cleanupExpired();
+
+    // Display set rotates once per day at 11 AM America/New_York.
+    // We poll every minute (cheap) and run rotation once per ET day.
+    setInterval(checkRotation, ROTATION_CHECK_INTERVAL_MS);
+    void ensureInitialRotation();
+
     void startTelegramListener();
 
     console.log("[telegram] service initialized");
