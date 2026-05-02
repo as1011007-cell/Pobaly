@@ -101,6 +101,50 @@ export async function requestNotificationPermissions(): Promise<boolean> {
   }
 }
 
+export type NotificationPermissionState = {
+  granted: boolean;
+  canAskAgain: boolean;
+  status: string;
+};
+
+export async function getNotificationPermissionState(): Promise<NotificationPermissionState> {
+  if (Platform.OS === "web") {
+    return { granted: false, canAskAgain: false, status: "denied" };
+  }
+  try {
+    const res = await Notifications.getPermissionsAsync();
+    return {
+      granted: res.status === "granted",
+      canAskAgain: res.canAskAgain ?? true,
+      status: res.status,
+    };
+  } catch {
+    return { granted: false, canAskAgain: true, status: "undetermined" };
+  }
+}
+
+export async function requestPermissionsWithState(): Promise<NotificationPermissionState> {
+  if (Platform.OS === "web") {
+    return { granted: false, canAskAgain: false, status: "denied" };
+  }
+  try {
+    const existing = await Notifications.getPermissionsAsync();
+    if (existing.status === "granted") {
+      return { granted: true, canAskAgain: true, status: "granted" };
+    }
+    const res = await Notifications.requestPermissionsAsync({
+      ios: { allowAlert: true, allowBadge: true, allowSound: true },
+    });
+    return {
+      granted: res.status === "granted",
+      canAskAgain: res.canAskAgain ?? false,
+      status: res.status,
+    };
+  } catch {
+    return { granted: false, canAskAgain: true, status: "undetermined" };
+  }
+}
+
 export async function registerPushTokenWithServer(authToken: string, userId?: string): Promise<string | null> {
   if (Platform.OS === "web") return null;
   try {
@@ -123,7 +167,7 @@ export async function registerPushTokenWithServer(authToken: string, userId?: st
     if (!pushToken) return null;
 
     const url = new URL("/api/push-token", getApiUrl());
-    await fetch(url.toString(), {
+    const res = await fetch(url.toString(), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -135,6 +179,11 @@ export async function registerPushTokenWithServer(authToken: string, userId?: st
         platform: Platform.OS,
       }),
     });
+
+    if (!res.ok) {
+      console.error(`Push token registration failed: HTTP ${res.status}`);
+      return null;
+    }
 
     console.log("Push token registered:", pushToken.substring(0, 30) + "...");
     return pushToken;

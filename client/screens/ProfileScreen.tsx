@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   View,
   StyleSheet,
@@ -6,11 +6,13 @@ import {
   ActivityIndicator,
   Pressable,
   Platform,
+  Linking,
+  AppState,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
 import { Feather } from "@expo/vector-icons";
@@ -28,7 +30,13 @@ import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { getLanguageName } from "@/lib/translations";
 import { useSubscription, REVENUECAT_ENTITLEMENT_IDENTIFIER, fetchCustomerInfo } from "@/lib/revenuecat";
-import { requestNotificationPermissions, sendWelcomeNotification } from "@/lib/notifications";
+import {
+  requestPermissionsWithState,
+  getNotificationPermissionState,
+  sendWelcomeNotification,
+  registerPushTokenWithServer,
+} from "@/lib/notifications";
+import { storage as appStorage } from "@/lib/storage";
 
 type PlanType = "monthly" | "annual";
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -216,42 +224,192 @@ export default function ProfileScreen() {
     );
   };
 
-  const handleNotificationToggle = async (value: boolean) => {
-    if (value) {
-      const granted = await requestNotificationPermissions();
-      if (!granted) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        return;
-      }
-      await sendWelcomeNotification();
-    }
+  // Race-guard refs: the toggle handler and the auto-sync (focus/foreground)
+  // can both run concurrently. Monotonically increasing op-id lets in-flight
+  // syncs detect when the user clicked and abandon their writeback.
+  const toggleOpRef = React.useRef(0);
+  const syncInFlightRef = React.useRef(false);
 
-    setNotificationsEnabled(value);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (user?.id) {
-      try {
-        await apiRequest("POST", new URL("/api/user/preferences", getApiUrl()).toString(), {
-          userId: user.id,
-          notificationsEnabled: value,
-        });
-      } catch (error) {
-        console.error("Error saving notification preference:", error);
-      }
+  const persistNotificationPref = async (value: boolean) => {
+    if (!user?.id) return;
+    try {
+      await apiRequest("POST", new URL("/api/user/preferences", getApiUrl()).toString(), {
+        userId: user.id,
+        notificationsEnabled: value,
+      });
+    } catch (error) {
+      console.error("Error saving notification preference:", error);
     }
   };
 
-  useEffect(() => {
+  const openAppSettings = async () => {
+    if (Platform.OS === "web") return;
+    try {
+      await Linking.openSettings();
+    } catch {
+      // openSettings unsupported on this platform
+    }
+  };
+
+  const handleNotificationToggle = async (value: boolean) => {
+    // Bump the op id so any in-flight syncNotificationToggle bails out
+    // instead of clobbering the user's choice.
+    toggleOpRef.current += 1;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    if (Platform.OS === "web") {
+      Alert.alert(
+        t.notifications,
+        "Push notifications are only available in the mobile app.",
+        [{ text: t.ok }]
+      );
+      return;
+    }
+
+    if (!value) {
+      // Turning OFF — just save preference. Server's getAllTokensNoPrefs join
+      // filters by user_preferences.notifications_enabled, so the device
+      // stops receiving daily-tip pushes immediately.
+      setNotificationsEnabled(false);
+      await persistNotificationPref(false);
+      return;
+    }
+
+    // Turning ON — make sure the OS permission is actually granted, otherwise
+    // the toggle would lie. Re-check first to handle the case where the user
+    // already granted permission (no system prompt needed).
+    const current = await getNotificationPermissionState();
+    let perm = current;
+    if (!current.granted) {
+      if (current.status === "denied" && !current.canAskAgain) {
+        // System won't prompt again — must send the user to Settings.
+        Alert.alert(
+          t.notifications,
+          "Notifications are blocked in your device settings. Open Settings to enable them.",
+          [
+            { text: t.cancel, style: "cancel" },
+            { text: "Open Settings", onPress: openAppSettings },
+          ]
+        );
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        return;
+      }
+      perm = await requestPermissionsWithState();
+    }
+
+    if (!perm.granted) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      // If the user just denied at the prompt, offer Settings as a follow-up.
+      if (perm.status === "denied" && !perm.canAskAgain) {
+        Alert.alert(
+          t.notifications,
+          "Notifications are blocked in your device settings. Open Settings to enable them.",
+          [
+            { text: t.cancel, style: "cancel" },
+            { text: "Open Settings", onPress: openAppSettings },
+          ]
+        );
+      }
+      return;
+    }
+
+    setNotificationsEnabled(true);
+    await persistNotificationPref(true);
+
+    // Register the device's push token now — the user may have skipped the
+    // permission prompt at signup, so the AuthContext registration would
+    // have bailed early. This guarantees the server has a token to push to.
     if (user?.id) {
-      fetch(new URL(`/api/user/preferences/${user.id}`, getApiUrl()).toString())
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.notificationsEnabled !== undefined) {
-            setNotificationsEnabled(data.notificationsEnabled);
-          }
-        })
-        .catch(console.error);
+      try {
+        const authToken = await appStorage.getAuthToken();
+        if (authToken) {
+          await registerPushTokenWithServer(authToken, String(user.id));
+        }
+      } catch (error) {
+        console.error("Error registering push token after toggle:", error);
+      }
+    }
+
+    sendWelcomeNotification().catch(() => {});
+  };
+
+  // Sync the toggle with the OS permission state AND the server-side
+  // preference. Both must be true for the switch to read ON, otherwise the UI
+  // would lie about whether pushes will actually arrive.
+  const syncNotificationToggle = useCallback(async () => {
+    if (!user?.id) return;
+    if (syncInFlightRef.current) return;
+    syncInFlightRef.current = true;
+    const opSnapshot = toggleOpRef.current;
+    try {
+      const authToken = await appStorage.getAuthToken();
+      if (!authToken) return;
+      const prefUrl = new URL(`/api/user/preferences/${user.id}`, getApiUrl()).toString();
+
+      let permState: Awaited<ReturnType<typeof getNotificationPermissionState>>;
+      let prefRes: any;
+      try {
+        const [p, r] = await Promise.all([
+          getNotificationPermissionState(),
+          fetch(prefUrl, { headers: { Authorization: `Bearer ${authToken}` } }),
+        ]);
+        if (!r.ok) {
+          // Don't touch UI on transient server errors — leave last known good.
+          return;
+        }
+        permState = p;
+        prefRes = await r.json();
+      } catch {
+        // Network failure — leave UI alone.
+        return;
+      }
+
+      // If a user-initiated toggle ran while we were fetching, abandon: the
+      // user's intent wins and a fresh sync will run on next focus/foreground.
+      if (opSnapshot !== toggleOpRef.current) return;
+
+      // Treat unknown permission state (lookup catastrophically failed) as
+      // "do nothing" — never write false to the DB on a transient error.
+      const permKnown = permState.status !== "undetermined" || permState.granted;
+
+      const dbEnabled = prefRes?.notificationsEnabled !== false; // default true
+      const effective = Platform.OS === "web" ? false : permState.granted && dbEnabled;
+      setNotificationsEnabled(effective);
+
+      // Only auto-correct DB when we're CONFIDENT permission is denied (not
+      // just unknown), and only when the DB still optimistically thinks pushes
+      // are on. Avoids fighting the user during transient permission lookups.
+      if (
+        Platform.OS !== "web" &&
+        dbEnabled &&
+        permKnown &&
+        !permState.granted &&
+        permState.status === "denied"
+      ) {
+        persistNotificationPref(false).catch(() => {});
+      }
+    } catch (error) {
+      console.error("Error syncing notification toggle:", error);
+    } finally {
+      syncInFlightRef.current = false;
     }
   }, [user?.id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      syncNotificationToggle();
+    }, [syncNotificationToggle])
+  );
+
+  // Re-sync when the user returns to the app (e.g. after toggling permission
+  // in iOS Settings while the screen was already focused).
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") syncNotificationToggle();
+    });
+    return () => sub.remove();
+  }, [syncNotificationToggle]);
 
   const initials = user?.name
     ? user.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)

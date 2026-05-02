@@ -1106,11 +1106,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============ User Preferences Routes ============
 
-  // Get user preferences — no auth required, userId in path
-  app.get("/api/user/preferences/:userId", optionalAuth, apiReadRateLimit, async (req: Request, res: Response) => {
+  // Get user preferences — auth required, only allow self.
+  app.get("/api/user/preferences/:userId", requireAuth, apiReadRateLimit, async (req: Request, res: Response) => {
     try {
       const userId = req.params.userId;
       if (!userId) return res.status(400).json({ error: "userId required" });
+      if (req.userId && req.userId !== userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
       const preferences = await storage.getUserPreferences(userId);
       res.json(preferences || { notificationsEnabled: true });
     } catch (error: any) {
@@ -1126,11 +1129,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     language: z.string().optional(),
   });
 
-  // Save user preferences — userId from JWT or body
-  app.post("/api/user/preferences", optionalAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
+  // Save user preferences — auth required, JWT user id is authoritative.
+  app.post("/api/user/preferences", requireAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
     try {
-      const userId = req.userId ?? req.body.userId;
-      if (!userId) return res.status(401).json({ error: "userId required" });
+      const userId = req.userId;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
       const parsed = preferencesSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: safeErrorMessage(parsed.error) });
@@ -1151,11 +1154,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Push Notification Token Registration ============
-  // userId from JWT or body — no auth required so tokens are always registered
-  app.post("/api/push-token", optionalAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
+  // Auth required so tokens can never be bound to another user's account.
+  app.post("/api/push-token", requireAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
     try {
-      const userId = req.userId ?? req.body.userId;
-      if (!userId) return res.status(401).json({ error: "userId required" });
+      const userId = req.userId;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
       const parsed = pushTokenSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid push token" });
@@ -1168,10 +1171,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/push-token", optionalAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
+  app.delete("/api/push-token", requireAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
     try {
-      const userId = req.userId ?? req.body.userId;
-      if (!userId) return res.status(401).json({ error: "userId required" });
+      const userId = req.userId;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
       const parsed = z.object({ userId: z.string().optional(), token: z.string().min(1).max(500) }).safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid push token" });
