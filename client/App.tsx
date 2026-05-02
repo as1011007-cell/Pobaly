@@ -135,6 +135,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (fontsLoaded) {
+      console.log("[fonts] Feather font loaded successfully");
+    }
+    if (fontError) {
+      console.error("[fonts] Feather font failed to load:", fontError);
+    }
     if (fontsLoaded || fontError) {
       SplashScreen.hideAsync().catch(() => {});
     }
