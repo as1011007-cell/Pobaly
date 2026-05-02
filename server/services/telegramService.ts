@@ -12,6 +12,29 @@ const PUBLIC_PREFIX = "/uploads/telegram";
 // runtime, so no need to rescan.
 const FALLBACK_DIR = path.resolve(process.cwd(), "server", "uploads", "fallback");
 const FALLBACK_PREFIX = "/uploads/fallback";
+// Testimonial-style captions for the static winnings gallery, keyed by
+// filename in server/uploads/fallback/. Files without an entry here render
+// without a caption (same behavior as before captions were added). To add
+// new winnings: drop the file in the dir and add an entry here.
+const FALLBACK_CAPTIONS: Record<string, string> = {
+  "winnings-01.jpeg": "Probaly's prediction landed perfectly! Premium membership pays for itself✅",
+  "winnings-02.jpeg": "Another winning slip thanks to Probaly's AI insights💲",
+  "winnings-03.jpeg": "Premium really is worth every cent — pure profit🔥",
+  "winnings-04.jpeg": "Accurate calls every time. Probaly Premium = value for money💯",
+  "winnings-05.jpeg": "Big win on today's tip! AI-powered predictions actually work✅",
+  "winnings-06.jpeg": "Subscribed to Probaly Premium and never looked back💲🔥",
+  "winnings-07.jpeg": "Probaly nailed the prediction again — bet365 cashed out!",
+  "winnings-08.jpeg": "Customers winning every day with Probaly's AI tips😍",
+  "winnings-09.jpeg": "Stake paid off thanks to Probaly's confidence rating✅",
+  "winnings-10.jpeg": "From free tip to premium win — Probaly delivers🔥",
+  "winnings-11.jpeg": "Probaly's risk index helped me pick the safe one. Easy money💲",
+  "winnings-12.jpeg": "Premium subscribers winning consistently. Join the club!",
+  "winnings-13.jpeg": "Another satisfied customer cashing out with Probaly✅",
+  "winnings-14.jpeg": "AI does the work, you collect the winnings💲🔥",
+  "winnings-15.jpeg": "Day after day, Probaly's tips keep hitting. Recommended!😍",
+  "winnings-16.mp4": "Watch the cashout — Probaly Premium subscribers winning big🔥",
+  "winnings-17.mp4": "Real winnings from real Probaly predictions. Premium is the way💲✅",
+};
 const MAX_DISPLAY_ITEMS = 3;
 // Telegram message IDs that must never appear on the landing page. Filtered
 // out at query time so the post is hidden in both dev and prod regardless
@@ -319,7 +342,7 @@ let fallbackItems: Array<{
   mimeType: string | null;
   width: null;
   height: null;
-  caption: null;
+  caption: string | null;
   createdAt: null;
   expiresAt: null;
 }> = [];
@@ -348,7 +371,7 @@ async function loadFallbackItems() {
         mimeType: mime,
         width: null,
         height: null,
-        caption: null,
+        caption: FALLBACK_CAPTIONS[name] ?? null,
         createdAt: null,
         expiresAt: null,
       };
