@@ -1,20 +1,14 @@
 import { users, userPreferences, contactSubmissions, type User, type InsertUser, type UserPreferences } from "@shared/schema";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { db } from "./db";
-import { randomUUID } from "crypto";
-import { getUncachableStripeClient } from "./stripeClient";
-
-// Drizzle's db.execute() returns a RowList which is array-like but typed differently
-// across adapter versions. This helper extracts the rows safely.
-function extractRows(result: any): any[] {
-  return result?.rows ?? Array.from(result ?? []);
-}
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
-  getUserByStripeCustomerId(customerId: string): Promise<User | undefined>;
   createUser(user: InsertUser, referralCode?: string): Promise<User>;
+  // Updates the user's premium subscription state. Named for legacy
+  // schema columns (stripeCustomerId, stripeSubscriptionId) that remain
+  // in the table but are now only populated by RevenueCat sync.
   updateUserStripeInfo(userId: string, stripeInfo: {
     stripeCustomerId?: string;
     stripeSubscriptionId?: string;
@@ -24,13 +18,6 @@ export interface IStorage {
   }): Promise<User | undefined>;
   getUserPreferences(userId: string): Promise<UserPreferences | undefined>;
   saveUserPreferences(userId: string, prefs: Partial<UserPreferences>): Promise<UserPreferences>;
-  getProduct(productId: string): Promise<any>;
-  listProducts(active?: boolean, limit?: number, offset?: number): Promise<any[]>;
-  listProductsWithPrices(active?: boolean, limit?: number, offset?: number): Promise<any[]>;
-  getPrice(priceId: string): Promise<any>;
-  listPrices(active?: boolean, limit?: number, offset?: number): Promise<any[]>;
-  getPricesForProduct(productId: string): Promise<any[]>;
-  getSubscription(subscriptionId: string): Promise<any>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -41,11 +28,6 @@ export class DatabaseStorage implements IStorage {
 
   async getUserByEmail(email: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.email, email));
-    return user;
-  }
-
-  async getUserByStripeCustomerId(customerId: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.stripeCustomerId, customerId));
     return user;
   }
 
@@ -90,129 +72,6 @@ export class DatabaseStorage implements IStorage {
         .returning();
       return created;
     }
-  }
-
-  async getProduct(productId: string) {
-    const result = await db.execute(
-      sql`SELECT * FROM stripe.products WHERE id = ${productId}`
-    );
-    return extractRows(result)[0] || null;
-  }
-
-  async listProducts(active = true, limit = 20, offset = 0) {
-    const result = await db.execute(
-      sql`SELECT * FROM stripe.products WHERE active = ${active} LIMIT ${limit} OFFSET ${offset}`
-    );
-    return extractRows(result);
-  }
-
-  async listProductsWithPrices(active = true, limit = 20, offset = 0) {
-    const result = await db.execute(
-      sql`
-        WITH paginated_products AS (
-          SELECT id, name, description, metadata, active
-          FROM stripe.products
-          WHERE active = ${active}
-          ORDER BY id
-          LIMIT ${limit} OFFSET ${offset}
-        )
-        SELECT 
-          p.id as product_id,
-          p.name as product_name,
-          p.description as product_description,
-          p.active as product_active,
-          p.metadata as product_metadata,
-          pr.id as price_id,
-          pr.unit_amount,
-          pr.currency,
-          pr.recurring,
-          pr.active as price_active,
-          pr.metadata as price_metadata
-        FROM paginated_products p
-        LEFT JOIN stripe.prices pr ON pr.product = p.id AND pr.active = true
-        ORDER BY p.id, pr.unit_amount
-      `
-    );
-    
-    const rows = extractRows(result);
-    
-    if (rows.length === 0) {
-      try {
-        const stripe = await getUncachableStripeClient();
-        const products = await stripe.products.list({ active: true, limit: 20 });
-        const productsWithPrices = [];
-        
-        for (const product of products.data) {
-          const prices = await stripe.prices.list({ product: product.id, active: true });
-          
-          if (prices.data.length === 0) {
-            productsWithPrices.push({
-              product_id: product.id,
-              product_name: product.name,
-              product_description: product.description,
-              product_active: product.active,
-              product_metadata: product.metadata,
-              price_id: null,
-              unit_amount: null,
-              currency: null,
-              recurring: null,
-              price_active: null,
-            });
-          } else {
-            for (const price of prices.data) {
-              productsWithPrices.push({
-                product_id: product.id,
-                product_name: product.name,
-                product_description: product.description,
-                product_active: product.active,
-                product_metadata: product.metadata,
-                price_id: price.id,
-                unit_amount: price.unit_amount,
-                currency: price.currency,
-                recurring: price.recurring,
-                price_active: price.active,
-                price_metadata: price.metadata,
-              });
-            }
-          }
-        }
-        
-        return productsWithPrices;
-      } catch (error) {
-        console.error("Failed to fetch from Stripe API:", error);
-        return [];
-      }
-    }
-    
-    return rows;
-  }
-
-  async getPrice(priceId: string) {
-    const result = await db.execute(
-      sql`SELECT * FROM stripe.prices WHERE id = ${priceId}`
-    );
-    return extractRows(result)[0] || null;
-  }
-
-  async listPrices(active = true, limit = 20, offset = 0) {
-    const result = await db.execute(
-      sql`SELECT * FROM stripe.prices WHERE active = ${active} LIMIT ${limit} OFFSET ${offset}`
-    );
-    return extractRows(result);
-  }
-
-  async getPricesForProduct(productId: string) {
-    const result = await db.execute(
-      sql`SELECT * FROM stripe.prices WHERE product = ${productId} AND active = true`
-    );
-    return extractRows(result);
-  }
-
-  async getSubscription(subscriptionId: string) {
-    const result = await db.execute(
-      sql`SELECT * FROM stripe.subscriptions WHERE id = ${subscriptionId}`
-    );
-    return extractRows(result)[0] || null;
   }
 
   async createContactSubmission(data: {

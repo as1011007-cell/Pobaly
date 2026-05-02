@@ -99,10 +99,6 @@
         }
       ]
     },
-    "web": {
-      "output": "single",
-      "favicon": "./assets/images/probaly-logo.png"
-    },
     "plugins": [
       [
         "expo-splash-screen",

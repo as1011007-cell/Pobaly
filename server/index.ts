@@ -1,9 +1,6 @@
 import express from "express";
 import type { Request, Response, NextFunction } from "express";
-import { runMigrations } from 'stripe-replit-sync';
 import { registerRoutes } from "./routes";
-import { getStripeSync } from "./stripeClient";
-import { WebhookHandlers } from "./webhookHandlers";
 import { startDailyRefreshScheduler } from "./services/predictionService";
 import * as fs from "fs";
 import * as path from "path";
@@ -75,45 +72,6 @@ async function seedTestUser() {
     }
   } catch (error) {
     // Silently fail if test user update fails
-  }
-}
-
-async function initStripe() {
-  const databaseUrl = process.env.DATABASE_URL;
-
-  if (!databaseUrl) {
-    log('DATABASE_URL not set, skipping Stripe initialization');
-    return;
-  }
-
-  try {
-    log('Initializing Stripe schema...');
-    await runMigrations({ 
-      databaseUrl,
-      schema: 'stripe'
-    } as any);
-    log('Stripe schema ready');
-
-    const stripeSync = await getStripeSync();
-
-    log('Setting up managed webhook...');
-    const webhookBaseUrl = `https://${process.env.REPLIT_DOMAINS?.split(',')[0]}`;
-    const webhookResult = await stripeSync.findOrCreateManagedWebhook(
-      `${webhookBaseUrl}/api/stripe/webhook`
-    );
-    log(`Webhook configured: ${webhookResult?.webhook?.url || 'Webhook URL pending'}`);
-    log('Webhook setup complete');
-
-    log('Syncing Stripe data in background...');
-    stripeSync.syncBackfill()
-      .then(() => {
-        log('Stripe data synced');
-      })
-      .catch((err: any) => {
-        console.error('Error syncing Stripe data:', err);
-      });
-  } catch (error) {
-    console.error('Failed to initialize Stripe:', error);
   }
 }
 
@@ -209,17 +167,6 @@ function setupRequestLogging(app: express.Application) {
   });
 }
 
-function getAppName(): string {
-  try {
-    const appJsonPath = path.resolve(process.cwd(), "app.json");
-    const appJsonContent = fs.readFileSync(appJsonPath, "utf-8");
-    const appJson = JSON.parse(appJsonContent);
-    return appJson.expo?.name || "App Landing Page";
-  } catch {
-    return "App Landing Page";
-  }
-}
-
 function serveExpoManifest(platform: string, res: Response) {
   const manifestPath = path.resolve(
     process.cwd(),
@@ -242,43 +189,8 @@ function serveExpoManifest(platform: string, res: Response) {
   res.send(manifest);
 }
 
-function serveLandingPage({
-  req,
-  res,
-  landingPageTemplate,
-  appName,
-}: {
-  req: Request;
-  res: Response;
-  landingPageTemplate: string;
-  appName: string;
-}) {
-  const forwardedProto = req.header("x-forwarded-proto");
-  const protocol = forwardedProto || req.protocol || "https";
-  const forwardedHost = req.header("x-forwarded-host");
-  const host = forwardedHost || req.get("host");
-  const baseUrl = `${protocol}://${host}`;
-  const expsUrl = `${host}`;
-
-  log(`baseUrl`, baseUrl);
-  log(`expsUrl`, expsUrl);
-
-  const html = landingPageTemplate
-    .replace(/BASE_URL_PLACEHOLDER/g, baseUrl)
-    .replace(/EXPS_URL_PLACEHOLDER/g, expsUrl)
-    .replace(/APP_NAME_PLACEHOLDER/g, appName);
-
-  res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.status(200).send(html);
-}
-
-function configureExpoAndLanding(app: express.Application) {
-  const distPath = path.resolve(process.cwd(), "dist");
-  const webBuildExists = fs.existsSync(path.join(distPath, "index.html"));
-
-  log(`Serving ${webBuildExists ? "web app from dist/" : "Expo landing page"}`);
-
-  // Serve manifest for Expo Go mobile clients
+function configureLegalPages(app: express.Application) {
+  // Expo Go manifest middleware so the dev client can connect.
   app.use((req: Request, res: Response, next: NextFunction) => {
     if (req.path.startsWith("/api")) {
       return next();
@@ -292,52 +204,7 @@ function configureExpoAndLanding(app: express.Application) {
     next();
   });
 
-  // Serve assets
-  app.use("/assets", express.static(path.resolve(process.cwd(), "assets")));
-
-  // Google Search Console verification
-  app.get("/google5558d3209820d790.html", (_req: Request, res: Response) => {
-    const verifyPath = path.resolve(process.cwd(), "server", "templates", "google5558d3209820d790.html");
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.sendFile(verifyPath);
-  });
-
-  // SEO: Yandex Webmaster HTML-file domain verification.
-  // Yandex requests https://probaly.net/yandex_<TOKEN>.html and expects the
-  // exact body it provided. Do not delete after verification — Yandex
-  // re-checks periodically and will revoke access if missing.
-  app.get("/yandex_6b694df7940e1f88.html", (_req: Request, res: Response) => {
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.send(
-      '<html>\n    <head>\n        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">\n    </head>\n    <body>Verification: 6b694df7940e1f88</body>\n</html>'
-    );
-  });
-
-  // SEO: robots.txt
-  app.get("/robots.txt", (_req: Request, res: Response) => {
-    const robotsPath = path.resolve(process.cwd(), "server", "templates", "robots.txt");
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    res.setHeader("Cache-Control", "public, max-age=86400");
-    res.sendFile(robotsPath);
-  });
-
-  // SEO: sitemap.xml
-  app.get("/sitemap.xml", (_req: Request, res: Response) => {
-    const sitemapPath = path.resolve(process.cwd(), "server", "templates", "sitemap.xml");
-    res.setHeader("Content-Type", "application/xml; charset=utf-8");
-    res.setHeader("Cache-Control", "public, max-age=86400");
-    res.sendFile(sitemapPath);
-  });
-
-  // Serve contact page before SPA fallback
-  app.get("/contact", (_req: Request, res: Response) => {
-    const contactPath = path.resolve(process.cwd(), "server", "templates", "contact.html");
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.sendFile(contactPath);
-  });
-
-  // Privacy policy: canonical = /privacy-policy. All alias paths 301-redirect
-  // to avoid duplicate-content penalties in Google/Bing.
+  // Privacy Policy — required for App Store / Play Store compliance.
   app.get("/privacy-policy", (_req: Request, res: Response) => {
     const policyPath = path.resolve(process.cwd(), "server", "templates", "privacy-policy.html");
     res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -347,7 +214,7 @@ function configureExpoAndLanding(app: express.Application) {
     res.redirect(301, "/privacy-policy");
   });
 
-  // Terms & Conditions: canonical = /terms. All alias paths 301-redirect.
+  // Terms — required for App Store / Play Store compliance.
   app.get("/terms", (_req: Request, res: Response) => {
     const termsPath = path.resolve(process.cwd(), "server", "templates", "terms.html");
     res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -365,61 +232,21 @@ function configureExpoAndLanding(app: express.Application) {
     });
   }
 
-  app.get("/checkout/success", (_req: Request, res: Response) => {
-    const successPath = path.resolve(process.cwd(), "server", "templates", "checkout-success.html");
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.sendFile(successPath);
+  // Root: identify as the Probaly API server.
+  app.get("/", (_req: Request, res: Response) => {
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.status(200).send("Probaly API");
   });
 
-  app.get("/checkout/cancel", (_req: Request, res: Response) => {
-    const cancelPath = path.resolve(process.cwd(), "server", "templates", "checkout-cancel.html");
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.sendFile(cancelPath);
-  });
-
-  const templatePath = path.resolve(
-    process.cwd(),
-    "server",
-    "templates",
-    "landing-page.html",
-  );
-  const landingPageTemplate = fs.readFileSync(templatePath, "utf-8");
-  const appName = getAppName();
-
-  app.get("/", (req: Request, res: Response) => {
-    serveLandingPage({ req, res, landingPageTemplate, appName });
-  });
-
-  if (webBuildExists) {
-    const serveWebApp = (_req: Request, res: Response) => {
-      res.setHeader("Cache-Control", "no-cache, must-revalidate");
-      res.sendFile(path.join(distPath, "index.html"));
-    };
-    app.get("/app", serveWebApp);
-    app.get("/app/*path", serveWebApp);
-    app.use(express.static(distPath, { index: false, maxAge: "7d" }));
-  }
-  app.use(express.static(path.resolve(process.cwd(), "static-build"), { index: false }));
-
-  const landingPagePaths = new Set([
-    "/", "/contact", "/privacypolicy", "/privacy-policy",
-    "/terms", "/terms-of-service", "/termsofservice",
-    "/checkout/success", "/checkout/cancel",
-  ]);
-
+  // 404 for any other browser request.
   app.use((req: Request, res: Response, next: NextFunction) => {
-    // Let API and runtime-uploaded files (e.g. Telegram media) pass through
-    // to their own handlers instead of being swallowed by the SPA fallback.
     if (req.path.startsWith("/api") || req.path.startsWith("/uploads/")) {
       return next();
     }
-    if (webBuildExists && !landingPagePaths.has(req.path)) {
-      return res.sendFile(path.join(distPath, "index.html"));
-    }
-    serveLandingPage({ req, res, landingPageTemplate, appName });
+    res.status(404).type("text/plain").send("Not found");
   });
 
-  log("Serving app download landing page");
+  log("Configured Expo manifest middleware + legal pages");
 }
 
 function setupErrorHandler(app: express.Application) {
@@ -444,41 +271,9 @@ function setupErrorHandler(app: express.Application) {
 }
 
 (async () => {
-  await initStripe();
-  
   setupSecurityHeaders(app);
   setupCors(app);
 
-  // Register Stripe webhook route BEFORE express.json()
-  app.post(
-    '/api/stripe/webhook',
-    express.raw({ type: 'application/json' }),
-    async (req, res) => {
-      const signature = req.headers['stripe-signature'];
-
-      if (!signature) {
-        return res.status(400).json({ error: 'Missing stripe-signature' });
-      }
-
-      try {
-        const sig = Array.isArray(signature) ? signature[0] : signature;
-
-        if (!Buffer.isBuffer(req.body)) {
-          console.error('STRIPE WEBHOOK ERROR: req.body is not a Buffer.');
-          return res.status(500).json({ error: 'Webhook processing error' });
-        }
-
-        await WebhookHandlers.processWebhook(req.body as Buffer, sig);
-
-        res.status(200).json({ received: true });
-      } catch (error: any) {
-        console.error('Webhook error:', error.message);
-        res.status(400).json({ error: 'Webhook processing error' });
-      }
-    }
-  );
-
-  // Now apply JSON middleware for all other routes
   app.use(
     express.json({
       verify: (req, _res, buf) => {
@@ -489,7 +284,7 @@ function setupErrorHandler(app: express.Application) {
   app.use(express.urlencoded({ extended: false }));
 
   setupRequestLogging(app);
-  configureExpoAndLanding(app);
+  configureLegalPages(app);
 
   const server = await registerRoutes(app);
 

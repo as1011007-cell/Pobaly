@@ -1,13 +1,8 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "node:http";
 import { storage } from "./storage";
-import { stripeService } from "./stripeService";
-import { getStripePublishableKey } from "./stripeClient";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-// Affiliate program disabled — re-enable by uncommenting
-// import affiliateRoutes from "./affiliateRoutes";
-import { WebhookHandlers } from "./webhookHandlers";
 import { signToken, setCachedTokenVersion, requireAuth, optionalAuth, requireAdmin, requireWebhookAuth, rateLimit } from "./auth";
 import { checkRCSubscription } from "./revenueCatService";
 import { validateEmailDeliverable } from "./emailValidation";
@@ -229,151 +224,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Stripe routes
-  app.get("/api/stripe/config", apiReadRateLimit, async (_req: Request, res: Response) => {
-    try {
-      const publishableKey = await getStripePublishableKey();
-      res.json({ publishableKey });
-    } catch (error: any) {
-      res.status(500).json({ error: safeErrorMessage(error) });
-    }
-  });
 
-  app.get("/api/products", apiReadRateLimit, async (_req: Request, res: Response) => {
-    try {
-      const products = await storage.listProducts();
-      res.json({ data: products });
-    } catch (error: any) {
-      res.status(500).json({ error: safeErrorMessage(error) });
-    }
-  });
-
-  app.get("/api/products-with-prices", apiReadRateLimit, async (_req: Request, res: Response) => {
-    try {
-      const rows = await storage.listProductsWithPrices();
-
-      const productsMap = new Map();
-      for (const row of rows as any[]) {
-        if (!productsMap.has(row.product_id)) {
-          productsMap.set(row.product_id, {
-            id: row.product_id,
-            name: row.product_name,
-            description: row.product_description,
-            active: row.product_active,
-            metadata: row.product_metadata,
-            prices: []
-          });
-        }
-        if (row.price_id) {
-          productsMap.get(row.product_id).prices.push({
-            id: row.price_id,
-            unit_amount: row.unit_amount,
-            currency: row.currency,
-            recurring: row.recurring,
-            active: row.price_active,
-          });
-        }
-      }
-
-      res.json({ data: Array.from(productsMap.values()) });
-    } catch (error: any) {
-      res.status(500).json({ error: safeErrorMessage(error) });
-    }
-  });
-
-  app.get("/api/prices", apiReadRateLimit, async (_req: Request, res: Response) => {
-    try {
-      const prices = await storage.listPrices();
-      res.json({ data: prices });
-    } catch (error: any) {
-      res.status(500).json({ error: safeErrorMessage(error) });
-    }
-  });
-
-  const stripePriceMonthly = process.env.EXPO_PUBLIC_STRIPE_PRICE_MONTHLY;
-  const stripePriceAnnual = process.env.EXPO_PUBLIC_STRIPE_PRICE_ANNUAL;
-
-  const checkoutEnabled = Boolean(stripePriceMonthly && stripePriceAnnual);
-
-  if (!checkoutEnabled) {
-    console.warn(
-      "Stripe checkout disabled: missing env vars (EXPO_PUBLIC_STRIPE_PRICE_MONTHLY / EXPO_PUBLIC_STRIPE_PRICE_ANNUAL)."
-    );
-  }
-
-  const allowedPriceIds = new Set(
-    [stripePriceMonthly, stripePriceAnnual].filter(Boolean) as string[]
-  );
-
-  app.get("/api/billing/config", apiReadRateLimit, (_req: Request, res: Response) => {
-    res.json({
-      prices: {
-        monthly: stripePriceMonthly || null,
-        annual: stripePriceAnnual || null,
-      },
-    });
-  });
-
-  const checkoutSchema = z.object({
-    priceId: z.string().min(1).max(200).refine(
-      (id) => allowedPriceIds.has(id),
-      { message: "Invalid subscription plan" }
-    ),
-  });
-
-  app.post("/api/checkout", requireAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
-    if (!checkoutEnabled) {
-      return res.status(503).json({ error: "Checkout is currently unavailable. Stripe price configuration is missing." });
-    }
-
-    try {
-      const parsed = checkoutSchema.safeParse(req.body);
-      if (!parsed.success) {
-        return res.status(400).json({ error: safeErrorMessage(parsed.error) });
-      }
-      const { priceId } = parsed.data;
-      const userId = req.userId!;
-
-      const user = await storage.getUser(userId);
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
-      }
-
-      let customerId = user.stripeCustomerId;
-      
-      if (!customerId) {
-        const customer = await stripeService.createCustomer(user.email, user.id);
-        await storage.updateUserStripeInfo(user.id, { stripeCustomerId: customer.id });
-        customerId = customer.id;
-      } else {
-        try {
-          await stripeService.getCustomer(customerId);
-        } catch (customerError: any) {
-          if (customerError.code === 'resource_missing') {
-            const customer = await stripeService.createCustomer(user.email, user.id);
-            await storage.updateUserStripeInfo(user.id, { stripeCustomerId: customer.id });
-            customerId = customer.id;
-          } else {
-            throw customerError;
-          }
-        }
-      }
-
-      const baseUrl = `https://${process.env.REPLIT_DOMAINS?.split(',')[0]}`;
-      const session = await stripeService.createCheckoutSession(
-        customerId,
-        priceId,
-        `${baseUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-        `${baseUrl}/checkout/cancel`
-      );
-
-      res.json({ url: session.url });
-    } catch (error: any) {
-      console.error("Checkout error:", error);
-      res.status(500).json({ error: safeErrorMessage(error) });
-    }
-  });
-
+  // ============ Subscription / RevenueCat Routes ============
 
   // Uses optionalAuth so subscription status and RC background checks work
   // even when the JWT has expired (e.g. 30-day token from old builds).
@@ -392,9 +244,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // If user is not premium in DB, AWAIT the RC check and reflect the
-      // result in this same response. This is the safety net that catches
-      // purchases when the RC webhook is missed (e.g. webhook added after
-      // purchase, network hiccup, App Store build without OTA fixes).
+      // result in this same response. Safety net for missed RC webhooks.
       if (!user.isPremium) {
         try {
           const rcStatus = await Promise.race([
@@ -421,28 +271,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // Return DB premium status regardless of how the subscription was created
-      // (works for both Stripe and RevenueCat subscriptions)
-      if (!user.stripeSubscriptionId) {
-        return res.json({
-          subscription: null,
-          isPremium: user.isPremium || false,
-          expiryDate: user.subscriptionExpiry,
-        });
-      }
-
-      const subscription = await storage.getSubscription(user.stripeSubscriptionId);
-      res.json({
-        subscription,
-        isPremium: user.isPremium,
+      return res.json({
+        subscription: null,
+        isPremium: user.isPremium || false,
         expiryDate: user.subscriptionExpiry,
       });
     } catch (error: any) {
       res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
-
-  // ============ RevenueCat Routes ============
 
   const revenueCatSyncSchema = z.object({
     isSubscribed: z.boolean(),
@@ -478,38 +315,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getUser(userId);
       if (!user) return res.status(404).json({ error: "User not found" });
 
-      // For Stripe web payments, the productIdentifier is "stripe_web_*" —
-      // skip RC check since these users are not in RevenueCat.
-      const isStripePayment = String(productIdentifier || "").startsWith("stripe_");
-
       if (isSubscribed) {
         let expiry: Date;
         let source = "client-claim";
 
-        if (!isStripePayment) {
-          const rcStatus = await checkRCSubscription(userId);
-          if (rcStatus?.isPremium) {
-            expiry = rcStatus.expiryDate ?? (() => {
-              const d = new Date();
-              const isAnn = isAnnualProduct(productIdentifier);
-              isAnn ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
-              return d;
-            })();
-            source = "RC-verified";
-          } else if (!jwtAuthenticated) {
-            // No JWT + RC didn't confirm = reject (can't trust body-only claim)
-            console.log(`RevenueCat sync: unauthenticated claim rejected for user ${userId} — RC did not confirm`);
-            return res.status(403).json({ error: "Could not verify subscription. Please try again." });
-          } else {
-            // JWT authenticated but RC not confirmed yet — trust the client claim
-            expiry = (() => {
-              const d = new Date();
-              const isAnn = isAnnualProduct(productIdentifier);
-              isAnn ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
-              return d;
-            })();
-          }
+        const rcStatus = await checkRCSubscription(userId);
+        if (rcStatus?.isPremium) {
+          expiry = rcStatus.expiryDate ?? (() => {
+            const d = new Date();
+            const isAnn = isAnnualProduct(productIdentifier);
+            isAnn ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
+            return d;
+          })();
+          source = "RC-verified";
+        } else if (!jwtAuthenticated) {
+          // No JWT + RC didn't confirm = reject (can't trust body-only claim)
+          console.log(`RevenueCat sync: unauthenticated claim rejected for user ${userId} — RC did not confirm`);
+          return res.status(403).json({ error: "Could not verify subscription. Please try again." });
         } else {
+          // JWT authenticated but RC not confirmed yet — trust the client claim
           expiry = (() => {
             const d = new Date();
             const isAnn = isAnnualProduct(productIdentifier);
@@ -545,7 +369,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // RevenueCat webhook — handles subscription lifecycle events from RevenueCat dashboard
+  // RevenueCat webhook — handles subscription lifecycle events from RC dashboard.
   // No auth header required: RC dashboard does not reliably send one.
   // The endpoint URL is private and the RC event payload structure is sufficient.
   app.post("/api/revenuecat/webhook", async (req: Request, res: Response) => {
@@ -649,31 +473,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ received: true });
     } catch (error: any) {
       console.error("RevenueCat webhook error:", error);
-      res.status(500).json({ error: safeErrorMessage(error) });
-    }
-  });
-
-  app.post("/api/customer-portal", requireAuth, apiWriteRateLimit, async (req: Request, res: Response) => {
-    if (!checkoutEnabled) {
-      return res.status(503).json({ error: "Billing portal is currently unavailable. Stripe is not configured." });
-    }
-
-    try {
-      const userId = req.userId!;
-
-      const user = await storage.getUser(userId);
-      if (!user || !user.stripeCustomerId) {
-        return res.status(404).json({ error: "No subscription found" });
-      }
-
-      const baseUrl = `https://${process.env.REPLIT_DOMAINS?.split(',')[0]}`;
-      const session = await stripeService.createCustomerPortalSession(
-        user.stripeCustomerId,
-        baseUrl
-      );
-
-      res.json({ url: session.url });
-    } catch (error: any) {
       res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
@@ -1291,7 +1090,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============ Restore Purchases Route ============
   const restoreRateLimit = rateLimit({ windowMs: 60 * 1000, max: 3 });
 
-  // userId from JWT or body — no auth required
+  // RevenueCat handles the actual restore on the client. This endpoint exists
+  // so the mobile app can hit a known URL — RC.restorePurchases() updates the
+  // entitlement, then the app calls /api/revenuecat/sync to write isPremium
+  // back to our DB.
   app.post("/api/restore-purchases", optionalAuth, restoreRateLimit, async (req: Request, res: Response) => {
     try {
       const userId = req.userId ?? req.body.userId;
@@ -1302,38 +1104,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "User not found" });
       }
 
-      // Check if user has a Stripe customer ID
-      if (!user.stripeCustomerId) {
-        return res.json({ restored: false, message: "No purchases found" });
-      }
-
-      // Check for active subscriptions in Stripe
-      const subscription = await stripeService.getActiveSubscription(user.stripeCustomerId);
-      
-      if (subscription && subscription.status === "active") {
-        const expiryDate = new Date((subscription as any).current_period_end * 1000);
-        const restoreUpdate: any = {
-          stripeSubscriptionId: subscription.id,
-          isPremium: true,
-          subscriptionExpiry: expiryDate,
-        };
-        if (!user.isPremium) {
-          restoreUpdate.premiumSince = new Date();
-        }
-        await storage.updateUserStripeInfo(userId, restoreUpdate);
-        
-        return res.json({ restored: true, message: "Subscription restored successfully" });
-      }
-
-      return res.json({ restored: false, message: "No active subscriptions found" });
+      return res.json({ restored: false, message: "No purchases found" });
     } catch (error: any) {
       console.error("Error restoring purchases:", error);
       res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
 
-  // Affiliate program disabled — re-enable by uncommenting
-  // app.use("/api/affiliate", affiliateRoutes);
 
   // Contact form submission
   const contactSchema = z.object({

@@ -18,7 +18,7 @@ The application uses a 5-tab navigation system (Home, Live, Sports, History, Pro
 - **Database**: PostgreSQL with Drizzle ORM.
 - **Authentication**: Email/password with bcrypt and JWT. Email validation includes DNS MX record checks and a disposable domain blocklist.
 - **AI Integration**: Groq (llama-3.3-70b-versatile) for all prediction generation and batch resolution.
-- **Payment Processing**: RevenueCat for in-app purchases; Stripe for web browser subscriptions.
+- **Payment Processing**: RevenueCat for in-app purchases on iOS and Android (mobile-only — no web checkout flow).
 - **Data Refresh**: Daily scheduler for predictions, clearing expired entries, fetching new games, and regenerating AI predictions, followed by push notifications.
 - **System-Pick Generation Locking**: A shared async mutex (`systemPickLock`) serializes all system-pick generation to prevent race conditions and duplicate predictions.
 - **Push Notifications**: Utilizes Expo Push Notifications, storing tokens in the database and respecting user preferences.
@@ -31,7 +31,7 @@ The application uses a 5-tab navigation system (Home, Live, Sports, History, Pro
 - **AI-Powered Predictions**: Includes probability, confidence, explanation, factors, and risk index. Basketball predictions also include over/under total points.
 - **Live Match Updates**: Real-time updates for ongoing games.
 - **Prediction History**: Users can track past predictions.
-- **Subscription Model**: "Probaly Premium" with monthly and annual options via RevenueCat (in-app) and Stripe (web).
+- **Subscription Model**: "Probaly Premium" with monthly and annual options via RevenueCat in-app purchases. The Express server still serves `/privacy-policy` and `/terms` for App Store / Play Store compliance, but no longer ships a web app or web checkout — `https://probaly.net/` returns a plain "Probaly API" string.
 - **Sports Data Fallback**: Automatically switches to ESPN's public API if The Odds API quota is exhausted.
 - **Telegram Channel Mirror (Landing Page)**: Connects to a private Telegram channel via gramjs MTProto to display media on the landing page. Features include random polling delays, exponential reconnect backoff, message exclusion, hard suspension capability, and a static fallback gallery.
 - **Localization (i18n)**: The app supports 7 languages — English, Spanish, French, German, Japanese, Chinese (Simplified), and Russian. Static UI strings live in `client/lib/translations.ts` and are accessed via `useLanguage()`. AI-generated prediction copy (predictedOutcome, explanation, factor titles/descriptions) is translated server-side on demand by Groq (llama-3.3-70b-versatile, temperature 0.2, JSON mode). Translations are cached in the `prediction_translations` table (PK `prediction_id` + `language`) so each (pick, language) pair is generated once. Prediction read endpoints (`/free-tip`, `/premium`, `/live`, `/history`, `/sport/:sport`, `/:id`) accept `?lang=xx` and translate before redaction so the cache is shared across users. The Groq prompt is instructed to keep proper nouns (team/player/league names), all numbers, and the Over/Under market labels untouched. Failures (Groq down, parse error) fall back to English copy — better stale than blank. The cache table is bootstrapped via raw SQL in `server/services/translationService.ts:initTranslationCache()` (called from `server/index.ts` at boot), matching the `telegram_media` pattern; nothing is added to `shared/schema.ts`.
@@ -39,6 +39,5 @@ The application uses a 5-tab navigation system (Home, Live, Sports, History, Pro
 ## External Dependencies
 - **Groq**: Used for AI-powered sports predictions.
 - **RevenueCat**: Manages in-app subscriptions and purchases on iOS and Android.
-- **Stripe**: Handles web browser premium subscriptions and affiliate payouts.
 - **The Odds API**: Primary source for real-time sports event data.
 - **ESPN API**: Secondary data source for sports events.

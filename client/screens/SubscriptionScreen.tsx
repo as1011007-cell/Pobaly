@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   StyleSheet,
@@ -9,7 +9,6 @@ import {
   Platform,
   Animated,
   Alert,
-  Linking,
 } from "react-native";
 import Constants from "expo-constants";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -25,15 +24,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/contexts/AuthContext";
 import { BorderRadius, Spacing } from "@/constants/theme";
 import { useSubscription, REVENUECAT_ENTITLEMENT_IDENTIFIER, fetchCustomerInfo } from "@/lib/revenuecat";
-import { useQuery } from "@tanstack/react-query";
-import { apiRequest, getApiUrl } from "@/lib/query-client";
-
-const isWeb = Platform.OS === "web";
-
-const STRIPE_PRICES_FALLBACK = {
-  monthly: process.env.EXPO_PUBLIC_STRIPE_PRICE_MONTHLY || "",
-  annual: process.env.EXPO_PUBLIC_STRIPE_PRICE_ANNUAL || "",
-};
+import { apiRequest } from "@/lib/query-client";
 
 const features = [
   { icon: "unlock", title: "All Daily Predictions", description: "Access every AI prediction" },
@@ -78,7 +69,7 @@ export default function SubscriptionScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
-  const { user, isPremium, refreshUser, activatePremium, armPurchaseWindow } = useAuth();
+  const { user, isPremium, activatePremium, armPurchaseWindow } = useAuth();
   const [selectedPlan, setSelectedPlan] = useState<PlanType>("annual");
 
   const {
@@ -119,48 +110,7 @@ export default function SubscriptionScreen() {
     : "a TestFlight or App Store build";
   const STORE_CONFIRMED_BY = isAndroid ? "Google Play" : "Apple";
 
-  const { data: billingConfig } = useQuery<{ prices: { monthly: string | null; annual: string | null } }>({
-    queryKey: ["/api/billing/config"],
-    staleTime: 5 * 60 * 1000,
-  });
-
-  const stripePrices = useMemo(() => ({
-    monthly: billingConfig?.prices?.monthly || STRIPE_PRICES_FALLBACK.monthly,
-    annual: billingConfig?.prices?.annual || STRIPE_PRICES_FALLBACK.annual,
-  }), [billingConfig]);
-
-  const [isStripeLoading, setIsStripeLoading] = useState(false);
-
-  const handleStripeCheckout = async () => {
-    if (isStripeLoading) return;
-    const priceId = stripePrices[selectedPlan];
-    if (!priceId) {
-      Alert.alert("Checkout unavailable", "Subscription plans are not configured. Please try again later.", [{ text: "OK" }]);
-      return;
-    }
-    setIsStripeLoading(true);
-    try {
-      const response = await apiRequest("POST", "/api/checkout", { priceId });
-      const data = await response.json();
-      if (data.url) {
-        if (isWeb) {
-          window.location.href = data.url;
-        } else {
-          await Linking.openURL(data.url);
-        }
-      }
-    } catch (error: any) {
-      console.error("Stripe checkout error:", error);
-      Alert.alert("Checkout failed", "Something went wrong. Please try again.", [{ text: "OK" }]);
-    } finally {
-      setIsStripeLoading(false);
-    }
-  };
-
   const handleSubscribe = async () => {
-    if (isWeb) {
-      return handleStripeCheckout();
-    }
     if (isPurchasing) return;
     if (!selectedPackage) {
       if (isExpoGo) {
@@ -331,14 +281,7 @@ export default function SubscriptionScreen() {
         }}
         showsVerticalScrollIndicator={false}
       >
-        {isWeb ? (
-          <View style={[styles.testModeBanner, { backgroundColor: `${theme.primary}15`, borderColor: theme.primary }]}>
-            <Feather name="credit-card" size={16} color={theme.primary} />
-            <ThemedText type="small" style={{ color: theme.primary, marginLeft: Spacing.xs, flex: 1, lineHeight: 18 }}>
-              Secure checkout powered by Stripe
-            </ThemedText>
-          </View>
-        ) : isExpoGo ? (
+        {isExpoGo ? (
           <View style={[styles.testModeBanner, { backgroundColor: `${theme.warning}20`, borderColor: theme.warning }]}>
             <Feather name="info" size={16} color={theme.warning} />
             <ThemedText type="small" style={{ color: theme.warning, marginLeft: Spacing.xs, flex: 1, lineHeight: 18 }}>
@@ -462,21 +405,16 @@ export default function SubscriptionScreen() {
         {/* Subscribe Button */}
         <Button
           onPress={handleSubscribe}
-          disabled={isWeb ? isStripeLoading : (isPurchasing || isLoading)}
+          disabled={isPurchasing || isLoading}
           style={styles.subscribeButton}
           testID="button-subscribe"
         >
-          {isStripeLoading ? (
-            <View style={styles.buttonContent}>
-              <ActivityIndicator color="#FFFFFF" size="small" style={{ marginRight: Spacing.sm }} />
-              <ThemedText style={{ color: "#FFF", fontWeight: "700" }}>Redirecting to checkout...</ThemedText>
-            </View>
-          ) : isPurchasing ? (
+          {isPurchasing ? (
             <View style={styles.buttonContent}>
               <ActivityIndicator color="#FFFFFF" size="small" style={{ marginRight: Spacing.sm }} />
               <ThemedText style={{ color: "#FFF", fontWeight: "700" }}>Processing...</ThemedText>
             </View>
-          ) : isLoading && !isWeb ? (
+          ) : isLoading ? (
             <View style={styles.buttonContent}>
               <ActivityIndicator color="#FFFFFF" size="small" style={{ marginRight: Spacing.sm }} />
               <ThemedText style={{ color: "#FFF", fontWeight: "700" }}>Loading prices...</ThemedText>
@@ -506,26 +444,22 @@ export default function SubscriptionScreen() {
             </ThemedText>.
           </ThemedText>
           <View style={styles.footerLinks}>
-            {!isWeb ? (
-              <>
-                <Pressable
-                  onPress={handleRestorePurchases}
-                  disabled={isRestoring || isPurchasing}
-                  testID="button-restore"
-                  style={styles.footerLinkBtn}
-                >
-                  {isRestoring ? (
-                    <View style={styles.restoreRow}>
-                      <ActivityIndicator size="small" color={theme.accent} style={{ marginRight: 4 }} />
-                      <ThemedText type="small" style={{ color: theme.accent }}>Restoring...</ThemedText>
-                    </View>
-                  ) : (
-                    <ThemedText type="small" style={{ color: theme.accent }}>Restore Purchase</ThemedText>
-                  )}
-                </Pressable>
-                <ThemedText type="small" style={{ color: theme.textSecondary }}>{" "}|{" "}</ThemedText>
-              </>
-            ) : null}
+            <Pressable
+              onPress={handleRestorePurchases}
+              disabled={isRestoring || isPurchasing}
+              testID="button-restore"
+              style={styles.footerLinkBtn}
+            >
+              {isRestoring ? (
+                <View style={styles.restoreRow}>
+                  <ActivityIndicator size="small" color={theme.accent} style={{ marginRight: 4 }} />
+                  <ThemedText type="small" style={{ color: theme.accent }}>Restoring...</ThemedText>
+                </View>
+              ) : (
+                <ThemedText type="small" style={{ color: theme.accent }}>Restore Purchase</ThemedText>
+              )}
+            </Pressable>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>{" "}|{" "}</ThemedText>
             <Pressable onPress={() => navigation.navigate("TermsOfService")} testID="link-terms">
               <ThemedText type="small" style={{ color: theme.accent }}>Terms of Use (EULA)</ThemedText>
             </Pressable>

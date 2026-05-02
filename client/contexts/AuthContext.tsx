@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from "r
 import { Platform, AppState, AppStateStatus } from "react-native";
 import { User } from "@/types";
 import { storage } from "@/lib/storage";
-import { apiRequest, getApiUrl, setOnSessionRevoked } from "@/lib/query-client";
+import { apiRequest, setOnSessionRevoked } from "@/lib/query-client";
 import { loginRevenueCat, logoutRevenueCat } from "@/lib/revenuecat";
 import {
   registerPushTokenWithServer,
@@ -132,38 +132,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const token = await storage.getAuthToken();
         if (token) {
           registerPushTokenWithServer(token, String(savedUser.id)).catch(() => {});
-        }
-
-        // On web: detect a Stripe payment that just completed and immediately
-        // activate premium without a server round-trip. The @probaly/premium_activated
-        // flag is set by checkout-success.html. WebPaymentSuccessHandler also handles
-        // the URL-param signal (?premium_activated=1) after auth is ready.
-        if (Platform.OS === "web") {
-          try {
-            const activatedFlag = await AsyncStorage.getItem("@probaly/premium_activated");
-            if (activatedFlag && !savedUser.isPremium) {
-              premiumActivatedAt.current = Date.now();
-              const activatedUser: User = {
-                ...savedUser,
-                isPremium: true,
-                subscriptionExpiry: (() => {
-                  const d = new Date();
-                  d.setFullYear(d.getFullYear() + 1);
-                  return d;
-                })(),
-              };
-              await storage.setUser(activatedUser);
-              setUserAndRef(activatedUser);
-              cancelPremiumPromoNotifications().catch(() => {});
-              await AsyncStorage.removeItem("@probaly/premium_activated");
-              // Immediately push premium status to server so any page reload
-              // returns isPremium=true before the Stripe webhook has a chance to land.
-              apiRequest("POST", "/api/revenuecat/sync", {
-                isSubscribed: true,
-                productIdentifier: "stripe_web_annual",
-              }).catch(() => {});
-            }
-          } catch {}
         }
 
         const currentUser = (await storage.getUser()) || savedUser;
