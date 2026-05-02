@@ -49,10 +49,31 @@ function RevenueCatSyncHandler() {
   // Throttle server syncs — only one per user+product per session
   const lastSyncedKey = useRef<string | null>(null);
   const syncInFlight = useRef(false);
+  const lastUserIdRef = useRef<string | null>(null);
+
+  // When the signed-in account changes, clear any sync state so a previous
+  // user's throttle key can never block — or worse, mistakenly authorise —
+  // a sync for the new account.
+  useEffect(() => {
+    const currentId = user?.id ? String(user.id) : null;
+    if (lastUserIdRef.current !== currentId) {
+      lastUserIdRef.current = currentId;
+      lastSyncedKey.current = null;
+      syncInFlight.current = false;
+    }
+  }, [user?.id]);
 
   useEffect(() => {
     if (Platform.OS === "web") return;
-    if (!isSubscribed || !user?.id) return;
+    if (!isSubscribed || !user?.id || !customerInfo) return;
+
+    // CRITICAL: only act on customerInfo that actually belongs to this user.
+    // Right after a sign-out / sign-in on the same device, the React Query
+    // cache may still hold the previous user's customerInfo for a moment.
+    // Without this guard the new account would be promoted to premium based
+    // on the previous account's entitlement.
+    const rcUserId = (customerInfo as any).originalAppUserId as string | undefined;
+    if (rcUserId && rcUserId !== String(user.id)) return;
 
     // RevenueCat confirms an active subscription — ensure the client state
     // reflects this immediately, even if a background refresh just downgraded it.

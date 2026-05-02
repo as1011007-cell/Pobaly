@@ -316,31 +316,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user) return res.status(404).json({ error: "User not found" });
 
       if (isSubscribed) {
-        let expiry: Date;
-        let source = "client-claim";
-
+        // ALWAYS verify with RevenueCat server-side before granting premium.
+        // Trusting the client's "isSubscribed: true" claim — even with a valid
+        // JWT — is unsafe: a stale customerInfo cache from a previous user
+        // (after sign-out/sign-in on the same device) would otherwise promote
+        // an unrelated account to premium. RC is the source of truth; if RC
+        // hasn't propagated the purchase yet, the webhook will reconcile, and
+        // the client's AppState refresh will pick up isPremium=true on its
+        // next call.
         const rcStatus = await checkRCSubscription(userId);
-        if (rcStatus?.isPremium) {
-          expiry = rcStatus.expiryDate ?? (() => {
-            const d = new Date();
-            const isAnn = isAnnualProduct(productIdentifier);
-            isAnn ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
-            return d;
-          })();
-          source = "RC-verified";
-        } else if (!jwtAuthenticated) {
-          // No JWT + RC didn't confirm = reject (can't trust body-only claim)
-          console.log(`RevenueCat sync: unauthenticated claim rejected for user ${userId} — RC did not confirm`);
-          return res.status(403).json({ error: "Could not verify subscription. Please try again." });
-        } else {
-          // JWT authenticated but RC not confirmed yet — trust the client claim
-          expiry = (() => {
-            const d = new Date();
-            const isAnn = isAnnualProduct(productIdentifier);
-            isAnn ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
-            return d;
-          })();
+        if (!rcStatus?.isPremium) {
+          console.log(
+            `RevenueCat sync: claim rejected for user ${userId} — RC did not confirm (jwt=${jwtAuthenticated})`
+          );
+          return res.json({ isPremium: user.isPremium === true });
         }
+
+        const expiry =
+          rcStatus.expiryDate ??
+          (() => {
+            const d = new Date();
+            const isAnn = isAnnualProduct(productIdentifier);
+            isAnn ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1);
+            return d;
+          })();
 
         const wasAlreadyPremium = user.isPremium === true;
         const updateData: any = {
@@ -353,7 +352,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         await storage.updateUserStripeInfo(userId, updateData);
         const isAnnual = isAnnualProduct(productIdentifier);
-        console.log(`RevenueCat sync [${source}]: user ${userId} → isPremium=true (${isAnnual ? "annual" : "monthly"})`);
+        console.log(
+          `RevenueCat sync [RC-verified]: user ${userId} → isPremium=true (${isAnnual ? "annual" : "monthly"})`
+        );
         return res.json({ isPremium: true, subscriptionExpiry: expiry });
       } else {
         // Only allow a downgrade if the request was JWT-authenticated

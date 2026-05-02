@@ -3,6 +3,7 @@ import { Platform } from "react-native";
 import Purchases from "react-native-purchases";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import Constants from "expo-constants";
+import { queryClient } from "@/lib/query-client";
 
 // EXPO_PUBLIC_ keys are intentionally public — safe to have as fallbacks in source.
 // EAS builds inject these from eas.json env blocks; the fallbacks ensure Expo Go and
@@ -64,6 +65,12 @@ export async function loginRevenueCat(userId: string) {
     await Purchases.logIn(userId);
   } catch (e) {
     console.warn("RevenueCat logIn failed:", e);
+  } finally {
+    // Identity changed — drop any cached customerInfo so the next read
+    // fetches fresh data tied to this user. Without this, a previous
+    // (premium) user's customerInfo would still be served from the
+    // React Query cache and a non-premium account would be auto-promoted.
+    queryClient.removeQueries({ queryKey: ["revenuecat"] });
   }
 }
 
@@ -73,6 +80,10 @@ export async function logoutRevenueCat() {
     await Purchases.logOut();
   } catch (e) {
     console.warn("RevenueCat logOut failed:", e);
+  } finally {
+    // Same as loginRevenueCat — clear stale customerInfo so the next
+    // signed-in account starts from a clean slate.
+    queryClient.removeQueries({ queryKey: ["revenuecat"] });
   }
 }
 
