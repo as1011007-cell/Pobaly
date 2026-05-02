@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   StyleSheet,
@@ -6,7 +6,6 @@ import {
   ActivityIndicator,
   Pressable,
   Platform,
-  Animated,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -34,34 +33,6 @@ import { requestNotificationPermissions, sendWelcomeNotification } from "@/lib/n
 type PlanType = "monthly" | "annual";
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-function PriceSkeleton({ width = 80 }: { width?: number }) {
-  const { theme } = useTheme();
-  const opacity = useRef(new Animated.Value(0.3)).current;
-
-  useEffect(() => {
-    const anim = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, { toValue: 1, duration: 600, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 0.3, duration: 600, useNativeDriver: true }),
-      ])
-    );
-    anim.start();
-    return () => anim.stop();
-  }, []);
-
-  return (
-    <Animated.View
-      style={{
-        width,
-        height: 24,
-        borderRadius: 6,
-        backgroundColor: theme.border,
-        opacity,
-      }}
-    />
-  );
-}
-
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
@@ -74,7 +45,6 @@ export default function ProfileScreen() {
   const {
     monthlyPackage,
     annualPackage,
-    isLoading: rcLoading,
     purchase,
     restore,
     isPurchasing,
@@ -101,7 +71,7 @@ export default function ProfileScreen() {
       const isExpoGo = Constants.executionEnvironment === "storeClient";
       if (isExpoGo) {
         Alert.alert(t.expoGoLimitation, t.expoGoLimitationDesc, [{ text: t.ok }]);
-      } else if (!rcLoading) {
+      } else {
         Alert.alert(t.pricesUnavailable, t.couldNotConnectStore, [{ text: t.ok }]);
       }
       return;
@@ -365,11 +335,10 @@ export default function ProfileScreen() {
                   </View>
                   <View style={styles.planPriceRow}>
                     <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>$99</ThemedText>
-                    {rcLoading ? (
-                      <PriceSkeleton width={72} />
-                    ) : (
-                      <ThemedText type="h3" style={{ color: theme.text }}>{monthlyPrice}</ThemedText>
-                    )}
+                    {/* Always render the price — fallback shows immediately,
+                        real RC priceString swaps in live when offerings load.
+                        Same fix as SubscriptionScreen — no skeleton gating. */}
+                    <ThemedText type="h3" style={{ color: theme.text }}>{monthlyPrice}</ThemedText>
                     <ThemedText type="small" style={{ color: theme.textSecondary }}>{t.perMonth}</ThemedText>
                   </View>
                   {selectedPlan === "monthly" && (
@@ -402,11 +371,8 @@ export default function ProfileScreen() {
                   </View>
                   <View style={styles.planPriceRow}>
                     <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>$399</ThemedText>
-                    {rcLoading ? (
-                      <PriceSkeleton width={80} />
-                    ) : (
-                      <ThemedText type="h3" style={{ color: theme.text }}>{annualPrice}</ThemedText>
-                    )}
+                    {/* See monthly comment — always render, RC updates live. */}
+                    <ThemedText type="h3" style={{ color: theme.text }}>{annualPrice}</ThemedText>
                     <ThemedText type="small" style={{ color: theme.textSecondary }}>{t.perYear}</ThemedText>
                   </View>
                   {selectedPlan === "annual" && (
@@ -419,7 +385,7 @@ export default function ProfileScreen() {
 
               <Button
                 onPress={handleSubscribe}
-                disabled={isPurchasing || rcLoading}
+                disabled={isPurchasing}
                 style={styles.subscribeButton}
                 testID="button-subscribe"
               >
@@ -427,11 +393,6 @@ export default function ProfileScreen() {
                   <View style={{ flexDirection: "row", alignItems: "center" }}>
                     <ActivityIndicator color="#FFFFFF" size="small" style={{ marginRight: Spacing.sm }} />
                     <ThemedText style={{ color: "#FFF", fontWeight: "700" }}>{t.processing}</ThemedText>
-                  </View>
-                ) : rcLoading ? (
-                  <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    <ActivityIndicator color="#FFFFFF" size="small" style={{ marginRight: Spacing.sm }} />
-                    <ThemedText style={{ color: "#FFF", fontWeight: "700" }}>{t.loadingPrices}</ThemedText>
                   </View>
                 ) : (
                   selectedPlan === "annual" ? t.startAnnualSub : t.startMonthlySub

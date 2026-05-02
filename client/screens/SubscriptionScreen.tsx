@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState } from "react";
 import {
   View,
   StyleSheet,
@@ -7,7 +7,6 @@ import {
   ActivityIndicator,
   Pressable,
   Platform,
-  Animated,
   Alert,
 } from "react-native";
 import Constants from "expo-constants";
@@ -29,34 +28,6 @@ import { useLanguage } from "@/contexts/LanguageContext";
 
 type PlanType = "monthly" | "annual";
 
-function PriceSkeleton({ width = 80 }: { width?: number }) {
-  const { theme } = useTheme();
-  const opacity = useRef(new Animated.Value(0.3)).current;
-
-  useEffect(() => {
-    const anim = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, { toValue: 1, duration: 600, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 0.3, duration: 600, useNativeDriver: true }),
-      ])
-    );
-    anim.start();
-    return () => anim.stop();
-  }, []);
-
-  return (
-    <Animated.View
-      style={{
-        width,
-        height: 28,
-        borderRadius: 6,
-        backgroundColor: theme.border,
-        opacity,
-      }}
-    />
-  );
-}
-
 export default function SubscriptionScreen() {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
@@ -77,7 +48,6 @@ export default function SubscriptionScreen() {
   const {
     monthlyPackage,
     annualPackage,
-    isLoading,
     offeringsError,
     refetchOfferings,
     purchase,
@@ -339,11 +309,12 @@ export default function SubscriptionScreen() {
             </View>
             <View style={styles.planPriceRow}>
               <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>$99.00</ThemedText>
-              {isLoading ? (
-                <PriceSkeleton width={90} />
-              ) : (
-                <ThemedText type="h2" style={{ color: theme.text }}>{monthlyPriceLabel}</ThemedText>
-              )}
+              {/* Always render the price string. The fallback ($49.99) shows
+                  immediately; when RevenueCat resolves the real package, the
+                  store-localized price swaps in live. No skeleton — gating on
+                  isLoading meant web/Browser-Mode users (and anyone on a slow
+                  network) saw a spinner for the full RC timeout. */}
+              <ThemedText type="h2" style={{ color: theme.text }}>{monthlyPriceLabel}</ThemedText>
               <ThemedText type="small" style={{ color: theme.textSecondary }}>{t.perMonth}</ThemedText>
             </View>
             {selectedPlan === "monthly" && (
@@ -377,11 +348,9 @@ export default function SubscriptionScreen() {
             </View>
             <View style={styles.planPriceRow}>
               <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>$399.00</ThemedText>
-              {isLoading ? (
-                <PriceSkeleton width={100} />
-              ) : (
-                <ThemedText type="h2" style={{ color: theme.text }}>{annualPriceLabel}</ThemedText>
-              )}
+              {/* Same as monthly — always show the price; let RC swap the
+                  localized priceString in when it resolves. */}
+              <ThemedText type="h2" style={{ color: theme.text }}>{annualPriceLabel}</ThemedText>
               <ThemedText type="small" style={{ color: theme.textSecondary }}>{t.perYear}</ThemedText>
             </View>
             {selectedPlan === "annual" && (
@@ -395,7 +364,7 @@ export default function SubscriptionScreen() {
         {/* Subscribe Button */}
         <Button
           onPress={handleSubscribe}
-          disabled={isPurchasing || isLoading}
+          disabled={isPurchasing}
           style={styles.subscribeButton}
           testID="button-subscribe"
         >
@@ -403,11 +372,6 @@ export default function SubscriptionScreen() {
             <View style={styles.buttonContent}>
               <ActivityIndicator color="#FFFFFF" size="small" style={{ marginRight: Spacing.sm }} />
               <ThemedText style={{ color: "#FFF", fontWeight: "700" }}>{t.processing}</ThemedText>
-            </View>
-          ) : isLoading ? (
-            <View style={styles.buttonContent}>
-              <ActivityIndicator color="#FFFFFF" size="small" style={{ marginRight: Spacing.sm }} />
-              <ThemedText style={{ color: "#FFF", fontWeight: "700" }}>{t.loadingPrices}</ThemedText>
             </View>
           ) : (
             selectedPlan === "annual" ? t.startAnnualSub : t.startMonthlySub
