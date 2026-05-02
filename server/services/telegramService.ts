@@ -70,13 +70,12 @@ function currentHourInET(): number {
   return n === 24 ? 0 : n; // some locales render midnight as "24"
 }
 
-async function rotateDailyDisplay(): Promise<boolean> {
+async function rotateDailyDisplay(): Promise<number> {
   // Activate the 3 newest items (by post time) as the visible set for the
   // next 24 hours. Updating expires_at to NOW() + 24h means activated items
   // survive the cleanup sweep until the next rotation, even if their
-  // original 24h post-time window has elapsed. Returns true on a successful
-  // DB UPDATE (even if 0 rows match — the table is just empty); false on
-  // error so callers can retry on the next tick.
+  // original 24h post-time window has elapsed. Returns the number of rows
+  // activated; -1 indicates a DB error so callers can retry on the next tick.
   try {
     const result: any = await db.execute(sql`
       UPDATE telegram_media
@@ -93,10 +92,10 @@ async function rotateDailyDisplay(): Promise<boolean> {
     console.log(
       `[telegram] rotation activated ${rows.length} item(s) for the next 24h`,
     );
-    return true;
+    return rows.length;
   } catch (e) {
     console.warn("[telegram] rotation failed:", (e as Error).message);
-    return false;
+    return -1;
   }
 }
 
@@ -107,10 +106,11 @@ async function checkRotation() {
     // Run as soon as we cross 11 AM ET (or any time after, on the same ET
     // day, if we haven't rotated yet — covers restarts later in the day).
     if (hourET >= ROTATION_HOUR_ET && lastRotationDateET !== dateET) {
-      const ok = await rotateDailyDisplay();
-      // Only mark today as "done" if rotation actually succeeded; otherwise
-      // leave lastRotationDateET unchanged so the next 60s tick retries.
-      if (ok) lastRotationDateET = dateET;
+      const n = await rotateDailyDisplay();
+      // Only mark today as "done" if rotation actually activated rows; that
+      // way a transient DB error or an empty table (still being backfilled)
+      // gets retried on the next 60s tick.
+      if (n > 0) lastRotationDateET = dateET;
     }
   } catch (e) {
     console.warn("[telegram] rotation check failed:", (e as Error).message);
@@ -121,9 +121,9 @@ async function ensureInitialRotation() {
   // If there are no items currently in the active display set, do a one-off
   // rotation so the gallery isn't empty after a fresh deploy or a long
   // server downtime. This may run before 11 AM ET — we still need that
-  // day's normal 11 AM tick, so only mark today "done" if we're already
-  // past the 11 AM threshold (otherwise leave lastRotationDateET = null
-  // so checkRotation runs on schedule).
+  // day's normal 11 AM tick, so only mark today "done" when we both
+  // activated rows AND are already past the 11 AM threshold; otherwise
+  // leave lastRotationDateET = null so checkRotation runs on schedule.
   try {
     const result: any = await db.execute(sql`
       SELECT COUNT(*)::int AS n FROM telegram_media
@@ -135,8 +135,8 @@ async function ensureInitialRotation() {
       console.log(
         "[telegram] no active display items found — running initial rotation",
       );
-      const ok = await rotateDailyDisplay();
-      if (ok && currentHourInET() >= ROTATION_HOUR_ET) {
+      const activated = await rotateDailyDisplay();
+      if (activated > 0 && currentHourInET() >= ROTATION_HOUR_ET) {
         lastRotationDateET = todayInET();
       }
     }
@@ -393,9 +393,12 @@ async function startTelegramListener() {
   }
 
   try {
+    // Use explicit "/index.js" subpaths: gramjs ships CommonJS without
+    // package.json "exports", so production's strict ESM resolver rejects
+    // bare directory imports like "telegram/sessions".
     const tg: any = await import("telegram");
-    const sessionsMod: any = await import("telegram/sessions");
-    const eventsMod: any = await import("telegram/events");
+    const sessionsMod: any = await import("telegram/sessions/index.js");
+    const eventsMod: any = await import("telegram/events/index.js");
     const { TelegramClient, Api } = tg;
     const { StringSession } = sessionsMod;
     const { NewMessage } = eventsMod;
@@ -459,8 +462,13 @@ async function startTelegramListener() {
 
     // Backfill the last few messages so a recent server restart doesn't
     // lose media that was posted while we were offline. Items already past
-    // their 24h window are skipped inside ingestMessage.
-    void backfillRecent(client, Api);
+    // their 24h window are skipped inside ingestMessage. After backfill
+    // finishes, re-run ensureInitialRotation so a fresh-DB deploy doesn't
+    // have to wait for the next 60s tick to populate the gallery.
+    void (async () => {
+      await backfillRecent(client, Api);
+      await ensureInitialRotation();
+    })();
 
     client.addEventHandler(async (event: any) => {
       try {
