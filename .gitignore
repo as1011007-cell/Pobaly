@@ -41,3 +41,6 @@ app-example
 /ios
 /android
 apns_key.p8
+
+# Telegram media (downloaded at runtime, lifecycle 24h)
+server/uploads/

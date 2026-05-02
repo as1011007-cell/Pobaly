@@ -281,6 +281,68 @@
         margin-top: 40px;
         padding: 0 16px;
       }
+      .latest-section {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 24px 16px 8px;
+        display: none;
+      }
+      .latest-section.is-visible { display: block; }
+      .latest-heading {
+        text-align: center;
+        font-size: 22px;
+        font-weight: 700;
+        color: #ECEFF1;
+        margin-bottom: 6px;
+        letter-spacing: -0.2px;
+      }
+      .latest-sub {
+        text-align: center;
+        font-size: 13px;
+        color: #607D8B;
+        margin-bottom: 20px;
+      }
+      .latest-grid {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: 1fr;
+      }
+      @media (min-width: 720px) {
+        .latest-grid { grid-template-columns: repeat(3, 1fr); }
+      }
+      .latest-card {
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 14px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .latest-media {
+        width: 100%;
+        aspect-ratio: 4 / 3;
+        object-fit: cover;
+        background: #0A0E1A;
+        display: block;
+      }
+      .latest-meta {
+        padding: 12px 14px 14px;
+        font-size: 13px;
+        color: #B0BEC5;
+        line-height: 1.45;
+      }
+      .latest-caption {
+        color: #ECEFF1;
+        margin-bottom: 6px;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .latest-time {
+        color: #607D8B;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
       .sport-tag {
         font-size: 13px;
         color: #546E7A;
@@ -438,6 +500,70 @@
         <span class="sport-tag">Golf</span>
       </div>
     </main>
+
+    <section class="latest-section" id="latest-section" aria-labelledby="latest-heading">
+      <h2 id="latest-heading" class="latest-heading">Latest from Probaly</h2>
+      <p class="latest-sub">Fresh picks and highlights from our channel — refreshed daily.</p>
+      <div class="latest-grid" id="latest-grid"></div>
+    </section>
+    <script>
+      (function () {
+        var section = document.getElementById('latest-section');
+        var grid = document.getElementById('latest-grid');
+        if (!section || !grid) return;
+
+        function escapeHtml(str) {
+          if (str == null) return '';
+          return String(str)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        function timeAgo(iso) {
+          if (!iso) return '';
+          var t = new Date(iso).getTime();
+          if (isNaN(t)) return '';
+          var diff = Math.max(0, Date.now() - t);
+          var mins = Math.floor(diff / 60000);
+          if (mins < 1) return 'Just now';
+          if (mins < 60) return mins + 'm ago';
+          var hrs = Math.floor(mins / 60);
+          if (hrs < 24) return hrs + 'h ago';
+          return Math.floor(hrs / 24) + 'd ago';
+        }
+
+        function render(items) {
+          if (!items || items.length === 0) {
+            section.classList.remove('is-visible');
+            grid.innerHTML = '';
+            return;
+          }
+          var html = items.map(function (it) {
+            var media;
+            if (it.type === 'video') {
+              media = '<video class="latest-media" src="' + escapeHtml(it.url) + '" controls preload="metadata" playsinline></video>';
+            } else {
+              media = '<img class="latest-media" src="' + escapeHtml(it.url) + '" alt="Probaly latest" loading="lazy" />';
+            }
+            var caption = it.caption ? '<div class="latest-caption">' + escapeHtml(it.caption) + '</div>' : '';
+            var when = '<div class="latest-time">' + escapeHtml(timeAgo(it.createdAt)) + '</div>';
+            return '<div class="latest-card">' + media + '<div class="latest-meta">' + caption + when + '</div></div>';
+          }).join('');
+          grid.innerHTML = html;
+          section.classList.add('is-visible');
+        }
+
+        function load() {
+          fetch('/api/landing/telegram-media', { cache: 'no-store' })
+            .then(function (r) { return r.ok ? r.json() : { items: [] }; })
+            .then(function (data) { render(data && data.items ? data.items : []); })
+            .catch(function () { /* hide on error */ });
+        }
+
+        load();
+        setInterval(load, 60000);
+      })();
+    </script>
 
     <section class="seo-section" aria-labelledby="seo-heading">
       <h2 id="seo-heading">AI Sports Predictions, Free Picks &amp; Probability-Scored Insights</h2>

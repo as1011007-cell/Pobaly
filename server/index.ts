@@ -491,6 +491,16 @@ function setupErrorHandler(app: express.Application) {
 
   const server = await registerRoutes(app);
 
+  // Telegram channel mirror: ingests photos/videos from the configured
+  // private channel and exposes them to the landing page for 24h.
+  // Mounts /api/landing/telegram-media + /uploads/telegram static serve.
+  try {
+    const { initTelegramService } = await import("./services/telegramService");
+    await initTelegramService(app);
+  } catch (err) {
+    log(`Telegram service init failed (continuing): ${(err as Error).message}`);
+  }
+
   setupErrorHandler(app);
 
   // Single-active-session support: ensure users.token_version exists BEFORE
