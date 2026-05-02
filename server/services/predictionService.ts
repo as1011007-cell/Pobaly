@@ -528,6 +528,28 @@ async function getTodaysActiveFreePrediction() {
 
 let isGeneratingFreeTip = false;
 
+// Single shared async mutex that serializes ALL system-pick generation
+// (free daily tip + premium demo pool). Without this, two paths can race:
+//   1. Midnight `resetAndGenerateDailyFreeTip` runs `_generateDailyFreeTip`
+//      while the 30-min `checkAndReplaceFreeTip` tick simultaneously calls
+//      `generateDailyFreePrediction` → both fetch matches, both score, both
+//      insert the same free tip seconds apart (Real Madrid bug).
+//   2. `_generateDailyFreeTip` insert lands AFTER `generateDemoPredictions`
+//      has already snapshotted `existingSystemPicks` → the demo pool then
+//      generates a premium pick for the same game (Mainz/Bayern bug).
+// Holding this lock around both functions guarantees they observe each
+// other's writes via a fresh DB read each turn.
+let systemPickLock: Promise<void> = Promise.resolve();
+async function acquireSystemPickLock(): Promise<() => void> {
+  const prev = systemPickLock;
+  let release!: () => void;
+  systemPickLock = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await prev;
+  return release;
+}
+
 export async function generateDailyFreePrediction(): Promise<void> {
   if (isGeneratingFreeTip) {
     console.log("Free tip generation already in progress, skipping");
@@ -555,7 +577,29 @@ const FREE_TIP_PREFERRED_SPORTS = new Set(["basketball", "football", "mma"]);
 const FREE_TIP_AVOID_SPORTS = new Set(["baseball", "hockey", "tennis", "cricket", "golf"]);
 
 async function _generateDailyFreeTip(): Promise<void> {
+  const release = await acquireSystemPickLock();
+  try {
+    return await _generateDailyFreeTipImpl();
+  } finally {
+    release();
+  }
+}
+
+async function _generateDailyFreeTipImpl(): Promise<void> {
   console.log("Generating daily free prediction — batch scoring all candidates...");
+
+  // Final-defense check (under the system-pick lock): if a fresh tip was
+  // inserted by another path that already completed, don't insert another.
+  // The active-tip check in `generateDailyFreePrediction` happens BEFORE the
+  // lock is acquired, so two concurrent calls can both pass that check; this
+  // re-check after acquiring the lock catches that race.
+  const existingActive = await getTodaysActiveFreePrediction();
+  if (existingActive) {
+    console.log(
+      `[FREE-TIP] Skipping generation — active free tip already exists ("${existingActive.matchTitle}")`,
+    );
+    return;
+  }
 
   const matches = await getUpcomingMatches();
 
@@ -735,6 +779,27 @@ async function _generateDailyFreeTip(): Promise<void> {
       expiresAt: new Date(best.match.matchTime.getTime() + 3 * 60 * 60 * 1000),
     };
 
+    // Last-second dedup: a free tip with the same title for the same date
+    // already exists? Don't double-insert. The system-pick lock prevents
+    // the racing call paths; this query is the final guarantee.
+    const matchDateStr = predictionData.matchTime.toISOString().slice(0, 10);
+    const collision = await db
+      .select({ id: predictions.id })
+      .from(predictions)
+      .where(
+        and(
+          isNull(predictions.userId),
+          eq(predictions.matchTitle, predictionData.matchTitle),
+          sql`date(${predictions.matchTime}) = ${matchDateStr}::date`,
+        ),
+      )
+      .limit(1);
+    if (collision.length > 0) {
+      console.log(
+        `[FREE-TIP] Last-second dedup: skipping "${predictionData.matchTitle}" — system pick already exists (id=${collision[0].id})`,
+      );
+      return;
+    }
     await db.insert(predictions).values(predictionData);
     console.log(`Generated free prediction for: ${best.match.homeTeam} vs ${best.match.awayTeam} (real ${best.analysis.probability}% → display ${displayProbability}%, sport: ${best.match.sport})`);
   } catch (error) {
@@ -1268,8 +1333,17 @@ export async function forceRefreshHistory(): Promise<void> {
 
 // Generate demo predictions for all sports (visible but locked for non-subscribers)
 export async function generateDemoPredictions(): Promise<void> {
+  const release = await acquireSystemPickLock();
+  try {
+    return await generateDemoPredictionsImpl();
+  } finally {
+    release();
+  }
+}
+
+async function generateDemoPredictionsImpl(): Promise<void> {
   console.log("Generating demo predictions for all sports...");
-  
+
   const matches = await getUpcomingMatches();
   const usingFallback = isUsingFallbackData();
   
@@ -1405,6 +1479,31 @@ export async function generateDemoPredictions(): Promise<void> {
     const sportsbookOdds = generateSportsbookOdds(analysis.probability, analysis.predictedOutcome);
 
     try {
+      // Last-second dedup: re-check the DB right before insert. The
+      // system-pick lock prevents `_generateDailyFreeTip` from running
+      // concurrently with this function, but the AI batch above can take
+      // 30s+ to return — and a future call site could bypass the lock.
+      // A direct exact-match query on (matchTitle, date(matchTime)) is
+      // cheap and absolutely guarantees we never insert a duplicate.
+      const matchDateStr = match.matchTime.toISOString().slice(0, 10);
+      const collision = await db
+        .select({ id: predictions.id })
+        .from(predictions)
+        .where(
+          and(
+            isNull(predictions.userId),
+            eq(predictions.matchTitle, effectiveTitle),
+            sql`date(${predictions.matchTime}) = ${matchDateStr}::date`,
+          ),
+        )
+        .limit(1);
+      if (collision.length > 0) {
+        console.log(
+          `[DEMO] Last-second dedup: skipping "${effectiveTitle}" — system pick already exists (id=${collision[0].id})`,
+        );
+        existingKeys.add(buildKey(match.homeTeam, match.awayTeam, match.matchTime, betType));
+        continue;
+      }
       await db.insert(predictions).values({
         userId: null,
         matchTitle: effectiveTitle,

@@ -2874,6 +2874,16 @@ async function getTodaysActiveFreePrediction() {
   return tip || null;
 }
 var isGeneratingFreeTip = false;
+var systemPickLock = Promise.resolve();
+async function acquireSystemPickLock() {
+  const prev = systemPickLock;
+  let release;
+  systemPickLock = new Promise((resolve3) => {
+    release = resolve3;
+  });
+  await prev;
+  return release;
+}
 async function generateDailyFreePrediction() {
   if (isGeneratingFreeTip) {
     console.log("Free tip generation already in progress, skipping");
@@ -2892,7 +2902,22 @@ async function generateDailyFreePrediction() {
   }
 }
 async function _generateDailyFreeTip() {
+  const release = await acquireSystemPickLock();
+  try {
+    return await _generateDailyFreeTipImpl();
+  } finally {
+    release();
+  }
+}
+async function _generateDailyFreeTipImpl() {
   console.log("Generating daily free prediction \u2014 batch scoring all candidates...");
+  const existingActive = await getTodaysActiveFreePrediction();
+  if (existingActive) {
+    console.log(
+      `[FREE-TIP] Skipping generation \u2014 active free tip already exists ("${existingActive.matchTitle}")`
+    );
+    return;
+  }
   const matches = await getUpcomingMatches();
   if (matches.length === 0) {
     console.error("No upcoming matches available for free prediction");
@@ -3025,6 +3050,20 @@ async function _generateDailyFreeTip() {
       result: null,
       expiresAt: new Date(best.match.matchTime.getTime() + 3 * 60 * 60 * 1e3)
     };
+    const matchDateStr = predictionData.matchTime.toISOString().slice(0, 10);
+    const collision = await db.select({ id: predictions.id }).from(predictions).where(
+      and(
+        isNull(predictions.userId),
+        eq2(predictions.matchTitle, predictionData.matchTitle),
+        sql4`date(${predictions.matchTime}) = ${matchDateStr}::date`
+      )
+    ).limit(1);
+    if (collision.length > 0) {
+      console.log(
+        `[FREE-TIP] Last-second dedup: skipping "${predictionData.matchTitle}" \u2014 system pick already exists (id=${collision[0].id})`
+      );
+      return;
+    }
     await db.insert(predictions).values(predictionData);
     console.log(`Generated free prediction for: ${best.match.homeTeam} vs ${best.match.awayTeam} (real ${best.analysis.probability}% \u2192 display ${displayProbability}%, sport: ${best.match.sport})`);
   } catch (error) {
@@ -3227,6 +3266,14 @@ async function forceRefreshHistory() {
   console.log(`Force refresh complete: ${inserted} real completed games`);
 }
 async function generateDemoPredictions() {
+  const release = await acquireSystemPickLock();
+  try {
+    return await generateDemoPredictionsImpl();
+  } finally {
+    release();
+  }
+}
+async function generateDemoPredictionsImpl() {
   console.log("Generating demo predictions for all sports...");
   const matches = await getUpcomingMatches();
   const usingFallback = isUsingFallbackData();
@@ -3308,6 +3355,21 @@ async function generateDemoPredictions() {
     const explanation = analysis.explanation;
     const sportsbookOdds = generateSportsbookOdds(analysis.probability, analysis.predictedOutcome);
     try {
+      const matchDateStr = match.matchTime.toISOString().slice(0, 10);
+      const collision = await db.select({ id: predictions.id }).from(predictions).where(
+        and(
+          isNull(predictions.userId),
+          eq2(predictions.matchTitle, effectiveTitle),
+          sql4`date(${predictions.matchTime}) = ${matchDateStr}::date`
+        )
+      ).limit(1);
+      if (collision.length > 0) {
+        console.log(
+          `[DEMO] Last-second dedup: skipping "${effectiveTitle}" \u2014 system pick already exists (id=${collision[0].id})`
+        );
+        existingKeys.add(buildKey(match.homeTeam, match.awayTeam, match.matchTime, betType));
+        continue;
+      }
       await db.insert(predictions).values({
         userId: null,
         matchTitle: effectiveTitle,
