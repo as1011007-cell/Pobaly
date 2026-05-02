@@ -26,6 +26,7 @@ The application uses a 5-tab navigation system (Home, Live, Sports, History, Pro
 - **Security**: Implements JWT authentication, role-based access control, rate limiting, security headers, tightened CORS, and webhook signature verification.
 - **Deployment**: Production server binds to port 8081; development server uses port 5000.
 - **App Store Compliance**: Includes iOS Privacy Manifest, deep linking, gambling disclaimer, and legal page accessibility.
+- **Vector Icon Font Embedding**: Only `Feather` from `@expo/vector-icons` is used across the app. The `expo-font` plugin in `app.json` embeds `Feather.ttf` at build time (path: `./node_modules/@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/Feather.ttf`) so EAS production builds (TestFlight, App Store, Play Store) ship with the icon font baked into the native bundle. Without this, EAS builds render Feather icons as empty squares because the JS bundle doesn't auto-load vendor fonts in release mode. Expo Go and web preview load fonts dynamically and were unaffected. If a new icon family is added later (Ionicons, MaterialCommunityIcons, etc.), append its TTF path to the same `fonts` array.
 
 ### Feature Specifications
 - **AI-Powered Predictions**: Includes probability, confidence, explanation, factors, and risk index. Basketball predictions also include over/under total points.
