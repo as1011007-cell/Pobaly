@@ -38,6 +38,23 @@ const STALE_CONNECTING_MS = 90_000;
 // Tracks when isConnecting was last set to true. Used by pollForNewMedia
 // to detect a stuck in-flight connect attempt.
 let isConnectingSince: number | null = null;
+// Exponential backoff state to protect the Telegram session from being
+// flagged. After repeated reconnect failures we wait progressively longer
+// between attempts so Telegram only ever sees a slow trickle of connect
+// requests, never a storm. Reset to 0 on the first successful reconnect.
+let consecutiveConnectFailures = 0;
+let nextAllowedConnectAt = 0; // ms epoch; 0 = no wait
+function backoffDelayForFailures(n: number): number {
+  // Failures 1-2: no extra delay — rely on POLL_INTERVAL_MS (90s) so a
+  //   single transient hiccup recovers fast.
+  // Failure 3: 5 min — start spacing things out.
+  // Failure 4: 15 min — Telegram is clearly unhappy; back off harder.
+  // Failure 5+: 30 min (capped) — long cool-down to let any flag clear.
+  if (n <= 2) return 0;
+  if (n === 3) return 5 * 60 * 1000;
+  if (n === 4) return 15 * 60 * 1000;
+  return 30 * 60 * 1000;
+}
 // Timeout for the initial client.connect() call (ms). If Telegram doesn't
 // respond within this window we give up and retry on the next poll cycle.
 const CONNECT_TIMEOUT_MS = 30_000;
@@ -485,6 +502,17 @@ async function pollForNewMedia() {
     telegramClient && telegramApiRef && resolvedChannelId && clientConnected;
 
   if (!clientHealthy) {
+    // Exponential backoff: if we've already failed too many times recently,
+    // skip this cycle so Telegram doesn't see a storm of connect attempts
+    // (which is what flags the session in the first place).
+    const now = Date.now();
+    if (now < nextAllowedConnectAt) {
+      const waitS = Math.round((nextAllowedConnectAt - now) / 1000);
+      console.log(
+        `[telegram] poll: in backoff after ${consecutiveConnectFailures} consecutive failure(s), waiting ${waitS}s more before next reconnect`,
+      );
+      return;
+    }
     // If a prior startTelegramListener is still negotiating, don't race with
     // it — let it finish, the next 90-second poll will pick up the result.
     // Safety net: if the lock has been held longer than STALE_CONNECTING_MS,
@@ -509,12 +537,30 @@ async function pollForNewMedia() {
       : !telegramApiRef || !resolvedChannelId
       ? "incomplete setup"
       : "client disconnected";
-    console.log(`[telegram] poll: client not ready (${reason}) — reconnecting...`);
+    console.log(
+      `[telegram] poll: client not ready (${reason}) — reconnecting (attempt after ${consecutiveConnectFailures} prior failure(s))...`,
+    );
     await resetTelegramState(reason);
     await startTelegramListener();
     if (!telegramClient || !telegramApiRef || !resolvedChannelId) {
-      console.log("[telegram] poll: connection retry failed, will try again next cycle");
+      consecutiveConnectFailures++;
+      const backoffMs = backoffDelayForFailures(consecutiveConnectFailures);
+      nextAllowedConnectAt = backoffMs > 0 ? Date.now() + backoffMs : 0;
+      const nextS = backoffMs > 0
+        ? `${Math.round(backoffMs / 1000)}s (backoff)`
+        : `${Math.round(POLL_INTERVAL_MS / 1000)}s (next poll)`;
+      console.log(
+        `[telegram] poll: reconnect failed (#${consecutiveConnectFailures}). Next attempt in ${nextS}.`,
+      );
       return;
+    }
+    // Success — clear backoff so future failures start fresh.
+    if (consecutiveConnectFailures > 0) {
+      console.log(
+        `[telegram] poll: reconnect succeeded after ${consecutiveConnectFailures} failure(s) — clearing backoff`,
+      );
+      consecutiveConnectFailures = 0;
+      nextAllowedConnectAt = 0;
     }
   }
   try {

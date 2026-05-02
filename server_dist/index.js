@@ -522,6 +522,12 @@ import express from "express";
 import * as fs2 from "fs/promises";
 import * as path2 from "path";
 import { sql as sql6 } from "drizzle-orm";
+function backoffDelayForFailures(n) {
+  if (n <= 2) return 0;
+  if (n === 3) return 5 * 60 * 1e3;
+  if (n === 4) return 15 * 60 * 1e3;
+  return 30 * 60 * 1e3;
+}
 async function ensureTable() {
   await db.execute(sql6`
     CREATE TABLE IF NOT EXISTS telegram_media (
@@ -862,6 +868,14 @@ async function pollForNewMedia() {
   const clientConnected = telegramClient?.connected !== false;
   const clientHealthy = telegramClient && telegramApiRef && resolvedChannelId && clientConnected;
   if (!clientHealthy) {
+    const now = Date.now();
+    if (now < nextAllowedConnectAt) {
+      const waitS = Math.round((nextAllowedConnectAt - now) / 1e3);
+      console.log(
+        `[telegram] poll: in backoff after ${consecutiveConnectFailures} consecutive failure(s), waiting ${waitS}s more before next reconnect`
+      );
+      return;
+    }
     if (isConnecting) {
       const heldFor = isConnectingSince ? Date.now() - isConnectingSince : 0;
       if (heldFor < STALE_CONNECTING_MS) {
@@ -877,12 +891,27 @@ async function pollForNewMedia() {
       isConnectingSince = null;
     }
     const reason = !telegramClient ? "no client" : !telegramApiRef || !resolvedChannelId ? "incomplete setup" : "client disconnected";
-    console.log(`[telegram] poll: client not ready (${reason}) \u2014 reconnecting...`);
+    console.log(
+      `[telegram] poll: client not ready (${reason}) \u2014 reconnecting (attempt after ${consecutiveConnectFailures} prior failure(s))...`
+    );
     await resetTelegramState(reason);
     await startTelegramListener();
     if (!telegramClient || !telegramApiRef || !resolvedChannelId) {
-      console.log("[telegram] poll: connection retry failed, will try again next cycle");
+      consecutiveConnectFailures++;
+      const backoffMs = backoffDelayForFailures(consecutiveConnectFailures);
+      nextAllowedConnectAt = backoffMs > 0 ? Date.now() + backoffMs : 0;
+      const nextS = backoffMs > 0 ? `${Math.round(backoffMs / 1e3)}s (backoff)` : `${Math.round(POLL_INTERVAL_MS / 1e3)}s (next poll)`;
+      console.log(
+        `[telegram] poll: reconnect failed (#${consecutiveConnectFailures}). Next attempt in ${nextS}.`
+      );
       return;
+    }
+    if (consecutiveConnectFailures > 0) {
+      console.log(
+        `[telegram] poll: reconnect succeeded after ${consecutiveConnectFailures} failure(s) \u2014 clearing backoff`
+      );
+      consecutiveConnectFailures = 0;
+      nextAllowedConnectAt = 0;
     }
   }
   try {
@@ -1105,7 +1134,7 @@ async function initTelegramService(app2) {
     console.error("[telegram] init failed:", e.message);
   }
 }
-var UPLOAD_DIR, PUBLIC_PREFIX, MAX_DISPLAY_ITEMS, CLEANUP_INTERVAL_MS, ROTATION_CHECK_INTERVAL_MS, POLL_INTERVAL_MS, FIRST_POLL_DELAY_MS, ROTATION_HOUR_ET, MAX_FILE_SIZE_BYTES, INVITE_HASH, GRAMJS_CALL_TIMEOUT_MS, STALE_CONNECTING_MS, isConnectingSince, CONNECT_TIMEOUT_MS, listenerStarted, isConnecting, resolvedChannelId, lastRotationDateET, telegramClient, telegramApiRef;
+var UPLOAD_DIR, PUBLIC_PREFIX, MAX_DISPLAY_ITEMS, CLEANUP_INTERVAL_MS, ROTATION_CHECK_INTERVAL_MS, POLL_INTERVAL_MS, FIRST_POLL_DELAY_MS, ROTATION_HOUR_ET, MAX_FILE_SIZE_BYTES, INVITE_HASH, GRAMJS_CALL_TIMEOUT_MS, STALE_CONNECTING_MS, isConnectingSince, consecutiveConnectFailures, nextAllowedConnectAt, CONNECT_TIMEOUT_MS, listenerStarted, isConnecting, resolvedChannelId, lastRotationDateET, telegramClient, telegramApiRef;
 var init_telegramService = __esm({
   "server/services/telegramService.ts"() {
     "use strict";
@@ -1123,6 +1152,8 @@ var init_telegramService = __esm({
     GRAMJS_CALL_TIMEOUT_MS = 15e3;
     STALE_CONNECTING_MS = 9e4;
     isConnectingSince = null;
+    consecutiveConnectFailures = 0;
+    nextAllowedConnectAt = 0;
     CONNECT_TIMEOUT_MS = 3e4;
     listenerStarted = false;
     isConnecting = false;
