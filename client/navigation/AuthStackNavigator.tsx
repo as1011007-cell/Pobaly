@@ -5,6 +5,7 @@ import WelcomeScreen from "@/screens/WelcomeScreen";
 import SignInScreen from "@/screens/SignInScreen";
 import SignUpScreen from "@/screens/SignUpScreen";
 import ForgotPasswordScreen from "@/screens/ForgotPasswordScreen";
+import ResetPasswordScreen from "@/screens/ResetPasswordScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 
 export type AuthStackParamList = {
@@ -12,6 +13,7 @@ export type AuthStackParamList = {
   SignIn: undefined;
   SignUp: undefined;
   ForgotPassword: undefined;
+  ResetPassword: { token?: string };
 };
 
 const Stack = createNativeStackNavigator<AuthStackParamList>();
@@ -40,6 +42,11 @@ export default function AuthStackNavigator() {
         name="ForgotPassword"
         component={ForgotPasswordScreen}
         options={{ title: "Reset Password" }}
+      />
+      <Stack.Screen
+        name="ResetPassword"
+        component={ResetPasswordScreen}
+        options={{ title: "New Password" }}
       />
     </Stack.Navigator>
   );

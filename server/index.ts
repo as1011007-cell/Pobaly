@@ -317,6 +317,17 @@ function configureLegalPages(app: express.Application) {
     serveLandingPage({ req, res, landingPageTemplate, appName });
   });
 
+  // Web fallback for password reset deep link. Email links use this URL so
+  // users who don't have the mobile app installed can still finish the flow.
+  // Mobile users tapping the link open the app via the deep-link scheme; web
+  // users land on this static page which posts to /api/auth/reset-password.
+  app.get("/auth/reset", (_req: Request, res: Response) => {
+    const resetPath = path.resolve(process.cwd(), "server", "templates", "reset-password.html");
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", "no-store");
+    res.sendFile(resetPath);
+  });
+
   // Static built assets (Expo static-build manifests etc.) without serving an index.
   app.use(express.static(path.resolve(process.cwd(), "static-build"), { index: false }));
 
@@ -380,6 +391,18 @@ function setupErrorHandler(app: express.Application) {
     await initTranslationCache();
   } catch (err) {
     log(`Translation cache init failed (continuing): ${(err as Error).message}`);
+  }
+
+  // Password-reset tokens table: bootstrapped via raw SQL so we don't touch
+  // shared/schema.ts. Mirrors the translation_cache / telegram_media pattern.
+  try {
+    const { initPasswordResetTable, purgeExpiredResetTokens } = await import(
+      "./services/passwordResetService"
+    );
+    await initPasswordResetTable();
+    await purgeExpiredResetTokens();
+  } catch (err) {
+    log(`Password reset table init failed (continuing): ${(err as Error).message}`);
   }
 
   // Telegram channel mirror: ingests photos/videos from the configured

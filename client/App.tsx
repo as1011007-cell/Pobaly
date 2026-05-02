@@ -36,7 +36,14 @@ const linking: LinkingOptions<RootStackParamList> = {
     screens: {
       Main: "",
       Subscription: "upgrade",
-      Auth: "auth",
+      Auth: {
+        path: "auth",
+        screens: {
+          // Password reset email link: https://probaly.net/auth/reset?token=XXX
+          // Maps `?token=` query param to the ResetPassword screen's `token` prop.
+          ResetPassword: "reset",
+        },
+      },
     },
   },
 };

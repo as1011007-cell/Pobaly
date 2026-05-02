@@ -6,6 +6,8 @@ import bcrypt from "bcryptjs";
 import { signToken, setCachedTokenVersion, requireAuth, optionalAuth, requireAdmin, requireWebhookAuth, rateLimit } from "./auth";
 import { checkRCSubscription } from "./revenueCatService";
 import { validateEmailDeliverable } from "./emailValidation";
+import { sendPasswordResetEmail, isEmailConfigured } from "./services/emailService";
+import { createPasswordResetToken, consumeTokenAndResetPassword } from "./services/passwordResetService";
 const adminRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 30 });
 import { db } from "./db";
 import { sql, and } from "drizzle-orm";
@@ -111,6 +113,16 @@ function redactPrediction(p: any) {
 
 const loginRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 20 });
 const registerRateLimit = rateLimit({ windowMs: 60 * 60 * 1000, max: 10 });
+const forgotPasswordRateLimit = rateLimit({ windowMs: 60 * 60 * 1000, max: 5 });
+const resetPasswordRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 10 });
+
+const forgotPasswordSchema = z.object({
+  email: z.string().email().max(254),
+});
+const resetPasswordSchema = z.object({
+  token: z.string().min(32).max(256),
+  password: z.string().min(6).max(128),
+});
 const contactRateLimit = rateLimit({ windowMs: 60 * 60 * 1000, max: 5 });
 const generateRateLimit = rateLimit({ windowMs: 60 * 1000, max: 3 });
 const apiReadRateLimit = rateLimit({ windowMs: 60 * 1000, max: 60 });
@@ -169,6 +181,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Account deletion error:", error);
       return res.status(500).json({ error: "Failed to delete account" });
+    }
+  });
+
+  // Password reset — request a reset link by email.
+  // ALWAYS responds 200 so attackers can't enumerate which emails are
+  // registered. Real failures (bad email format, SMTP down) are logged
+  // server-side. Rate-limited per IP to slow down spam/abuse.
+  app.post("/api/auth/forgot-password", forgotPasswordRateLimit, async (req: Request, res: Response) => {
+    const okResponse = {
+      success: true,
+      message: "If an account exists for that email, a reset link has been sent.",
+      emailConfigured: isEmailConfigured(),
+    };
+    try {
+      const parsed = forgotPasswordSchema.safeParse(req.body);
+      if (!parsed.success) {
+        // Still return 200 to avoid leaking which emails are valid format-wise vs registered.
+        return res.json(okResponse);
+      }
+      const normalizedEmail = parsed.data.email.toLowerCase().trim();
+      const user = await storage.getUserByEmail(normalizedEmail);
+      if (!user) {
+        return res.json(okResponse);
+      }
+
+      const rawToken = await createPasswordResetToken(user.id);
+      const baseUrl = (process.env.PUBLIC_BASE_URL || "https://probaly.net").replace(/\/+$/, "");
+      const resetUrl = `${baseUrl}/auth/reset?token=${encodeURIComponent(rawToken)}`;
+
+      // Fire-and-forget so the response time doesn't reveal whether SMTP was
+      // hit (i.e. whether the user exists). Errors are logged in the service.
+      void sendPasswordResetEmail(normalizedEmail, resetUrl, user.name).catch((err) => {
+        console.error("[auth] sendPasswordResetEmail unexpected error:", err);
+      });
+
+      return res.json(okResponse);
+    } catch (error: any) {
+      console.error("[auth] forgot-password error:", error?.message || error);
+      // Still 200 — never leak.
+      return res.json(okResponse);
+    }
+  });
+
+  // Password reset — consume token + set new password. On success the user's
+  // token_version is bumped so any existing JWTs (other devices / the device
+  // that initiated the reset) are invalidated immediately.
+  app.post("/api/auth/reset-password", resetPasswordRateLimit, async (req: Request, res: Response) => {
+    try {
+      const { token, password } = resetPasswordSchema.parse(req.body);
+      const hashedPassword = await bcrypt.hash(password, 12);
+      // Token consumption + password update happen inside a single DB
+      // transaction. If either step fails the transaction rolls back, so the
+      // reset link is NOT burned on transient failures and the user can
+      // retry without going through forgot-password again.
+      let consumed;
+      try {
+        consumed = await consumeTokenAndResetPassword(token, hashedPassword);
+      } catch (err) {
+        console.error("[auth] reset-password tx failed:", (err as Error).message);
+        return res.status(500).json({ error: "Could not reset password. Please try again." });
+      }
+      if (!consumed) {
+        return res.status(400).json({ error: "This reset link is invalid or has expired. Please request a new one." });
+      }
+
+      return res.json({ success: true, message: "Your password has been reset. Please sign in with your new password." });
+    } catch (error: any) {
+      return res.status(400).json({ error: safeErrorMessage(error, "Could not reset password.") });
     }
   });
 
