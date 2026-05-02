@@ -214,8 +214,13 @@ async function cleanupExpired() {
 }
 
 async function getActiveMedia() {
-  // Only items the most recent 11 AM ET rotation activated are visible.
-  // Newly ingested items wait for the next rotation before showing.
+  // Items become visible the moment a rotation activates them. Live posts
+  // trigger an instant rotation from the NewMessage handler, so a newly
+  // ingested photo/video shows up on the landing page within seconds. The
+  // 11 AM ET scheduled rotation remains as a safety net (covers cases where
+  // no new posts arrive for a while). ORDER BY activated_at DESC ensures
+  // any older row whose activation wasn't refreshed by the latest rotation
+  // is naturally pushed out of the top MAX_DISPLAY_ITEMS.
   const result: any = await db.execute(sql`
     SELECT id, telegram_message_id, media_type, file_path, mime_type,
            width, height, caption, created_at, expires_at
@@ -238,7 +243,11 @@ async function getActiveMedia() {
   }));
 }
 
-async function ingestMessage(client: any, msg: any, Api: any) {
+async function ingestMessage(
+  client: any,
+  msg: any,
+  Api: any,
+): Promise<boolean> {
   const messageId = BigInt(msg.id);
   const media = msg.media;
   let mediaType: "photo" | "video" | null = null;
@@ -286,20 +295,20 @@ async function ingestMessage(client: any, msg: any, Api: any) {
     }
   }
 
-  if (!mediaType) return;
+  if (!mediaType) return false;
 
   if (sizeBytes > MAX_FILE_SIZE_BYTES) {
     console.warn(
       `[telegram] skipping message ${messageId} — too large (${sizeBytes} bytes)`,
     );
-    return;
+    return false;
   }
 
   const existing: any = await db.execute(sql`
     SELECT id FROM telegram_media WHERE telegram_message_id = ${messageId.toString()} LIMIT 1
   `);
   const existingRows: any[] = existing.rows || existing || [];
-  if (existingRows.length > 0) return;
+  if (existingRows.length > 0) return false;
 
   // Use the message's actual post time so backfilled items expire 24h after
   // they were posted (not 24h after we ingested them).
@@ -307,11 +316,11 @@ async function ingestMessage(client: any, msg: any, Api: any) {
   const ageMs = Date.now() - postedAtSecs * 1000;
   if (ageMs >= 24 * 60 * 60 * 1000) {
     // Already past the 24h display window — skip download entirely.
-    return;
+    return false;
   }
 
   const buffer: Buffer | undefined = await client.downloadMedia(msg, {});
-  if (!buffer || !buffer.length) return;
+  if (!buffer || !buffer.length) return false;
 
   const filename = `${postedAtSecs}_${messageId.toString()}.${ext}`;
   const fullPath = path.join(UPLOAD_DIR, filename);
@@ -337,11 +346,12 @@ async function ingestMessage(client: any, msg: any, Api: any) {
       try {
         await fs.unlink(fullPath);
       } catch {}
-      return;
+      return false;
     }
     console.log(
       `[telegram] ingested ${mediaType} message=${messageId} file=${filename} size=${sizeBytes}`,
     );
+    return true;
   } catch (e) {
     // DB insert failed — clean up the orphan file we just wrote.
     try {
@@ -479,7 +489,20 @@ async function startTelegramListener() {
           ? BigInt(peer.channelId.toString())
           : null;
         if (!peerChannelId || peerChannelId !== resolvedChannelId) return;
-        await ingestMessage(client, msg, Api);
+        const wasNew = await ingestMessage(client, msg, Api);
+        if (wasNew) {
+          // Replace the gallery the moment a new photo/video lands on the
+          // channel. Re-runs the same rotation logic the 11 AM ET tick uses,
+          // so the brand-new item gets activated_at = NOW() and the oldest
+          // of the previously-displayed 3 falls out of the top
+          // MAX_DISPLAY_ITEMS by activated_at DESC ordering. Marking
+          // lastRotationDateET here also suppresses the redundant scheduled
+          // rotation later the same ET day.
+          const n = await rotateDailyDisplay();
+          if (n > 0 && currentHourInET() >= ROTATION_HOUR_ET) {
+            lastRotationDateET = todayInET();
+          }
+        }
       } catch (err) {
         console.warn("[telegram] handler error:", (err as Error).message);
       }
