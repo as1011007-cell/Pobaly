@@ -179,11 +179,15 @@ export async function clearAllPushTokens(): Promise<number> {
   return count;
 }
 
-interface TokenRow { token: string; platform: string; }
+interface TokenRow { token: string; platform: string; language: string; }
+
+// Supported user-preference languages (must match client/lib/translations.ts).
+// Anything outside this set falls back to "en".
+const SUPPORTED_LANGS = new Set(["en", "es", "fr", "de", "ja", "zh", "ru"]);
 
 async function getAllTokensNoPrefs(): Promise<TokenRow[]> {
   const result = await db.execute(sql`
-    SELECT DISTINCT pt.token, pt.platform
+    SELECT DISTINCT pt.token, pt.platform, COALESCE(up.language, 'en') AS language
     FROM push_tokens pt
     LEFT JOIN user_preferences up ON pt.user_id = up.user_id
     WHERE (up.notifications_enabled IS NULL OR up.notifications_enabled = true)
@@ -192,7 +196,15 @@ async function getAllTokensNoPrefs(): Promise<TokenRow[]> {
   const rows = (result as any)?.rows ?? Array.from(result ?? []);
   return rows
     .filter((r: any) => r.token)
-    .map((r: any) => ({ token: r.token as string, platform: (r.platform ?? "unknown") as string }));
+    .map((r: any) => {
+      const rawLang = (r.language ?? "en").toString().toLowerCase().slice(0, 2);
+      const language = SUPPORTED_LANGS.has(rawLang) ? rawLang : "en";
+      return {
+        token: r.token as string,
+        platform: (r.platform ?? "unknown") as string,
+        language,
+      };
+    });
 }
 
 // ── Send to all devices ──────────────────────────────────────────────────────
@@ -264,9 +276,13 @@ async function sendExpoMessages(messages: PushMessage[]): Promise<{ success: num
   return { success, failed };
 }
 
-async function sendNotificationsToAll(
-  title: string,
-  body: string,
+// Localized notification copy keyed by 2-letter language code.
+// MUST contain at least an "en" entry — used as the fallback for any
+// unsupported / missing language.
+export type LocalizedText = Record<string, { title: string; body: string }>;
+
+async function sendLocalizedNotificationsToAll(
+  localized: LocalizedText,
   data?: Record<string, any>
 ): Promise<void> {
   const tokens = await getAllTokensNoPrefs();
@@ -275,64 +291,94 @@ async function sendNotificationsToAll(
     return;
   }
 
-  const nativeIos: TokenRow[] = [];
-  const expoTokens: TokenRow[] = [];
+  // Group tokens by the user's preferred language so we send each group
+  // its own translated title/body. Falls back to "en" for any language
+  // not present in the localized dict.
+  const fallback = localized.en;
+  if (!fallback) {
+    console.error("[Push] Localized text missing required 'en' fallback — aborting send");
+    return;
+  }
 
+  // language → { native iOS tokens, Expo tokens }
+  const groups = new Map<string, { native: TokenRow[]; expo: TokenRow[] }>();
   for (const t of tokens) {
+    const lang = localized[t.language] ? t.language : "en";
+    let g = groups.get(lang);
+    if (!g) { g = { native: [], expo: [] }; groups.set(lang, g); }
     if (isNativeIosToken(t.token)) {
-      nativeIos.push(t);
+      g.native.push(t);
     } else if (t.token.startsWith("ExponentPushToken[")) {
-      expoTokens.push(t);
+      g.expo.push(t);
     }
   }
 
-  let iosSuccess = 0;
-  let iosFailed = 0;
+  let iosSuccess = 0, iosFailed = 0, expoSuccess = 0, expoFailed = 0;
 
-  for (const t of nativeIos) {
-    try {
-      await sendApnsNotification(t.token, title, body, data);
-      iosSuccess++;
-    } catch (err: any) {
-      iosFailed++;
-      const msg = err?.message ?? "";
-      if (msg.includes("BadDeviceToken") || msg.includes("Unregistered")) {
-        await removePushToken(t.token);
-      } else {
-        console.warn(`[APNs] Send failed for token: ${msg}`);
+  for (const [lang, g] of groups) {
+    const { title, body } = localized[lang] ?? fallback;
+
+    for (const t of g.native) {
+      try {
+        await sendApnsNotification(t.token, title, body, data);
+        iosSuccess++;
+      } catch (err: any) {
+        iosFailed++;
+        const msg = err?.message ?? "";
+        if (msg.includes("BadDeviceToken") || msg.includes("Unregistered")) {
+          await removePushToken(t.token);
+        } else {
+          console.warn(`[APNs] Send failed for token: ${msg}`);
+        }
       }
     }
+
+    if (g.expo.length > 0) {
+      const expoMessages: PushMessage[] = g.expo.map((t) => ({
+        to: t.token,
+        title,
+        body,
+        data,
+        sound: "default",
+        badge: 1,
+        ...(t.platform === "android" ? { channelId: "predictions" } : {}),
+      }));
+      const r = await sendExpoMessages(expoMessages);
+      expoSuccess += r.success;
+      expoFailed += r.failed;
+    }
   }
-
-  const expoMessages: PushMessage[] = expoTokens.map((t) => ({
-    to: t.token,
-    title,
-    body,
-    data,
-    sound: "default",
-    badge: 1,
-    ...(t.platform === "android" ? { channelId: "predictions" } : {}),
-  }));
-
-  const { success: expoSuccess, failed: expoFailed } = await sendExpoMessages(expoMessages);
 
   const totalSuccess = iosSuccess + expoSuccess;
   const totalFailed = iosFailed + expoFailed;
+  const langSummary = Array.from(groups.entries())
+    .map(([l, g]) => `${l}:${g.native.length + g.expo.length}`)
+    .join(", ");
 
   console.log(
-    `[Push] Sent to ${tokens.length} devices: ${totalSuccess} succeeded, ${totalFailed} failed` +
-    (nativeIos.length > 0 ? ` (${iosSuccess}/${nativeIos.length} direct APNs)` : "") +
-    (expoTokens.length > 0 ? ` (${expoSuccess}/${expoTokens.length} via Expo)` : "")
+    `[Push] Sent to ${tokens.length} devices across ${groups.size} language(s) [${langSummary}]: ` +
+    `${totalSuccess} succeeded, ${totalFailed} failed`
   );
 }
+
+// ── Translated notification copy ─────────────────────────────────────────────
+
+const DAILY_FREE_TIP_COPY: LocalizedText = {
+  en: { title: "Your Daily Free Tip is Ready!",            body: "A new AI-powered prediction is waiting for you. Open the app to check it out!" },
+  es: { title: "¡Tu pronóstico gratuito diario está listo!", body: "Una nueva predicción con IA te está esperando. ¡Abre la app para verla!" },
+  fr: { title: "Votre pronostic gratuit du jour est prêt !", body: "Une nouvelle prédiction IA vous attend. Ouvrez l'application pour la découvrir !" },
+  de: { title: "Dein täglicher Gratis-Tipp ist da!",         body: "Eine neue KI-Vorhersage wartet auf dich. Öffne die App, um sie zu sehen!" },
+  ja: { title: "本日の無料予想が届きました！",                  body: "新しいAI予想が届きました。アプリを開いてチェックしてください！" },
+  zh: { title: "您今日的免费推荐已就绪！",                     body: "全新AI预测已为您准备好，立即打开应用查看吧！" },
+  ru: { title: "Ваш бесплатный прогноз дня готов!",          body: "Вас ждёт новый прогноз от ИИ. Откройте приложение, чтобы посмотреть!" },
+};
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
 export async function notifyDailyFreePredictionReady(): Promise<void> {
   try {
-    await sendNotificationsToAll(
-      "Your Daily Free Tip is Ready!",
-      "A new AI-powered prediction is waiting for you. Open the app to check it out!",
+    await sendLocalizedNotificationsToAll(
+      DAILY_FREE_TIP_COPY,
       { type: "daily_prediction", screen: "Home" }
     );
   } catch (error) {
