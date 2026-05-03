@@ -258,130 +258,163 @@ export async function composeWinImage(
 
   const W = 1080;
   const H = 1080;
-  const red = "#E53935";
-  const white = "#FFFFFF";
+  const navy    = "#1A237E";   // solid background — same as before
+  const red     = "#E53935";
+  const white   = "#FFFFFF";
   const emerald = "#10B981";
-  const grey = "#7B8FA6";
-  const dimGrey = "#4A5568";
+  const grey    = "#8899BB";
+  const dimGrey = "#556080";
 
+  // Word-wrap match title at 22 chars, max 2 lines
   const matchLines = wrapText(prediction.matchTitle, 22).slice(0, 2);
-  const scoreLines = wrapText(scoreLine, 26).slice(0, 1);
-  const pickLine =
-    prediction.predictedOutcome.length > 30
-      ? prediction.predictedOutcome.slice(0, 29) + "…"
-      : prediction.predictedOutcome;
-
-  const twoLine = matchLines.length > 1;
+  const twoLine    = matchLines.length > 1;
+  const pickLine   = prediction.predictedOutcome.length > 32
+    ? prediction.predictedOutcome.slice(0, 31) + "…"
+    : prediction.predictedOutcome;
+  const scoreText  = scoreLine.length > 30
+    ? scoreLine.slice(0, 29) + "…"
+    : scoreLine;
 
   const matchTSpans = matchLines
-    .map((l, i) => `<tspan x="540" dy="${i === 0 ? 0 : 68}">${escapeXml(l)}</tspan>`)
+    .map((l, i) => `<tspan x="540" dy="${i === 0 ? 0 : 64}">${escapeXml(l)}</tspan>`)
     .join("");
 
-  // Layout Y anchors
-  const badgeY = 310;          // badge top
-  const matchY = twoLine ? 460 : 490;  // match title baseline
-  const dividerY = twoLine ? 610 : 575;
-  const pickLabelY = dividerY + 65;
-  const pickTextY = pickLabelY + 62;
-  const scoreLabelY = pickTextY + 72;
-  const scoreTextY = scoreLabelY + 56;
+  // --- Dynamic Y layout ---
+  const LOGO_CY    = 145;          // logo icon centre
+  const LOGO_R     = 60;           // logo icon radius (visual)
+  const TAGLINE_Y  = LOGO_CY + LOGO_R + 28;   // 233
+  const BADGE_Y    = TAGLINE_Y + 28;           // 261  (badge top)
+  const BADGE_H    = 74;
+  const MATCH_Y    = BADGE_Y + BADGE_H + (twoLine ? 84 : 94); // first-line baseline
+  const DIVIDER_Y  = MATCH_Y + (twoLine ? 64 + 50 : 50);
+  const PICK_LBL_Y = DIVIDER_Y + 60;
+  const PICK_TXT_Y = PICK_LBL_Y + 58;
+  const SCORE_LBL_Y = PICK_TXT_Y + 72;
+  const SCORE_TXT_Y = SCORE_LBL_Y + 54;
+  // Store badges sit in a fixed zone at the bottom
+  const BADGE2_Y   = 915;    // store badge top
+  const BADGE2_H   = 84;
+  const URL_Y      = BADGE2_Y - 22;  // probaly.net just above badges
 
-  const svg = `
-<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#0E1554"/>
-      <stop offset="100%" stop-color="#080E30"/>
-    </linearGradient>
-    <linearGradient id="badgeGrad" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#0DBF76"/>
-      <stop offset="100%" stop-color="#059669"/>
-    </linearGradient>
-    <linearGradient id="cardGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.06"/>
-      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.02"/>
-    </linearGradient>
-  </defs>
+  const svg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+  <!-- Plain solid navy background — same colour as before -->
+  <rect width="${W}" height="${H}" fill="${navy}"/>
 
-  <!-- Background -->
-  <rect width="${W}" height="${H}" fill="url(#bg)"/>
+  <!-- Red accent bars -->
+  <rect x="0" y="0"       width="${W}" height="10" fill="${red}"/>
+  <rect x="0" y="${H-10}" width="${W}" height="10" fill="${red}"/>
 
-  <!-- Subtle diagonal accent lines -->
-  <line x1="600" y1="0" x2="1080" y2="480" stroke="#FFFFFF" stroke-width="1.5" opacity="0.03"/>
-  <line x1="750" y1="0" x2="1080" y2="330" stroke="#FFFFFF" stroke-width="1.5" opacity="0.03"/>
-  <line x1="900" y1="0" x2="1080" y2="180" stroke="#FFFFFF" stroke-width="1.5" opacity="0.03"/>
-  <line x1="0" y1="600" x2="480" y2="1080" stroke="#FFFFFF" stroke-width="1.5" opacity="0.03"/>
-  <line x1="0" y1="750" x2="330" y2="1080" stroke="#FFFFFF" stroke-width="1.5" opacity="0.03"/>
+  <!-- Logo placeholder — rounded app-icon shape drawn in SVG,
+       actual logo image composited on top by sharp -->
+  <rect x="${540 - LOGO_R}" y="${LOGO_CY - LOGO_R}"
+        width="${LOGO_R * 2}" height="${LOGO_R * 2}"
+        rx="${Math.round(LOGO_R * 0.45)}"
+        fill="${white}" opacity="0.06"/>
 
-  <!-- Red accent bars top + bottom -->
-  <rect x="0" y="0" width="${W}" height="10" fill="${red}"/>
-  <rect x="0" y="${H - 10}" width="${W}" height="10" fill="${red}"/>
+  <!-- Tagline below logo -->
+  <text x="540" y="${TAGLINE_Y}"
+        font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="17" font-weight="500" fill="${grey}"
+        text-anchor="middle" letter-spacing="5">AI SPORTS PREDICTIONS</text>
 
-  <!-- Logo background circle (logo image composited separately) -->
-  <circle cx="540" cy="160" r="72" fill="#FFFFFF" opacity="0.07"/>
-
-  <!-- PROBALY wordmark + tagline -->
-  <text x="540" y="276" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="30" font-weight="800" fill="${red}" text-anchor="middle" letter-spacing="10">PROBALY</text>
-  <text x="540" y="302" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="${grey}" text-anchor="middle" letter-spacing="4">AI SPORTS PREDICTIONS</text>
-
-  <!-- CORRECT badge — content group (checkmark + text) centered at x=540 -->
-  <rect x="255" y="${badgeY}" width="570" height="80" rx="40" fill="url(#badgeGrad)"/>
-  <!-- Checkmark: visually grouped with text, centered together -->
-  <polyline points="382,${badgeY + 42} 398,${badgeY + 57} 424,${badgeY + 26}"
+  <!-- CORRECT badge -->
+  <rect x="270" y="${BADGE_Y}" width="540" height="${BADGE_H}" rx="${BADGE_H / 2}" fill="${emerald}"/>
+  <!-- Checkmark -->
+  <polyline points="${270 + 85},${BADGE_Y + BADGE_H * 0.55} ${270 + 102},${BADGE_Y + BADGE_H * 0.72} ${270 + 130},${BADGE_Y + BADGE_H * 0.30}"
     stroke="${white}" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-  <text x="582" y="${badgeY + 52}" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
-    font-size="38" font-weight="800" fill="${white}" text-anchor="middle" letter-spacing="5">CORRECT</text>
+  <text x="556" y="${BADGE_Y + BADGE_H * 0.66}"
+        font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="36" font-weight="800" fill="${white}"
+        text-anchor="middle" letter-spacing="6">CORRECT</text>
 
-  <!-- Frosted card area -->
-  <rect x="80" y="418" width="920" height="${twoLine ? 460 : 420}" rx="20" fill="url(#cardGrad)"/>
-  <rect x="80" y="418" width="920" height="${twoLine ? 460 : 420}" rx="20" fill="none"
-    stroke="#FFFFFF" stroke-width="1" opacity="0.08"/>
-
-  <!-- Match title -->
-  <text x="540" y="${matchY}" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
-    font-size="56" font-weight="800" fill="${white}" text-anchor="middle">${matchTSpans}</text>
+  <!-- Match title (word-wrapped, max 2 lines) -->
+  <text x="540" y="${MATCH_Y}"
+        font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="52" font-weight="800" fill="${white}"
+        text-anchor="middle">${matchTSpans}</text>
 
   <!-- Divider -->
-  <line x1="180" y1="${dividerY}" x2="900" y2="${dividerY}" stroke="${red}" stroke-width="2" opacity="0.5"/>
-  <circle cx="540" cy="${dividerY}" r="5" fill="${red}" opacity="0.7"/>
+  <line x1="160" y1="${DIVIDER_Y}" x2="920" y2="${DIVIDER_Y}"
+        stroke="${red}" stroke-width="2" opacity="0.55"/>
 
   <!-- Our pick -->
-  <text x="540" y="${pickLabelY}" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
-    font-size="20" font-weight="500" fill="${grey}" text-anchor="middle" letter-spacing="5">OUR PICK</text>
-  <text x="540" y="${pickTextY}" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
-    font-size="46" font-weight="700" fill="${white}" text-anchor="middle">${escapeXml(pickLine)}</text>
+  <text x="540" y="${PICK_LBL_Y}"
+        font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="20" font-weight="500" fill="${grey}"
+        text-anchor="middle" letter-spacing="5">OUR PICK</text>
+  <text x="540" y="${PICK_TXT_Y}"
+        font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="46" font-weight="700" fill="${white}"
+        text-anchor="middle">${escapeXml(pickLine)}</text>
 
   <!-- Final score -->
-  <text x="540" y="${scoreLabelY}" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
-    font-size="20" font-weight="500" fill="${grey}" text-anchor="middle" letter-spacing="5">FINAL SCORE</text>
-  <text x="540" y="${scoreTextY}" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
-    font-size="44" font-weight="700" fill="${emerald}" text-anchor="middle">${escapeXml(scoreLines[0] || scoreLine)}</text>
+  <text x="540" y="${SCORE_LBL_Y}"
+        font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="20" font-weight="500" fill="${grey}"
+        text-anchor="middle" letter-spacing="5">FINAL SCORE</text>
+  <text x="540" y="${SCORE_TXT_Y}"
+        font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="46" font-weight="700" fill="${emerald}"
+        text-anchor="middle">${escapeXml(scoreText)}</text>
 
-  <!-- Bottom branding -->
-  <text x="540" y="1010" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
-    font-size="20" font-weight="400" fill="${dimGrey}" text-anchor="middle" letter-spacing="2">probaly.net  ·  App Store  ·  Play Store</text>
+  <!-- probaly.net -->
+  <text x="540" y="${URL_Y}"
+        font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="22" font-weight="400" fill="${dimGrey}"
+        text-anchor="middle" letter-spacing="2">probaly.net</text>
+
+  <!-- App Store badge (left) -->
+  <rect x="145" y="${BADGE2_Y}" width="340" height="${BADGE2_H}" rx="14" fill="#000000"/>
+  <text x="315" y="${BADGE2_Y + 30}"
+        font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="17" fill="#CCCCCC" text-anchor="middle">Download on the</text>
+  <text x="315" y="${BADGE2_Y + 64}"
+        font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="30" font-weight="700" fill="${white}" text-anchor="middle">App Store</text>
+
+  <!-- Google Play badge (right) -->
+  <rect x="595" y="${BADGE2_Y}" width="340" height="${BADGE2_H}" rx="14" fill="#000000"/>
+  <text x="765" y="${BADGE2_Y + 30}"
+        font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="17" fill="#CCCCCC" text-anchor="middle">Get it on</text>
+  <text x="765" y="${BADGE2_Y + 64}"
+        font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="30" font-weight="700" fill="${white}" text-anchor="middle">Google Play</text>
 </svg>`.trim();
 
   const fileName = `win-${prediction.id}-${Date.now()}.png`;
   const filePath = path.join(UPLOAD_DIR, fileName);
 
-  // 1. Render SVG to PNG base buffer
+  // 1. Render SVG → PNG base
   const baseBuffer = await sharp(Buffer.from(svg)).png().toBuffer();
 
-  // 2. Composite the Probaly logo (centered at the top circle, 130×130)
+  // 2. Composite logo as a rounded app icon (no shadow)
   const logoPath = path.resolve(process.cwd(), "server", "assets", "probaly-logo.jpg");
   let finalBuffer: Buffer;
   try {
-    const logoResized = await sharp(logoPath)
-      .resize(130, 130, { fit: "cover" })
+    const ICON_SIZE = LOGO_R * 2;          // 120 px
+    const ICON_RADIUS = Math.round(ICON_SIZE * 0.22); // iOS-style rounded corner
+
+    // Create a rounded-rect mask to clip the logo
+    const maskSvg = `<svg width="${ICON_SIZE}" height="${ICON_SIZE}">
+      <rect width="${ICON_SIZE}" height="${ICON_SIZE}" rx="${ICON_RADIUS}" fill="white"/>
+    </svg>`;
+
+    const maskedLogo = await sharp(logoPath)
+      .resize(ICON_SIZE, ICON_SIZE, { fit: "cover" })
+      .composite([{ input: Buffer.from(maskSvg), blend: "dest-in" }])
       .png()
       .toBuffer();
+
+    const logoLeft = 540 - LOGO_R;          // 420
+    const logoTop  = LOGO_CY - LOGO_R;      //  85
+
     finalBuffer = await sharp(baseBuffer)
-      .composite([{ input: logoResized, left: 475, top: 95 }])
+      .composite([{ input: maskedLogo, left: logoLeft, top: logoTop }])
       .png({ compressionLevel: 9 })
       .toBuffer();
   } catch (logoErr) {
-    console.warn("[PUBLER] Logo composite failed, using base image:", logoErr);
+    console.warn("[PUBLER] Logo composite failed:", logoErr);
     finalBuffer = await sharp(baseBuffer).png({ compressionLevel: 9 }).toBuffer();
   }
 

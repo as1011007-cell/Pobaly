@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "nz4rQ1QdiBWwhDnZwUwIo"
+uri = "file://server/uploads/social/preview-test.png"
+type = "image"
+title = "New social post design"
