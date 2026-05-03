@@ -1,10 +1,11 @@
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import { View, StyleSheet, FlatList, RefreshControl, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ThemedText } from "@/components/ThemedText";
 import { PredictionCard } from "@/components/PredictionCard";
@@ -26,71 +27,56 @@ export default function HomeScreen() {
   const { theme } = useTheme();
   const { user, isPremium } = useAuth();
   const navigation = useNavigation<NavigationProp>();
-
+  const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [freeTip, setFreeTip] = useState<Prediction | null>(null);
-  const [premiumPredictions, setPremiumPredictions] = useState<Prediction[]>([]);
-  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const retryCountRef = useRef(0);
-  const MAX_RETRIES = 4;
-  const RETRY_INTERVAL_MS = 5000;
+  const refreshingRef = useRef(false);
 
   const { language, t } = useLanguage();
 
-  // Schedule a retry fetch for the free tip after RETRY_INTERVAL_MS.
-  // Clears itself once a tip arrives or max retries are exhausted.
-  const scheduleFreeTipRetry = useCallback(() => {
-    if (retryCountRef.current >= MAX_RETRIES) return;
-    retryCountRef.current += 1;
-    retryTimeoutRef.current = setTimeout(async () => {
-      try {
-        const tip = await fetchFreeTip(language);
-        if (tip) {
-          setFreeTip(tip);
-          retryCountRef.current = 0;
-        } else {
-          scheduleFreeTipRetry();
-        }
-      } catch {
-        scheduleFreeTipRetry();
-      }
-    }, RETRY_INTERVAL_MS);
-  }, [language]);
+  // Free-tip query: 5-minute stale time so tab switches hit the cache.
+  // refetchInterval re-polls every 5s when the tip is null (server still
+  // generating) and stops automatically once a tip arrives.
+  const {
+    data: freeTip = null,
+    isLoading: freeTipLoading,
+    refetch: refetchFreeTip,
+  } = useQuery<Prediction | null>({
+    queryKey: ["/api/predictions/free-tip", language],
+    queryFn: () => fetchFreeTip(language),
+    staleTime: 5 * 60 * 1000,
+    retry: 3,
+    refetchInterval: (query) =>
+      query.state.data === null ? 5000 : false,
+  });
 
-  const loadPredictions = useCallback(async () => {
-    // Reset retry state on every explicit load.
-    if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
-    retryCountRef.current = 0;
+  // Premium predictions query: keyed on user+premium status+language so it
+  // refetches automatically when the user logs in or upgrades.
+  const {
+    data: premiumPredictions = [],
+    isLoading: premiumLoading,
+    refetch: refetchPremium,
+  } = useQuery<Prediction[]>({
+    queryKey: ["/api/predictions/premium", user?.id, isPremium, language],
+    queryFn: () => fetchPremiumPredictions(user?.id, isPremium, language),
+    staleTime: 5 * 60 * 1000,
+    retry: 2,
+  });
 
-    try {
-      const [tip, premium] = await Promise.all([
-        fetchFreeTip(language),
-        fetchPremiumPredictions(user?.id, isPremium, language),
-      ]);
-      setFreeTip(tip);
-      setPremiumPredictions(premium);
-      // If tip is null the server may still be generating — retry automatically.
-      if (!tip) scheduleFreeTipRetry();
-    } catch (error) {
-      console.error("Error loading predictions:", error);
-    } finally {
-      setLoading(false);
-    }
-  }, [user?.id, isPremium, language, scheduleFreeTipRetry]);
-
-  useEffect(() => {
-    loadPredictions();
-    return () => {
-      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
-    };
-  }, [loadPredictions]);
+  const loading = freeTipLoading || premiumLoading;
 
   const onRefresh = useCallback(async () => {
+    if (refreshingRef.current) return;
+    refreshingRef.current = true;
     setRefreshing(true);
-    await loadPredictions();
+    // Invalidate both queries so the next read bypasses the stale-time cache.
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["/api/predictions/free-tip", language] }),
+      queryClient.invalidateQueries({ queryKey: ["/api/predictions/premium", user?.id, isPremium, language] }),
+    ]);
+    await Promise.all([refetchFreeTip(), refetchPremium()]);
     setRefreshing(false);
-  }, [loadPredictions]);
+    refreshingRef.current = false;
+  }, [queryClient, refetchFreeTip, refetchPremium, language, user?.id, isPremium]);
 
   const handlePredictionPress = (predictionId: string) => {
     navigation.navigate("PredictionDetail", { predictionId });

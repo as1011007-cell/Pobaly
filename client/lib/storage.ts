@@ -8,33 +8,47 @@ const KEYS = {
   FAVORITES: "@probaly/favorites",
 };
 
+// In-memory caches so AsyncStorage (a bridged native I/O call) is only hit
+// once per session rather than on every API request. Undefined = not yet
+// loaded; null = loaded and confirmed empty.
+let _tokenCache: string | null | undefined = undefined;
+let _userCache: User | null | undefined = undefined;
+
 export const storage = {
   async getUser(): Promise<User | null> {
+    if (_userCache !== undefined) return _userCache;
     try {
       const data = await AsyncStorage.getItem(KEYS.USER);
-      return data ? JSON.parse(data) : null;
+      _userCache = data ? JSON.parse(data) : null;
+      return _userCache ?? null;
     } catch {
       return null;
     }
   },
 
   async setUser(user: User): Promise<void> {
+    _userCache = user;
     await AsyncStorage.setItem(KEYS.USER, JSON.stringify(user));
   },
 
   async removeUser(): Promise<void> {
+    _userCache = null;
     await AsyncStorage.removeItem(KEYS.USER);
   },
 
   async getAuthToken(): Promise<string | null> {
-    return AsyncStorage.getItem(KEYS.AUTH_TOKEN);
+    if (_tokenCache !== undefined) return _tokenCache;
+    _tokenCache = await AsyncStorage.getItem(KEYS.AUTH_TOKEN);
+    return _tokenCache ?? null;
   },
 
   async setAuthToken(token: string): Promise<void> {
+    _tokenCache = token;
     await AsyncStorage.setItem(KEYS.AUTH_TOKEN, token);
   },
 
   async removeAuthToken(): Promise<void> {
+    _tokenCache = null;
     await AsyncStorage.removeItem(KEYS.AUTH_TOKEN);
   },
 

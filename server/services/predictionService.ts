@@ -782,6 +782,7 @@ async function _generateDailyFreeTipImpl(opts?: { force?: boolean }): Promise<vo
         result: null,
         expiresAt: new Date(pick.matchTime.getTime() + 3 * 60 * 60 * 1000),
       });
+      invalidateFreeTipCache();
       console.log(`[FREE-TIP] Fallback success: cloned premium pick "${pick.matchTitle}" (real ${pick.probability}% → display ${fbDisplayProbability}%, sport: ${pick.sport})`);
     } catch (fallbackErr) {
       console.error("[FREE-TIP] Fallback failed with error:", fallbackErr);
@@ -836,6 +837,7 @@ async function _generateDailyFreeTipImpl(opts?: { force?: boolean }): Promise<vo
       return;
     }
     await db.insert(predictions).values(predictionData);
+    invalidateFreeTipCache();
     console.log(`Generated free prediction for: ${best.match.homeTeam} vs ${best.match.awayTeam} (real ${best.analysis.probability}% → display ${displayProbability}%, sport: ${best.match.sport})`);
   } catch (error) {
     console.error("Failed to generate daily free prediction:", error);
@@ -1570,6 +1572,24 @@ async function generateDemoPredictionsImpl(): Promise<void> {
   console.log(`Demo predictions generation complete: ${inserted}/${items.length} inserted`);
 }
 
+// ─── In-memory free-tip cache ────────────────────────────────────────────────
+// The free tip changes at most once per day (midnight swap or mid-day loss
+// replacement). Caching the result eliminates 2 DB round-trips on every
+// /api/predictions/free-tip request — the single hottest read path in the app.
+// TTL is intentionally short (90s) so a just-generated replacement tip appears
+// quickly without waiting for a server restart. Cache is also invalidated
+// eagerly on every write (generation, replacement, forced new tip).
+interface _FreeTipCacheEntry {
+  tip: Awaited<ReturnType<typeof getTodaysActiveFreePrediction>>;
+  cachedAt: number;
+}
+const FREE_TIP_CACHE_TTL_MS = 90_000;
+let _freeTipCache: _FreeTipCacheEntry | null = null;
+
+export function invalidateFreeTipCache(): void {
+  _freeTipCache = null;
+}
+
 // Safety net: most recent unresolved free tip whose match hasn't started yet,
 // regardless of when it was created. Used as a fallback if today's tip isn't
 // ready (mid-generation, generation failed, no matches today, etc.) so the
@@ -1594,17 +1614,23 @@ async function getMostRecentDisplayableFreeTip() {
 }
 
 export async function getFreeTip() {
+  // Fast path: serve from in-memory cache and skip all DB queries entirely.
+  // The cache is invalidated immediately on every write, so this is always
+  // fresh unless we're in the narrow 0–90s window right after tip generation.
+  if (_freeTipCache && Date.now() - _freeTipCache.cachedAt < FREE_TIP_CACHE_TTL_MS) {
+    return _freeTipCache.tip;
+  }
+
+  // Slow path: check DB, generate if missing, populate cache.
   await generateDailyFreePrediction();
-  // Prefer today's freshly-generated tip; if it's not ready yet (mid-gen,
-  // failed gen, no qualifying matches), surface yesterday's still-upcoming
-  // tip rather than returning null. Guarantees no visible gap to the user.
-  const todays = await getTodaysActiveFreePrediction();
-  if (todays) return todays;
-  return await getMostRecentDisplayableFreeTip();
+  const tip = (await getTodaysActiveFreePrediction()) ?? (await getMostRecentDisplayableFreeTip());
+  _freeTipCache = { tip, cachedAt: Date.now() };
+  return tip;
 }
 
 export async function forceNewFreeTip(): Promise<void> {
   const startOfToday = getStartOfToday();
+  invalidateFreeTipCache(); // Bust cache before delete so stale tip isn't served mid-swap
   // Same rule as the midnight reset: preserve any tip that already won.
   // Only nuke unresolved or losing tips so a manual swap doesn't wipe a
   // winner that's earned its spot in history.
@@ -1677,6 +1703,7 @@ export async function replaceFreeTip(data: {
     expiresAt: expTime,
   }).returning();
 
+  invalidateFreeTipCache();
   return newTip;
 }
 

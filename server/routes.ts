@@ -648,6 +648,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const lang = normalizeLang(req.query.lang);
       const freeTip = await getFreeTip();
       const localized = await translatePrediction(freeTip as any, lang);
+      // Cache aggressively: the free tip changes at most once a day.
+      // 60s max-age means clients/CDN serve from cache for 1 min;
+      // stale-while-revalidate lets them use the old response for 30s more
+      // while fetching in the background — so the user never waits.
+      res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=30");
       res.json({ prediction: localized });
     } catch (error: any) {
       res.status(500).json({ error: safeErrorMessage(error) });
