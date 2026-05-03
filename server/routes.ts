@@ -33,7 +33,7 @@ import {
   dailyPredictionRefresh,
 } from "./services/predictionService";
 import { getLiveMatches } from "./services/sportsApiService";
-import { normalizeLang, translatePredictions, translatePrediction, translatePredictionsBackground } from "./services/translationService";
+import { normalizeLang, translatePredictions, translatePredictionsBackground } from "./services/translationService";
 
 const registerSchema = z.object({
   email: z.string().email().max(254),
@@ -647,7 +647,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const lang = normalizeLang(req.query.lang);
       const freeTip = await getFreeTip();
-      const localized = await translatePrediction(freeTip as any, lang);
+      // Non-blocking translate so the Home screen never waits 1–3 s on Groq.
+      // First view in a fresh language returns English; the background warm
+      // populates the cache so every subsequent request is instant + localized.
+      const localized = freeTip
+        ? (await translatePredictionsBackground([freeTip as any], lang))[0]
+        : freeTip;
       // Cache aggressively: the free tip changes at most once a day.
       // 60s max-age means clients/CDN serve from cache for 1 min;
       // stale-while-revalidate lets them use the old response for 30s more
@@ -847,9 +852,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const isResolved = prediction.result === "correct" || prediction.result === "incorrect";
       const isRedacted = prediction.isPremium && !isPremiumUser && !isResolved;
       const lang = normalizeLang(req.query.lang);
+      // Non-blocking translate: returns cached translation if available,
+      // English fallback otherwise, and warms the cache in the background so
+      // the next view is instant + localized. Tapping into a card never
+      // blocks on Groq.
       const result = isRedacted
         ? redactPrediction(prediction)
-        : (await translatePrediction(prediction as any, lang)) ?? prediction;
+        : (await translatePredictionsBackground([prediction as any], lang))[0] ?? prediction;
       // Individual predictions are immutable once resolved — 5-min cache is safe.
       res.set("Cache-Control", "private, max-age=300, stale-while-revalidate=300");
       res.json({ prediction: result });
