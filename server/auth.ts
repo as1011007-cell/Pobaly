@@ -1,6 +1,6 @@
 import jwt from "jsonwebtoken";
 import type { Request, Response, NextFunction } from "express";
-import { createHash, randomBytes } from "crypto";
+import { createHash, randomBytes, timingSafeEqual as nodeTimingSafeEqual } from "crypto";
 
 function getJwtSecret(): string {
   if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
@@ -142,8 +142,7 @@ function timingSafeEqual(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
   const bufB = Buffer.from(b);
   try {
-    const { timingSafeEqual: tse } = require("crypto");
-    return tse(bufA, bufB);
+    return nodeTimingSafeEqual(bufA, bufB);
   } catch {
     let result = 0;
     for (let i = 0; i < bufA.length; i++) {

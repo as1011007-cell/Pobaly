@@ -1,5 +1,6 @@
 import express from "express";
 import type { Request, Response, NextFunction } from "express";
+import compression from "compression";
 import { registerRoutes } from "./routes";
 import { startDailyRefreshScheduler } from "./services/predictionService";
 import * as fs from "fs";
@@ -379,8 +380,7 @@ function setupErrorHandler(app: express.Application) {
 
   // Compress all HTTP responses. Reduces JSON payload sizes by 60-80%,
   // which directly cuts transfer time for every API call at scale.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  app.use(require("compression")());
+  app.use(compression());
 
   setupRequestLogging(app);
   configureLegalPages(app);
