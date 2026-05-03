@@ -164,34 +164,65 @@ async function ensureUploadDir() {
  * implementation: a single INSERT that conflicts on EITHER unique key, then
  * verify by SELECT what we got.
  */
+function rowsOf(r: any): any[] {
+  // Drizzle's db.execute() result shape varies by driver (neon-http vs
+  // neon-serverless vs node-postgres). Defensively unwrap: some drivers put
+  // rows on .rows, others on the result itself.
+  if (Array.isArray(r)) return r;
+  if (Array.isArray(r?.rows)) return r.rows;
+  if (Array.isArray(r?.rowCount) /* never */ ) return [];
+  return [];
+}
+
 async function claimMatchSlot(
   predictionId: number,
   matchKey: string,
   scheduledFor: Date,
 ): Promise<boolean> {
-  // First check if THIS match is already claimed (by any prediction id).
+  // 1) Bail early if THIS match has already been claimed (by any prediction).
   const existing = await db.execute(sql`
-    SELECT 1 FROM social_posts WHERE match_key = ${matchKey} LIMIT 1
+    SELECT id FROM social_posts WHERE match_key = ${matchKey} LIMIT 1
   `);
-  if ((existing.rows?.length || 0) > 0) return false;
+  if (rowsOf(existing).length > 0) {
+    console.log(`[PUBLER] claim: match_key="${matchKey}" already in social_posts`);
+    return false;
+  }
 
-  // Race-safe insert: if a sibling prediction (same match) inserts first
-  // between our SELECT and INSERT, the unique index on match_key rejects us.
-  // Wrap with ON CONFLICT DO NOTHING on prediction_id so the same prediction
-  // re-running also no-ops gracefully.
+  // 2) Attempt the insert. ON CONFLICT covers the prediction_id key; the
+  // partial UNIQUE on match_key is caught via 23505 below for the rare
+  // sibling race. We don't rely on RETURNING parsing because the result
+  // shape is driver-dependent — instead we verify by SELECT after.
   try {
-    const r = await db.execute(sql`
+    await db.execute(sql`
       INSERT INTO social_posts (prediction_id, match_key, scheduled_for, status)
       VALUES (${predictionId}, ${matchKey}, ${scheduledFor.toISOString()}::timestamp, 'pending')
       ON CONFLICT (prediction_id) DO NOTHING
-      RETURNING id
     `);
-    return (r.rows?.length || 0) > 0;
   } catch (err: any) {
-    // 23505 = unique_violation on match_key partial index — sibling won the race.
-    if (err?.code === "23505") return false;
+    if (err?.code === "23505") {
+      console.log(`[PUBLER] claim: 23505 race on match_key="${matchKey}"`);
+      return false;
+    }
     throw err;
   }
+
+  // 3) Verify our row landed (so we know we own this prediction's claim).
+  const verify = await db.execute(sql`
+    SELECT match_key FROM social_posts WHERE prediction_id = ${predictionId} LIMIT 1
+  `);
+  const rows = rowsOf(verify);
+  if (rows.length === 0) {
+    console.log(`[PUBLER] claim: verify returned 0 rows for pred=${predictionId}`);
+    return false;
+  }
+  const ownsMatch = (rows[0] as any).match_key === matchKey;
+  if (!ownsMatch) {
+    console.log(
+      `[PUBLER] claim: pred=${predictionId} exists with different match_key (was ${(rows[0] as any).match_key}, wanted ${matchKey})`,
+    );
+    return false;
+  }
+  return true;
 }
 
 function escapeXml(s: string): string {
