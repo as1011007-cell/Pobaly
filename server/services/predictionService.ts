@@ -2113,13 +2113,15 @@ export async function resolvePredictionResults(includeOddsApi: boolean = false):
       if (upd.length === 0) continue;
       correct++;
 
-      // Social auto-post: limited to public free tips (userId NULL, not premium)
-      // so we don't spam socials with premium picks. Fire-and-forget; never
-      // block the resolver loop on Publer/network latency.
-      if (!pred.isPremium && !pred.userId) {
+      // Social auto-post: any PUBLIC winning prediction (userId NULL — covers
+      // both free tips and shared premium picks; per-user premium copies are
+      // skipped). Match-level dedup, freshness check, and 8-slot daily quota
+      // happen inside postWinCelebration. Fire-and-forget; never block the
+      // resolver loop on Publer/network latency.
+      if (!pred.userId) {
         const scoreLine = `${matchedGame.winner} ${matchedGame.homeScore}-${matchedGame.awayScore}`;
-        import("./publerService").then(({ postFreeTipWin }) => {
-          postFreeTipWin(pred, scoreLine).catch((e) =>
+        import("./publerService").then(({ postWinCelebration }) => {
+          postWinCelebration(pred, scoreLine).catch((e) =>
             console.error(`[RESOLVE] Social post for ${pred.id} failed:`, e),
           );
         }).catch((e) => console.error("[RESOLVE] publerService import failed:", e));

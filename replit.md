@@ -31,7 +31,7 @@ The application uses a 5-tab navigation system (Home, Live, Sports, History, Pro
 - **App Store Compliance**: Includes iOS Privacy Manifest, deep linking, gambling disclaimer, and legal page accessibility.
 - **Vector Icon Font Embedding**: `Feather` icons are natively embedded for EAS builds and preloaded via JS for all platforms to prevent flicker.
 - **Localization (i18n)**: Supports 7 languages. Static UI strings are handled client-side, while AI-generated prediction copy is translated server-side by Groq and cached.
-- **Social Auto-Posting**: Automatically posts winning free tips to Instagram and Facebook via Publer, including branded image generation.
+- **Social Auto-Posting**: When the resolver flips any public winning prediction (free tip or shared premium pick) to `correct`, a branded 1080×1080 PNG (`composeWinImage`) and caption are queued to Instagram + Facebook via Publer. Match-level dedup (`social_posts.match_key` UNIQUE) ensures one post per match even when many premium copies share the same outcome. Posts are spread across 8 daily UTC slots (10:00, 11:30, 13:00, 14:30, 16:00, 17:30, 19:00, 20:30) via `scheduled_at`, with a 16-post forward queue cap. Stale wins (match started > 24h ago) are skipped so the feature never backfills history. Caption mentions App Store / Play Store availability and probaly.net.
 
 ### Feature Specifications
 - **AI-Powered Predictions**: Provides probability, confidence, explanation, factors, and risk index; includes over/under for basketball.

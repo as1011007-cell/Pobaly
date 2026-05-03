@@ -78,6 +78,76 @@ async function ensureTable() {
   await db.execute(sql`
     CREATE INDEX IF NOT EXISTS idx_social_posts_prediction ON social_posts(prediction_id)
   `);
+  // Match-level dedup so a single match (with N premium copies + 1 free row)
+  // produces at most one social post.
+  await db.execute(sql`
+    ALTER TABLE social_posts ADD COLUMN IF NOT EXISTS match_key TEXT
+  `);
+  // When the post is queued at Publer to publish.
+  await db.execute(sql`
+    ALTER TABLE social_posts ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMP
+  `);
+  await db.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_social_posts_match_key
+    ON social_posts(match_key) WHERE match_key IS NOT NULL
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_social_posts_scheduled_for
+    ON social_posts(scheduled_for)
+  `);
+}
+
+// Daily slots (UTC) — 8 evenly spread between 10 AM and ~9 PM.
+// Picked to span EU evenings + US morning/afternoon.
+const DAILY_SLOTS_UTC: Array<[number, number]> = [
+  [10, 0], [11, 30], [13, 0], [14, 30],
+  [16, 0], [17, 30], [19, 0], [20, 30],
+];
+const MAX_FUTURE_SCHEDULED = 16; // ~2 days worth — drop wins beyond this
+
+function makeMatchKey(matchTitle: string): string {
+  return matchTitle.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function buildSlotForDay(day: Date, slotIdx: number): Date {
+  const [h, m] = DAILY_SLOTS_UTC[slotIdx];
+  const d = new Date(day);
+  d.setUTCHours(h, m, 0, 0);
+  return d;
+}
+
+/**
+ * Pick the next free slot from now onward. A slot is "taken" if any existing
+ * scheduled post is within ±30 min of it. Returns null if the queue is full
+ * (>= MAX_FUTURE_SCHEDULED future-scheduled posts).
+ */
+async function pickNextSlot(now: Date): Promise<Date | null> {
+  const r = await db.execute(sql`
+    SELECT scheduled_for FROM social_posts
+    WHERE scheduled_for IS NOT NULL
+      AND scheduled_for >= ${now.toISOString()}::timestamp
+      AND status IN ('pending','queued','posted')
+    ORDER BY scheduled_for ASC
+  `);
+  const taken = (r.rows || []).map((row: any) => new Date(row.scheduled_for as string));
+  if (taken.length >= MAX_FUTURE_SCHEDULED) return null;
+
+  const minStart = new Date(now.getTime() + 5 * 60 * 1000); // 5-min lead time
+  // Try today + next 6 days as a safety horizon (we'll bail out before that
+  // hits via MAX_FUTURE_SCHEDULED, but the loop bound prevents runaway).
+  for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+    const day = new Date(now);
+    day.setUTCDate(day.getUTCDate() + dayOffset);
+    for (let i = 0; i < DAILY_SLOTS_UTC.length; i++) {
+      const slot = buildSlotForDay(day, i);
+      if (slot < minStart) continue;
+      const collides = taken.some(
+        (t) => Math.abs(t.getTime() - slot.getTime()) < 30 * 60 * 1000,
+      );
+      if (!collides) return slot;
+    }
+  }
+  return null;
 }
 
 async function ensureUploadDir() {
@@ -85,19 +155,43 @@ async function ensureUploadDir() {
 }
 
 /**
- * Atomic claim: insert a 'pending' row for this prediction. ON CONFLICT DO
- * NOTHING means concurrent invocations all race to insert, but only ONE wins
- * (the one whose insert returns a row). Subsequent retries for permanently-
- * failed posts are still possible by deleting/clearing the row out-of-band.
+ * Atomic claim by (prediction_id, match_key, scheduled_for). Two unique
+ * constraints exist: prediction_id (so the same row can't claim twice) and
+ * match_key (so a single match — which has many prediction rows, one per
+ * premium subscriber + one free — produces at most one social post).
+ * Insert is attempted with prediction_id conflict-ignore; if that succeeds,
+ * we then check match_key uniqueness via a second insert path. Simplest
+ * implementation: a single INSERT that conflicts on EITHER unique key, then
+ * verify by SELECT what we got.
  */
-async function claimPost(predictionId: number): Promise<boolean> {
-  const r = await db.execute(sql`
-    INSERT INTO social_posts (prediction_id, status)
-    VALUES (${predictionId}, 'pending')
-    ON CONFLICT (prediction_id) DO NOTHING
-    RETURNING id
+async function claimMatchSlot(
+  predictionId: number,
+  matchKey: string,
+  scheduledFor: Date,
+): Promise<boolean> {
+  // First check if THIS match is already claimed (by any prediction id).
+  const existing = await db.execute(sql`
+    SELECT 1 FROM social_posts WHERE match_key = ${matchKey} LIMIT 1
   `);
-  return (r.rows?.length || 0) > 0;
+  if ((existing.rows?.length || 0) > 0) return false;
+
+  // Race-safe insert: if a sibling prediction (same match) inserts first
+  // between our SELECT and INSERT, the unique index on match_key rejects us.
+  // Wrap with ON CONFLICT DO NOTHING on prediction_id so the same prediction
+  // re-running also no-ops gracefully.
+  try {
+    const r = await db.execute(sql`
+      INSERT INTO social_posts (prediction_id, match_key, scheduled_for, status)
+      VALUES (${predictionId}, ${matchKey}, ${scheduledFor.toISOString()}::timestamp, 'pending')
+      ON CONFLICT (prediction_id) DO NOTHING
+      RETURNING id
+    `);
+    return (r.rows?.length || 0) > 0;
+  } catch (err: any) {
+    // 23505 = unique_violation on match_key partial index — sibling won the race.
+    if (err?.code === "23505") return false;
+    throw err;
+  }
 }
 
 function escapeXml(s: string): string {
@@ -163,7 +257,7 @@ export async function composeWinImage(
   <rect x="0" y="0" width="${W}" height="14" fill="${red}"/>
   <rect x="0" y="${H - 14}" width="${W}" height="14" fill="${red}"/>
 
-  <text x="540" y="180" font-family="Helvetica, Arial, sans-serif" font-size="44" font-weight="700" fill="${cream}" text-anchor="middle" letter-spacing="6">FREE TIP RESULT</text>
+  <text x="540" y="180" font-family="Helvetica, Arial, sans-serif" font-size="44" font-weight="700" fill="${cream}" text-anchor="middle" letter-spacing="6">PROBALY PICK RESULT</text>
 
   <rect x="290" y="225" width="500" height="90" rx="45" fill="${emerald}"/>
   <text x="540" y="288" font-family="Helvetica, Arial, sans-serif" font-size="58" font-weight="800" fill="#ffffff" text-anchor="middle" letter-spacing="3">WE CALLED IT</text>
@@ -199,12 +293,13 @@ export function buildWinCaption(prediction: Prediction, scoreLine: string): stri
     `WE CALLED IT.`,
     ``,
     `${prediction.matchTitle}`,
-    `Our free pick: ${prediction.predictedOutcome}`,
+    `Our AI pick: ${prediction.predictedOutcome}`,
     `Final: ${scoreLine}`,
     ``,
-    `Get tomorrow's free AI pick at probaly.net`,
+    `Probaly is available on the App Store and Play Store.`,
+    `Visit probaly.net for more info.`,
     ``,
-    `#Probaly #${sport} #SportsAnalytics #AI #FreePick`,
+    `#Probaly #${sport} #SportsAnalytics #AI #SportsBetting`,
   ].join("\n");
 }
 
@@ -218,23 +313,32 @@ export interface PublerPostResult {
 export async function publerSchedulePublish(
   caption: string,
   imageUrl: string,
-  options: { state?: "scheduled" | "draft"; accounts?: string[] } = {},
+  options: {
+    state?: "scheduled" | "draft";
+    accounts?: string[];
+    scheduledAt?: Date;
+  } = {},
 ): Promise<PublerPostResult> {
   const accounts = options.accounts || getAccountIds();
   if (accounts.length === 0) throw new Error("PUBLER_ACCOUNT_IDS not set");
 
+  const post: any = {
+    accounts,
+    networks: {},
+    details: {
+      text: caption,
+      media: [{ path: imageUrl, type: "image" }],
+    },
+  };
+  if (options.scheduledAt) {
+    // Publer accepts per-post scheduled_at on the post object itself when
+    // bulk.state = 'scheduled'. ISO 8601 UTC.
+    post.scheduled_at = options.scheduledAt.toISOString();
+  }
+
   const body = {
     bulk: { state: options.state || "scheduled" },
-    posts: [
-      {
-        accounts,
-        networks: {},
-        details: {
-          text: caption,
-          media: [{ path: imageUrl, type: "image" }],
-        },
-      },
-    ],
+    posts: [post],
   };
 
   const r = await publerFetch("/posts/schedule/publish", {
@@ -256,10 +360,14 @@ export async function listAccounts() {
   return await publerFetch("/accounts", { method: "GET" }, true);
 }
 
-export async function postFreeTipWin(
+// Skip wins for matches that started > this many hours ago, so we never
+// backfill ancient wins from before the auto-poster was enabled.
+const STALE_MATCH_HOURS = 24;
+
+export async function postWinCelebration(
   prediction: Prediction,
   scoreLine: string,
-): Promise<{ ok: boolean; reason?: string; jobId?: string }> {
+): Promise<{ ok: boolean; reason?: string; jobId?: string; scheduledFor?: string }> {
   if (!getApiKey()) {
     console.log("[PUBLER] PUBLER_API_KEY not set — skipping social post");
     return { ok: false, reason: "no_api_key" };
@@ -271,12 +379,37 @@ export async function postFreeTipWin(
     return { ok: false, reason: "missing_workspace_or_accounts" };
   }
 
-  // Atomic claim: insert pending row first. Only the winner of the unique
-  // constraint race proceeds to compose + post; concurrent invocations bail
-  // out cleanly without scheduling a duplicate Publer job.
-  const claimed = await claimPost(prediction.id);
+  // Freshness gate: only post wins for matches from "today" (last 24h).
+  const matchTime = (prediction as any).matchTime
+    ? new Date((prediction as any).matchTime)
+    : null;
+  if (matchTime && Number.isFinite(matchTime.getTime())) {
+    const ageHours = (Date.now() - matchTime.getTime()) / 3_600_000;
+    if (ageHours > STALE_MATCH_HOURS) {
+      console.log(
+        `[PUBLER] Prediction ${prediction.id} match is ${ageHours.toFixed(1)}h old (>${STALE_MATCH_HOURS}h) — skipping stale win`,
+      );
+      return { ok: false, reason: "stale_match" };
+    }
+  }
+
+  // Pick a free slot in the daily 8-slot schedule.
+  const slot = await pickNextSlot(new Date());
+  if (!slot) {
+    console.log(
+      `[PUBLER] Schedule is full (>= ${MAX_FUTURE_SCHEDULED} future-scheduled posts) — dropping ${prediction.id}`,
+    );
+    return { ok: false, reason: "queue_full" };
+  }
+
+  // Atomic claim by match_key: a single match (with N premium copies + 1 free)
+  // produces at most one social post. Concurrent siblings bail out cleanly.
+  const matchKey = makeMatchKey(prediction.matchTitle);
+  const claimed = await claimMatchSlot(prediction.id, matchKey, slot);
   if (!claimed) {
-    console.log(`[PUBLER] Prediction ${prediction.id} already claimed — skipping (no double-post)`);
+    console.log(
+      `[PUBLER] Match "${matchKey}" already claimed (or prediction ${prediction.id} already posted) — skipping`,
+    );
     return { ok: false, reason: "already_claimed" };
   }
 
@@ -284,7 +417,7 @@ export async function postFreeTipWin(
   try {
     const img = await composeWinImage(prediction, scoreLine);
     imageUrl = img.publicUrl;
-    console.log(`[PUBLER] Composed image: ${imageUrl}`);
+    console.log(`[PUBLER] Composed image: ${imageUrl}, scheduled for ${slot.toISOString()}`);
   } catch (err: any) {
     console.error("[PUBLER] Image composition failed:", err);
     await db.execute(sql`
@@ -297,7 +430,10 @@ export async function postFreeTipWin(
   const caption = buildWinCaption(prediction, scoreLine);
 
   try {
-    const r = await publerSchedulePublish(caption, imageUrl, { state: "scheduled" });
+    const r = await publerSchedulePublish(caption, imageUrl, {
+      state: "scheduled",
+      scheduledAt: slot,
+    });
     if (!r.ok) {
       console.error(`[PUBLER] Publish failed (${r.status}):`, JSON.stringify(r.body).slice(0, 500));
       await db.execute(sql`
@@ -308,14 +444,16 @@ export async function postFreeTipWin(
       `);
       return { ok: false, reason: `publer_${r.status}` };
     }
-    console.log(`[PUBLER] Queued post for prediction ${prediction.id}, job=${r.jobId}`);
+    console.log(
+      `[PUBLER] Queued post for prediction ${prediction.id} at ${slot.toISOString()}, job=${r.jobId}`,
+    );
     await db.execute(sql`
       UPDATE social_posts
       SET job_id=${r.jobId || null}, image_url=${imageUrl}, caption=${caption},
           status='queued', posted_at=NOW(), error=NULL
       WHERE prediction_id = ${prediction.id}
     `);
-    return { ok: true, jobId: r.jobId };
+    return { ok: true, jobId: r.jobId, scheduledFor: slot.toISOString() };
   } catch (err: any) {
     console.error("[PUBLER] Network/exception:", err);
     await db.execute(sql`
@@ -326,6 +464,9 @@ export async function postFreeTipWin(
     return { ok: false, reason: "exception" };
   }
 }
+
+// Back-compat alias — call sites still using the old name keep working.
+export const postFreeTipWin = postWinCelebration;
 
 export async function initPublerService(app: Express) {
   await ensureTable();

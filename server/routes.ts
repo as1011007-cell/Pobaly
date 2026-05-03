@@ -1082,8 +1082,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { getPredictionById } = await import("./services/predictionService");
       const pred = await getPredictionById(predictionId);
       if (!pred) return res.status(404).json({ error: "prediction not found" });
-      const { postFreeTipWin } = await import("./services/publerService");
-      const r = await postFreeTipWin(pred, scoreLine);
+      const { postWinCelebration } = await import("./services/publerService");
+      const r = await postWinCelebration(pred, scoreLine);
       res.json(r);
     } catch (error: any) {
       console.error("Publer test-post error:", error);
