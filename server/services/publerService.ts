@@ -406,18 +406,41 @@ export async function publerSchedulePublish(
     return obj;
   });
 
+  // Discover which providers are connected for the configured accounts so
+  // we can build the correct network-keyed payload. Publer rejects "default"
+  // for Instagram ("missing social network params"), requiring the exact
+  // provider name (e.g. "instagram", "facebook") as the networks key.
+  let providers: string[] = [];
+  try {
+    const accsResult = await listAccounts();
+    const accsBody = accsResult.body;
+    const allAccounts: any[] = Array.isArray(accsBody)
+      ? accsBody
+      : Array.isArray(accsBody?.accounts)
+        ? accsBody.accounts
+        : [];
+    const connected = allAccounts.filter((a: any) => accountIds.includes(a.id));
+    providers = [...new Set(connected.map((a: any) => a.provider).filter(Boolean))];
+    console.log(`[PUBLER] Resolved providers for accounts: ${providers.join(", ")}`);
+  } catch (e) {
+    console.warn("[PUBLER] Could not resolve providers, falling back to instagram:", e);
+  }
+  if (providers.length === 0) providers = ["instagram"]; // safe default
+
+  const networkEntry = {
+    type: "photo",
+    text: caption,
+    media: [{ id: mediaId, type: "image" }],
+  };
+  const networksObj: Record<string, typeof networkEntry> = {};
+  for (const p of providers) networksObj[p] = networkEntry;
+
   const body = {
     bulk: {
       state: options.state || "scheduled",
       posts: [
         {
-          networks: {
-            default: {
-              type: "photo",
-              text: caption,
-              media: [{ id: mediaId, type: "image" }],
-            },
-          },
+          networks: networksObj,
           accounts: accountObjs,
         },
       ],
