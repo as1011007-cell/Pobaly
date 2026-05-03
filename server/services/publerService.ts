@@ -376,7 +376,7 @@ export async function composeWinImage(
         text-anchor="middle">${matchTSpans}</text>
 
   <!-- Divider — shorter, thick red line -->
-  <line x1="280" y1="${DIVIDER_Y}" x2="800" y2="${DIVIDER_Y}"
+  <line x1="200" y1="${DIVIDER_Y}" x2="880" y2="${DIVIDER_Y}"
         stroke="${red}" stroke-width="${DIV_H}" stroke-linecap="round"/>
 
   <!-- OUR PICK label -->
