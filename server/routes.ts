@@ -319,7 +319,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Forbidden" });
       }
       // FAST PATH: if the webhook or /sync endpoint marked this user premium
-      // in the last 60 seconds, serve from in-memory cache without touching
+      // in the last 5 minutes, serve from in-memory cache without touching
       // the DB or RevenueCat at all. This eliminates the 3–6s post-purchase
       // stall a user used to see while polling for premium status to flip.
       const cached = getCachedPremium(userId);

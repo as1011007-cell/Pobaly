@@ -19,7 +19,7 @@
 // hot path (so durability is preserved), but the read path is short-circuited
 // for the brief window where the client is polling right after purchase.
 //
-// Memory cost: ~100 bytes per active subscriber, evicted after 60s of
+// Memory cost: ~100 bytes per active subscriber, evicted after 5 minutes of
 // inactivity. At 10k concurrent purchasers this is ~1MB. Negligible.
 
 interface CachedActivation {
@@ -29,7 +29,7 @@ interface CachedActivation {
   eventAt: number;     // ms epoch — the source event's timestamp (used for ordering)
 }
 
-const CACHE_TTL_MS = 60 * 1000;
+const CACHE_TTL_MS = 5 * 60 * 1000;
 const cache = new Map<string, CachedActivation>();
 
 // Periodic eviction so the map doesn't grow unbounded for one-off lookups.
