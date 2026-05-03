@@ -146,7 +146,14 @@ function useSubscriptionContext() {
     isSubscribed,
     isLoading: offeringsQuery.isLoading && _initialized,
     isLoadingCustomer: customerInfoQuery.isLoading && _initialized,
-    offeringsError: offeringsQuery.isError,
+    // Suppress the "couldn't connect to store" UI on platforms where the
+    // store is intentionally unavailable (web + Expo Go run RevenueCat in
+    // Browser/Preview mode with no real offerings, so a failure here is
+    // expected and not actionable for the user).
+    offeringsError:
+      offeringsQuery.isError &&
+      Platform.OS !== "web" &&
+      Constants.executionEnvironment !== "storeClient",
     purchase: purchaseMutation.mutateAsync,
     restore: restoreMutation.mutateAsync,
     isPurchasing: purchaseMutation.isPending,
