@@ -28,7 +28,7 @@ import { BorderRadius, Spacing } from "@/constants/theme";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { getLanguageName } from "@/lib/translations";
-import { useSubscription, REVENUECAT_ENTITLEMENT_IDENTIFIER, fetchCustomerInfo } from "@/lib/revenuecat";
+import { useSubscription, REVENUECAT_ENTITLEMENT_IDENTIFIER, fetchCustomerInfo, getCachedPrices } from "@/lib/revenuecat";
 import {
   requestPermissionsWithState,
   getNotificationPermissionState,
@@ -64,13 +64,23 @@ export default function ProfileScreen() {
   const [selectedPlan, setSelectedPlan] = useState<PlanType>("annual");
 
   const selectedPackage = selectedPlan === "monthly" ? monthlyPackage : annualPackage;
-  // RevenueCat's priceString is auto-localized to the user's store currency
-  // (e.g. "₹1,599", "€49.99"). Show a neutral "…" placeholder while the
-  // offering loads so non-USD users never briefly see a hardcoded USD price.
-  const monthlyPrice = monthlyPackage?.product.priceString ?? "…";
-  const annualPrice = annualPackage?.product.priceString ?? "…";
-  const showOriginalMonthly = !!monthlyPackage;
-  const showOriginalAnnual = !!annualPackage;
+
+  // Hydrate last-seen localized prices from disk so the prices appear
+  // instantly on subsequent app launches; RC refreshes them in background.
+  // Falls back to a small inline spinner if neither live nor cached price.
+  const [cachedMonthly, setCachedMonthly] = useState<string | undefined>(undefined);
+  const [cachedAnnual, setCachedAnnual] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    getCachedPrices().then((c) => {
+      if (c.monthly) setCachedMonthly(c.monthly);
+      if (c.annual) setCachedAnnual(c.annual);
+    });
+  }, []);
+
+  const monthlyPrice = monthlyPackage?.product.priceString ?? cachedMonthly;
+  const annualPrice = annualPackage?.product.priceString ?? cachedAnnual;
+  const showOriginalMonthly = !!monthlyPrice;
+  const showOriginalAnnual = !!annualPrice;
 
   const handleSelectPlan = (plan: PlanType) => {
     setSelectedPlan(plan);
@@ -493,7 +503,11 @@ export default function ProfileScreen() {
                     {showOriginalMonthly ? (
                       <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>$99</ThemedText>
                     ) : null}
-                    <ThemedText type="h3" style={{ color: theme.text }}>{monthlyPrice}</ThemedText>
+                    {monthlyPrice ? (
+                      <ThemedText type="h3" style={{ color: theme.text }}>{monthlyPrice}</ThemedText>
+                    ) : (
+                      <ActivityIndicator size="small" color={theme.primary} />
+                    )}
                     <ThemedText type="small" style={{ color: theme.textSecondary }}>{t.perMonth}</ThemedText>
                   </View>
                   {selectedPlan === "monthly" && (
@@ -528,7 +542,11 @@ export default function ProfileScreen() {
                     {showOriginalAnnual ? (
                       <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>$399</ThemedText>
                     ) : null}
-                    <ThemedText type="h3" style={{ color: theme.text }}>{annualPrice}</ThemedText>
+                    {annualPrice ? (
+                      <ThemedText type="h3" style={{ color: theme.text }}>{annualPrice}</ThemedText>
+                    ) : (
+                      <ActivityIndicator size="small" color={theme.primary} />
+                    )}
                     <ThemedText type="small" style={{ color: theme.textSecondary }}>{t.perYear}</ThemedText>
                   </View>
                   {selectedPlan === "annual" && (

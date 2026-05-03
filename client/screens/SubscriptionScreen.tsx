@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   StyleSheet,
@@ -22,7 +22,7 @@ import { Button } from "@/components/Button";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/contexts/AuthContext";
 import { BorderRadius, Spacing } from "@/constants/theme";
-import { useSubscription, REVENUECAT_ENTITLEMENT_IDENTIFIER, fetchCustomerInfo } from "@/lib/revenuecat";
+import { useSubscription, REVENUECAT_ENTITLEMENT_IDENTIFIER, fetchCustomerInfo, getCachedPrices } from "@/lib/revenuecat";
 import { apiRequest } from "@/lib/query-client";
 import { useLanguage } from "@/contexts/LanguageContext";
 
@@ -88,16 +88,27 @@ export default function SubscriptionScreen() {
   };
 
   const selectedPackage = selectedPlan === "monthly" ? monthlyPackage : annualPackage;
-  // Prices come from RevenueCat's priceString, which StoreKit / Play Billing
-  // automatically formats in the user's local currency (e.g. "₹1,599",
-  // "€49.99"). While the offering is loading we show a neutral "…" placeholder
-  // instead of a hardcoded USD value, so non-USD users never briefly see the
-  // wrong currency. The strike-through "list price" below is also hidden until
-  // we have a real localized price to compare to.
-  const monthlyPriceLabel = monthlyPackage?.product.priceString ?? "…";
-  const annualPriceLabel = annualPackage?.product.priceString ?? "…";
-  const showOriginalMonthly = !!monthlyPackage;
-  const showOriginalAnnual = !!annualPackage;
+
+  // RevenueCat's priceString is auto-localized by StoreKit / Play Billing
+  // (e.g. "₹1,599", "€49.99"). On cold start StoreKit is slow (1–5s+), so we
+  // hydrate the last-seen prices from disk for an instant display while RC
+  // refreshes in the background. If we have neither a live nor a cached
+  // price, we show a small inline spinner instead of a flat placeholder.
+  const [cachedMonthly, setCachedMonthly] = useState<string | undefined>(undefined);
+  const [cachedAnnual, setCachedAnnual] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    getCachedPrices().then((c) => {
+      if (c.monthly) setCachedMonthly(c.monthly);
+      if (c.annual) setCachedAnnual(c.annual);
+    });
+  }, []);
+
+  const monthlyPriceLabel = monthlyPackage?.product.priceString ?? cachedMonthly;
+  const annualPriceLabel = annualPackage?.product.priceString ?? cachedAnnual;
+  // Hide the strike-through list price unless we have a real localized current
+  // price to compare against — avoids mixed-currency displays.
+  const showOriginalMonthly = !!monthlyPriceLabel;
+  const showOriginalAnnual = !!annualPriceLabel;
 
   const handleSelectPlan = (plan: PlanType) => {
     setSelectedPlan(plan);
@@ -333,7 +344,11 @@ export default function SubscriptionScreen() {
               {showOriginalMonthly ? (
                 <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>$99.00</ThemedText>
               ) : null}
-              <ThemedText type="h2" style={{ color: theme.text }}>{monthlyPriceLabel}</ThemedText>
+              {monthlyPriceLabel ? (
+                <ThemedText type="h2" style={{ color: theme.text }}>{monthlyPriceLabel}</ThemedText>
+              ) : (
+                <ActivityIndicator size="small" color={theme.primary} />
+              )}
               <ThemedText type="small" style={{ color: theme.textSecondary }}>{t.perMonth}</ThemedText>
             </View>
             {selectedPlan === "monthly" && (
@@ -369,7 +384,11 @@ export default function SubscriptionScreen() {
               {showOriginalAnnual ? (
                 <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>$399.00</ThemedText>
               ) : null}
-              <ThemedText type="h2" style={{ color: theme.text }}>{annualPriceLabel}</ThemedText>
+              {annualPriceLabel ? (
+                <ThemedText type="h2" style={{ color: theme.text }}>{annualPriceLabel}</ThemedText>
+              ) : (
+                <ActivityIndicator size="small" color={theme.primary} />
+              )}
               <ThemedText type="small" style={{ color: theme.textSecondary }}>{t.perYear}</ThemedText>
             </View>
             {selectedPlan === "annual" && (

@@ -1,9 +1,35 @@
-import React, { createContext, useContext } from "react";
+import React, { createContext, useContext, useEffect } from "react";
 import { Platform } from "react-native";
 import Purchases from "react-native-purchases";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import Constants from "expo-constants";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { queryClient } from "@/lib/query-client";
+
+// On-device cache of the last-seen localized price strings. Apple's StoreKit
+// is slow on cold start (1–5s and worse on poor networks), so on subsequent
+// app launches we hydrate these instantly while RevenueCat refreshes in the
+// background. Keys are scoped per app — safe to leave forever.
+const PRICE_CACHE_KEY = "@probaly/rc_price_cache_v1";
+type CachedPrices = { monthly?: string; annual?: string };
+
+export async function getCachedPrices(): Promise<CachedPrices> {
+  try {
+    const raw = await AsyncStorage.getItem(PRICE_CACHE_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as CachedPrices;
+  } catch {
+    return {};
+  }
+}
+
+async function setCachedPrices(next: CachedPrices) {
+  try {
+    await AsyncStorage.setItem(PRICE_CACHE_KEY, JSON.stringify(next));
+  } catch {
+    // Best-effort cache, never throw.
+  }
+}
 
 // EXPO_PUBLIC_ keys are intentionally public — safe to have as fallbacks in source.
 // EAS builds inject these from eas.json env blocks; the fallbacks ensure Expo Go and
@@ -118,11 +144,28 @@ function useSubscriptionContext() {
         throw e;
       }
     },
-    staleTime: 300 * 1000,
+    // Keep offerings fresh for 1 hour — prices change rarely and StoreKit
+    // calls are expensive. The on-device price cache below covers the
+    // cross-launch case.
+    staleTime: 60 * 60 * 1000,
     retry: 3,
     retryDelay: (attempt) => Math.min(2000 * (attempt + 1), 8000),
     enabled: _initialized,
   });
+
+  // After offerings resolve, persist the localized price strings to disk so
+  // the next app launch can hydrate them instantly while RC refetches in
+  // the background.
+  const offeringsData = offeringsQuery.data;
+  useEffect(() => {
+    const current = offeringsData?.current;
+    if (!current) return;
+    const monthly = current.availablePackages.find((p) => p.packageType === "MONTHLY")?.product.priceString;
+    const annual = current.availablePackages.find((p) => p.packageType === "ANNUAL")?.product.priceString;
+    if (monthly || annual) {
+      void setCachedPrices({ monthly, annual });
+    }
+  }, [offeringsData]);
 
   const purchaseMutation = useMutation({
     mutationFn: async (packageToPurchase: any) => {
