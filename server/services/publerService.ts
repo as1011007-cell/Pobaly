@@ -280,51 +280,56 @@ export async function composeWinImage(
     .join("");
 
   // --- Dynamic Y layout ---
-  const LOGO_CY    = 145;          // logo icon centre
-  const LOGO_R     = 60;           // logo icon radius (visual)
-  const TAGLINE_Y  = LOGO_CY + LOGO_R + 28;   // 233
-  const BADGE_Y    = TAGLINE_Y + 28;           // 261  (badge top)
-  const BADGE_H    = 74;
-  const MATCH_Y    = BADGE_Y + BADGE_H + (twoLine ? 84 : 94); // first-line baseline
-  const DIVIDER_Y  = MATCH_Y + (twoLine ? 64 + 50 : 50);
-  const PICK_LBL_Y = DIVIDER_Y + 60;
-  const PICK_TXT_Y = PICK_LBL_Y + 58;
-  const SCORE_LBL_Y = PICK_TXT_Y + 72;
-  const SCORE_TXT_Y = SCORE_LBL_Y + 54;
-  // Store badges sit in a fixed zone at the bottom
-  const BADGE2_Y   = 915;    // store badge top
-  const BADGE2_H   = 84;
-  const URL_Y      = BADGE2_Y - 22;  // probaly.net just above badges
+  const LOGO_CY     = 145;   // logo icon centre
+  const LOGO_R      = 60;    // logo icon half-size
+  const BADGE_Y     = LOGO_CY + LOGO_R + 36;   // 241 — no tagline, tighter gap
+  const BADGE_H     = 62;                        // tighter badge
+  const BADGE_W     = 440;                       // narrower pill
+  const BADGE_X     = 540 - BADGE_W / 2;        // 320
+  const MATCH_Y     = BADGE_Y + BADGE_H + (twoLine ? 82 : 92);
+  const DIVIDER_Y   = MATCH_Y + (twoLine ? 64 + 48 : 48);
+  const PICK_LBL_Y  = DIVIDER_Y + 56;
+  const PICK_TXT_Y  = PICK_LBL_Y + 62;          // 52 px font
+  const SCORE_LBL_Y = PICK_TXT_Y + 74;
+  const SCORE_TXT_Y = SCORE_LBL_Y + 58;         // 52 px font
+  // Store badges — fixed bottom zone
+  const BADGE2_Y    = 870;    // store badge top
+  const BADGE2_H    = 62;     // badge height
+  const BADGE2_W    = 260;    // each badge width
+  const BADGE2_GAP  = 28;
+  const BADGE2_LX   = 540 - BADGE2_W - BADGE2_GAP / 2;  // left badge x
+  const BADGE2_RX   = 540 + BADGE2_GAP / 2;              // right badge x
+  const URL_Y       = BADGE2_Y + BADGE2_H + 36;          // probaly.net below badges
+
+  // Checkmark points relative to badge left-x
+  const CK_X = BADGE_X + 60;
+  const CK_MID = BADGE_Y + BADGE_H * 0.65;
+  const CK_TIP = BADGE_Y + BADGE_H * 0.82;
+  const CK_TOP = BADGE_Y + BADGE_H * 0.30;
 
   const svg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
-  <!-- Plain solid navy background — same colour as before -->
+  <!-- Solid navy background -->
   <rect width="${W}" height="${H}" fill="${navy}"/>
 
   <!-- Red accent bars -->
   <rect x="0" y="0"       width="${W}" height="10" fill="${red}"/>
   <rect x="0" y="${H-10}" width="${W}" height="10" fill="${red}"/>
 
-  <!-- Logo placeholder — rounded app-icon shape drawn in SVG,
-       actual logo image composited on top by sharp -->
+  <!-- Logo slot (actual image composited below) -->
   <rect x="${540 - LOGO_R}" y="${LOGO_CY - LOGO_R}"
         width="${LOGO_R * 2}" height="${LOGO_R * 2}"
         rx="${Math.round(LOGO_R * 0.45)}"
-        fill="${white}" opacity="0.06"/>
+        fill="${white}" opacity="0.05"/>
 
-  <!-- Tagline below logo -->
-  <text x="540" y="${TAGLINE_Y}"
+  <!-- CORRECT badge — tighter pill -->
+  <rect x="${BADGE_X}" y="${BADGE_Y}" width="${BADGE_W}" height="${BADGE_H}"
+        rx="${BADGE_H / 2}" fill="${emerald}"/>
+  <polyline points="${CK_X},${CK_MID} ${CK_X + 16},${CK_TIP} ${CK_X + 42},${CK_TOP}"
+    stroke="${white}" stroke-width="5" fill="none"
+    stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="${BADGE_X + BADGE_W * 0.62}" y="${BADGE_Y + BADGE_H * 0.67}"
         font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
-        font-size="17" font-weight="500" fill="${grey}"
-        text-anchor="middle" letter-spacing="5">AI SPORTS PREDICTIONS</text>
-
-  <!-- CORRECT badge -->
-  <rect x="270" y="${BADGE_Y}" width="540" height="${BADGE_H}" rx="${BADGE_H / 2}" fill="${emerald}"/>
-  <!-- Checkmark -->
-  <polyline points="${270 + 85},${BADGE_Y + BADGE_H * 0.55} ${270 + 102},${BADGE_Y + BADGE_H * 0.72} ${270 + 130},${BADGE_Y + BADGE_H * 0.30}"
-    stroke="${white}" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-  <text x="556" y="${BADGE_Y + BADGE_H * 0.66}"
-        font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
-        font-size="36" font-weight="800" fill="${white}"
+        font-size="34" font-weight="800" fill="${white}"
         text-anchor="middle" letter-spacing="6">CORRECT</text>
 
   <!-- Match title (word-wrapped, max 2 lines) -->
@@ -333,53 +338,66 @@ export async function composeWinImage(
         font-size="52" font-weight="800" fill="${white}"
         text-anchor="middle">${matchTSpans}</text>
 
-  <!-- Divider -->
-  <line x1="160" y1="${DIVIDER_Y}" x2="920" y2="${DIVIDER_Y}"
-        stroke="${red}" stroke-width="2" opacity="0.55"/>
+  <!-- Divider — thicker red line -->
+  <line x1="120" y1="${DIVIDER_Y}" x2="960" y2="${DIVIDER_Y}"
+        stroke="${red}" stroke-width="5" stroke-linecap="round"/>
 
-  <!-- Our pick -->
+  <!-- Our pick label (bold) -->
   <text x="540" y="${PICK_LBL_Y}"
         font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
-        font-size="20" font-weight="500" fill="${grey}"
+        font-size="20" font-weight="700" fill="${grey}"
         text-anchor="middle" letter-spacing="5">OUR PICK</text>
   <text x="540" y="${PICK_TXT_Y}"
         font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
-        font-size="46" font-weight="700" fill="${white}"
+        font-size="52" font-weight="700" fill="${white}"
         text-anchor="middle">${escapeXml(pickLine)}</text>
 
-  <!-- Final score -->
+  <!-- Final score label (bold) -->
   <text x="540" y="${SCORE_LBL_Y}"
         font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
-        font-size="20" font-weight="500" fill="${grey}"
+        font-size="20" font-weight="700" fill="${grey}"
         text-anchor="middle" letter-spacing="5">FINAL SCORE</text>
   <text x="540" y="${SCORE_TXT_Y}"
         font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
-        font-size="46" font-weight="700" fill="${emerald}"
+        font-size="52" font-weight="700" fill="${white}"
         text-anchor="middle">${escapeXml(scoreText)}</text>
 
-  <!-- probaly.net -->
-  <text x="540" y="${URL_Y}"
-        font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
-        font-size="22" font-weight="400" fill="${dimGrey}"
-        text-anchor="middle" letter-spacing="2">probaly.net</text>
-
   <!-- App Store badge (left) -->
-  <rect x="145" y="${BADGE2_Y}" width="340" height="${BADGE2_H}" rx="14" fill="#000000"/>
-  <text x="315" y="${BADGE2_Y + 30}"
-        font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
-        font-size="17" fill="#CCCCCC" text-anchor="middle">Download on the</text>
-  <text x="315" y="${BADGE2_Y + 64}"
-        font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
-        font-size="30" font-weight="700" fill="${white}" text-anchor="middle">App Store</text>
+  <g transform="translate(${BADGE2_LX}, ${BADGE2_Y})">
+    <rect x="0" y="0" width="${BADGE2_W}" height="${BADGE2_H}" rx="12" fill="#000000"/>
+    <!-- Apple logo: body + bite + leaf -->
+    <g transform="translate(20,11) scale(0.62)">
+      <path d="M6 3 Q-2 4 -2 13 Q-2 23 5 27 Q8 29 11 27 Q13 26 15 27 Q18 29 21 27 Q28 23 28 13 Q28 4 20 3 Q18 5 15 5 Q13 5 11 3 Q8 1 6 3 Z" fill="white"/>
+      <circle cx="21" cy="5" r="7" fill="#000000"/>
+      <rect x="10" y="-10" width="5" height="13" rx="2.5" fill="white" transform="rotate(-18 12.5 -4)"/>
+    </g>
+    <text x="155" y="24" font-family="Helvetica Neue,Arial,sans-serif"
+          font-size="13" fill="#AAAAAA" text-anchor="middle">Download on the</text>
+    <text x="155" y="48" font-family="Helvetica Neue,Arial,sans-serif"
+          font-size="23" font-weight="700" fill="white" text-anchor="middle">App Store</text>
+  </g>
 
   <!-- Google Play badge (right) -->
-  <rect x="595" y="${BADGE2_Y}" width="340" height="${BADGE2_H}" rx="14" fill="#000000"/>
-  <text x="765" y="${BADGE2_Y + 30}"
+  <g transform="translate(${BADGE2_RX}, ${BADGE2_Y})">
+    <rect x="0" y="0" width="${BADGE2_W}" height="${BADGE2_H}" rx="12" fill="#000000"/>
+    <!-- Play logo: 4-colour triangle -->
+    <g transform="translate(18,12) scale(1.0)">
+      <polygon points="0,0 26,19 0,38" fill="#4285F4"/>
+      <polygon points="0,0 13,9.5 0,19"  fill="#EA4335"/>
+      <polygon points="0,19 13,28.5 0,38" fill="#34A853"/>
+      <polygon points="13,9.5 26,19 13,28.5" fill="#FBBC05"/>
+    </g>
+    <text x="155" y="24" font-family="Helvetica Neue,Arial,sans-serif"
+          font-size="13" fill="#AAAAAA" text-anchor="middle">Get it on</text>
+    <text x="155" y="48" font-family="Helvetica Neue,Arial,sans-serif"
+          font-size="23" font-weight="700" fill="white" text-anchor="middle">Google Play</text>
+  </g>
+
+  <!-- probaly.net — bold, below badges -->
+  <text x="540" y="${URL_Y}"
         font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
-        font-size="17" fill="#CCCCCC" text-anchor="middle">Get it on</text>
-  <text x="765" y="${BADGE2_Y + 64}"
-        font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
-        font-size="30" font-weight="700" fill="${white}" text-anchor="middle">Google Play</text>
+        font-size="22" font-weight="700" fill="${dimGrey}"
+        text-anchor="middle" letter-spacing="2">probaly.net</text>
 </svg>`.trim();
 
   const fileName = `win-${prediction.id}-${Date.now()}.png`;
