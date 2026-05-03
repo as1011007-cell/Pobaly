@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { View, StyleSheet, FlatList, RefreshControl, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -9,7 +9,6 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { ThemedText } from "@/components/ThemedText";
 import { PredictionCard } from "@/components/PredictionCard";
 import { SectionHeader } from "@/components/SectionHeader";
-import { EmptyState } from "@/components/EmptyState";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -32,10 +31,38 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [freeTip, setFreeTip] = useState<Prediction | null>(null);
   const [premiumPredictions, setPremiumPredictions] = useState<Prediction[]>([]);
+  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryCountRef = useRef(0);
+  const MAX_RETRIES = 4;
+  const RETRY_INTERVAL_MS = 5000;
 
   const { language, t } = useLanguage();
 
+  // Schedule a retry fetch for the free tip after RETRY_INTERVAL_MS.
+  // Clears itself once a tip arrives or max retries are exhausted.
+  const scheduleFreeTipRetry = useCallback(() => {
+    if (retryCountRef.current >= MAX_RETRIES) return;
+    retryCountRef.current += 1;
+    retryTimeoutRef.current = setTimeout(async () => {
+      try {
+        const tip = await fetchFreeTip(language);
+        if (tip) {
+          setFreeTip(tip);
+          retryCountRef.current = 0;
+        } else {
+          scheduleFreeTipRetry();
+        }
+      } catch {
+        scheduleFreeTipRetry();
+      }
+    }, RETRY_INTERVAL_MS);
+  }, [language]);
+
   const loadPredictions = useCallback(async () => {
+    // Reset retry state on every explicit load.
+    if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+    retryCountRef.current = 0;
+
     try {
       const [tip, premium] = await Promise.all([
         fetchFreeTip(language),
@@ -43,15 +70,20 @@ export default function HomeScreen() {
       ]);
       setFreeTip(tip);
       setPremiumPredictions(premium);
+      // If tip is null the server may still be generating — retry automatically.
+      if (!tip) scheduleFreeTipRetry();
     } catch (error) {
       console.error("Error loading predictions:", error);
     } finally {
       setLoading(false);
     }
-  }, [user?.id, isPremium, language]);
+  }, [user?.id, isPremium, language, scheduleFreeTipRetry]);
 
   useEffect(() => {
     loadPredictions();
+    return () => {
+      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+    };
   }, [loadPredictions]);
 
   const onRefresh = useCallback(async () => {
@@ -68,9 +100,9 @@ export default function HomeScreen() {
     navigation.navigate("Subscription");
   };
 
-  const renderHeader = () => (
-    <View style={styles.header}>
-      {freeTip ? (
+  const renderFreeTipSection = () => {
+    if (freeTip) {
+      return (
         <>
           <SectionHeader title={t.freeTipOfDay} />
           <PredictionCard
@@ -79,7 +111,29 @@ export default function HomeScreen() {
             onPress={() => handlePredictionPress(freeTip.id)}
           />
         </>
-      ) : null}
+      );
+    }
+    // Always render the section — show a placeholder while the tip is being
+    // generated or retried so the home screen is never blank in this area.
+    return (
+      <>
+        <SectionHeader title={t.freeTipOfDay} />
+        <View style={[styles.tipPlaceholder, { backgroundColor: theme.primary }]}>
+          <ActivityIndicator size="small" color="rgba(255,255,255,0.7)" />
+          <ThemedText
+            type="small"
+            style={styles.tipPlaceholderText}
+          >
+            {t.tipBeingPrepared}
+          </ThemedText>
+        </View>
+      </>
+    );
+  };
+
+  const renderHeader = () => (
+    <View style={styles.header}>
+      {renderFreeTipSection()}
 
       <View style={styles.sectionSpacer} />
 
@@ -139,18 +193,6 @@ export default function HomeScreen() {
     );
   }
 
-  if (!freeTip && premiumPredictions.length === 0) {
-    return (
-      <View style={[styles.emptyContainer, { backgroundColor: theme.backgroundRoot }]}>
-        <EmptyState
-          icon="trending-up"
-          title={t.noPredictions}
-          description={t.noPredictionsDesc}
-        />
-      </View>
-    );
-  }
-
   return (
     <FlatList
       style={{ flex: 1, backgroundColor: theme.backgroundRoot }}
@@ -177,6 +219,19 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   header: {
     marginBottom: Spacing.lg,
+  },
+  tipPlaceholder: {
+    borderRadius: 16,
+    padding: Spacing["2xl"],
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
+    minHeight: 120,
+  },
+  tipPlaceholderText: {
+    color: "rgba(255,255,255,0.8)",
+    fontWeight: "500",
+    flex: 1,
   },
   sectionSpacer: {
     height: Spacing["2xl"],

@@ -55,6 +55,7 @@ type TranslationKeys = {
 
   // Home Screen
   freeTipOfDay: string;
+  tipBeingPrepared: string;
   premiumPredictions: string;
   viewAll: string;
   noPredictions: string;
@@ -305,6 +306,7 @@ const translations: Record<Language, TranslationKeys> = {
     history: "History",
     profile: "Profile",
     freeTipOfDay: "Free Tip of the Day",
+    tipBeingPrepared: "Today's tip is being prepared...",
     premiumPredictions: "Premium Predictions",
     viewAll: "View All",
     noPredictions: "No predictions available",
@@ -514,6 +516,7 @@ const translations: Record<Language, TranslationKeys> = {
     history: "Historial",
     profile: "Perfil",
     freeTipOfDay: "Consejo Gratis del Día",
+    tipBeingPrepared: "El consejo de hoy está siendo preparado...",
     premiumPredictions: "Predicciones Premium",
     viewAll: "Ver Todo",
     noPredictions: "No hay predicciones disponibles",
@@ -723,6 +726,7 @@ const translations: Record<Language, TranslationKeys> = {
     history: "Historique",
     profile: "Profil",
     freeTipOfDay: "Conseil Gratuit du Jour",
+    tipBeingPrepared: "Le conseil du jour est en cours de préparation...",
     premiumPredictions: "Prédictions Premium",
     viewAll: "Voir Tout",
     noPredictions: "Aucune prédiction disponible",
@@ -932,6 +936,7 @@ const translations: Record<Language, TranslationKeys> = {
     history: "Verlauf",
     profile: "Profil",
     freeTipOfDay: "Gratis-Tipp des Tages",
+    tipBeingPrepared: "Der Tipp des Tages wird gerade vorbereitet...",
     premiumPredictions: "Premium-Vorhersagen",
     viewAll: "Alle anzeigen",
     noPredictions: "Keine Vorhersagen verfügbar",
@@ -1141,6 +1146,7 @@ const translations: Record<Language, TranslationKeys> = {
     history: "履歴",
     profile: "プロフィール",
     freeTipOfDay: "今日の無料予想",
+    tipBeingPrepared: "今日の予想を準備しています...",
     premiumPredictions: "プレミアム予想",
     viewAll: "すべて見る",
     noPredictions: "予想がありません",
@@ -1350,6 +1356,7 @@ const translations: Record<Language, TranslationKeys> = {
     history: "历史",
     profile: "个人资料",
     freeTipOfDay: "每日免费推荐",
+    tipBeingPrepared: "今日推荐正在准备中...",
     premiumPredictions: "高级预测",
     viewAll: "查看全部",
     noPredictions: "暂无预测",
@@ -1559,6 +1566,7 @@ const translations: Record<Language, TranslationKeys> = {
     history: "История",
     profile: "Профиль",
     freeTipOfDay: "Бесплатный совет дня",
+    tipBeingPrepared: "Совет дня готовится...",
     premiumPredictions: "Премиум-прогнозы",
     viewAll: "Показать все",
     noPredictions: "Нет доступных прогнозов",
