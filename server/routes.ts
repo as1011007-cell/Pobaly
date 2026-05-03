@@ -1078,15 +1078,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const predictionId = Number(req.body?.predictionId);
       const scoreLine = String(req.body?.scoreLine || "Test 0-0");
+      const force = Boolean(req.body?.force);
       if (!predictionId) return res.status(400).json({ error: "predictionId required" });
       const { getPredictionById } = await import("./services/predictionService");
       const pred = await getPredictionById(predictionId);
       if (!pred) return res.status(404).json({ error: "prediction not found" });
+      // force=true: clear any prior social_posts row for this prediction OR
+      // its match key, so a stuck/failed claim from an earlier attempt can
+      // be retried cleanly.
+      if (force) {
+        const { db } = await import("./db");
+        const { sql } = await import("drizzle-orm");
+        const matchKey = pred.matchTitle.toLowerCase().replace(/\s+/g, " ").trim();
+        await db.execute(sql`
+          DELETE FROM social_posts
+          WHERE prediction_id = ${predictionId} OR match_key = ${matchKey}
+        `);
+      }
       const { postWinCelebration } = await import("./services/publerService");
       const r = await postWinCelebration(pred, scoreLine);
       res.json(r);
     } catch (error: any) {
       console.error("Publer test-post error:", error);
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+
+  // Publer: inspect recent social_posts rows for diagnosis.
+  app.get("/api/admin/publer/posts", requireAdmin, adminRateLimit, async (_req: Request, res: Response) => {
+    try {
+      const { db } = await import("./db");
+      const { sql } = await import("drizzle-orm");
+      const r = await db.execute(sql`
+        SELECT id, prediction_id, match_key, status, error, job_id,
+               scheduled_for, created_at, posted_at,
+               LEFT(COALESCE(image_url,''), 100) AS image_url
+        FROM social_posts
+        ORDER BY id DESC
+        LIMIT 30
+      `);
+      res.json({ count: r.rows?.length || 0, rows: r.rows });
+    } catch (error: any) {
+      console.error("Publer posts list error:", error);
       res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
