@@ -7,7 +7,7 @@ import { db } from "../db";
 import { sql } from "drizzle-orm";
 import type { Prediction } from "@shared/schema";
 
-const PUBLER_API_BASE = "https://app.publer.io/api/v1";
+const PUBLER_API_BASE = "https://app.publer.com/api/v1";
 const UPLOAD_DIR = path.resolve(process.cwd(), "server", "uploads", "social");
 const PUBLIC_PREFIX = "/uploads/social";
 
@@ -341,38 +341,91 @@ export interface PublerPostResult {
   body: any;
 }
 
+/**
+ * Upload a local image file to Publer's media API (multipart/form-data).
+ * Returns the Publer media ID to reference in the post payload.
+ */
+async function uploadMediaToPubler(filePath: string): Promise<string> {
+  const apiKey = getApiKey();
+  if (!apiKey) throw new Error("PUBLER_API_KEY not set");
+  const ws = getWorkspaceId();
+  if (!ws) throw new Error("PUBLER_WORKSPACE_ID not set");
+
+  const fileBuffer = await fs.readFile(filePath);
+  const fileName = path.basename(filePath);
+
+  const form = new FormData();
+  form.append("file", new Blob([fileBuffer], { type: "image/png" }), fileName);
+
+  const res = await fetch(`${PUBLER_API_BASE}/media`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer-API ${apiKey}`,
+      "Publer-Workspace-Id": ws,
+      // No Content-Type — let fetch set multipart/form-data boundary automatically
+    },
+    body: form,
+  });
+
+  const text = await res.text();
+  let body: any;
+  try { body = JSON.parse(text); } catch { body = text; }
+
+  if (!res.ok) {
+    throw new Error(`Publer media upload failed (${res.status}): ${JSON.stringify(body).slice(0, 400)}`);
+  }
+
+  const mediaId = body?.id;
+  if (!mediaId) throw new Error(`Publer media upload: no id in response: ${JSON.stringify(body).slice(0, 200)}`);
+  console.log(`[PUBLER] Uploaded media to Publer, id=${mediaId}`);
+  return mediaId;
+}
+
 export async function publerSchedulePublish(
   caption: string,
-  imageUrl: string,
+  imageFilePath: string,
   options: {
     state?: "scheduled" | "draft";
     accounts?: string[];
     scheduledAt?: Date;
   } = {},
 ): Promise<PublerPostResult> {
-  const accounts = options.accounts || getAccountIds();
-  if (accounts.length === 0) throw new Error("PUBLER_ACCOUNT_IDS not set");
+  const accountIds = options.accounts || getAccountIds();
+  if (accountIds.length === 0) throw new Error("PUBLER_ACCOUNT_IDS not set");
 
-  const post: any = {
-    accounts,
-    networks: {},
-    details: {
-      text: caption,
-      media: [{ path: imageUrl, type: "image" }],
-    },
-  };
-  if (options.scheduledAt) {
-    // Publer accepts per-post scheduled_at on the post object itself when
-    // bulk.state = 'scheduled'. ISO 8601 UTC.
-    post.scheduled_at = options.scheduledAt.toISOString();
-  }
+  // Step 1: upload image to Publer's media API → get a media ID
+  const mediaId = await uploadMediaToPubler(imageFilePath);
+
+  // Step 2: build correctly-shaped payload per Publer API v1 docs.
+  // - networks.default applies to all targeted account providers
+  // - scheduled_at goes on each account object, NOT on the post
+  // - accounts is an array of {id, scheduled_at?} objects
+  const accountObjs = accountIds.map((id) => {
+    const obj: any = { id };
+    if (options.scheduledAt) obj.scheduled_at = options.scheduledAt.toISOString();
+    return obj;
+  });
 
   const body = {
-    bulk: { state: options.state || "scheduled" },
-    posts: [post],
+    bulk: {
+      state: options.state || "scheduled",
+      posts: [
+        {
+          networks: {
+            default: {
+              type: "photo",
+              text: caption,
+              media: [{ id: mediaId, type: "image" }],
+            },
+          },
+          accounts: accountObjs,
+        },
+      ],
+    },
   };
 
-  const r = await publerFetch("/posts/schedule/publish", {
+  // Correct endpoint: /posts/schedule (not /posts/schedule/publish)
+  const r = await publerFetch("/posts/schedule", {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -445,9 +498,11 @@ export async function postWinCelebration(
   }
 
   let imageUrl: string;
+  let imageFilePath: string;
   try {
     const img = await composeWinImage(prediction, scoreLine);
     imageUrl = img.publicUrl;
+    imageFilePath = img.filePath;
     console.log(`[PUBLER] Composed image: ${imageUrl}, scheduled for ${slot.toISOString()}`);
   } catch (err: any) {
     console.error("[PUBLER] Image composition failed:", err);
@@ -461,7 +516,7 @@ export async function postWinCelebration(
   const caption = buildWinCaption(prediction, scoreLine);
 
   try {
-    const r = await publerSchedulePublish(caption, imageUrl, {
+    const r = await publerSchedulePublish(caption, imageFilePath, {
       state: "scheduled",
       scheduledAt: slot,
     });
