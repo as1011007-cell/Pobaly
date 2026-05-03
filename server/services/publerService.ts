@@ -258,61 +258,134 @@ export async function composeWinImage(
 
   const W = 1080;
   const H = 1080;
-  const navy = "#1A237E";
   const red = "#E53935";
-  const cream = "#F5F5F5";
+  const white = "#FFFFFF";
   const emerald = "#10B981";
+  const grey = "#7B8FA6";
+  const dimGrey = "#4A5568";
 
   const matchLines = wrapText(prediction.matchTitle, 22).slice(0, 2);
-  const scoreLines = wrapText(scoreLine, 26).slice(0, 2);
-  const pickLine = prediction.predictedOutcome.length > 28
-    ? prediction.predictedOutcome.slice(0, 27) + "…"
-    : prediction.predictedOutcome;
+  const scoreLines = wrapText(scoreLine, 26).slice(0, 1);
+  const pickLine =
+    prediction.predictedOutcome.length > 30
+      ? prediction.predictedOutcome.slice(0, 29) + "…"
+      : prediction.predictedOutcome;
+
+  const twoLine = matchLines.length > 1;
 
   const matchTSpans = matchLines
-    .map((l, i) => `<tspan x="540" dy="${i === 0 ? 0 : 70}">${escapeXml(l)}</tspan>`)
+    .map((l, i) => `<tspan x="540" dy="${i === 0 ? 0 : 68}">${escapeXml(l)}</tspan>`)
     .join("");
-  const scoreTSpans = scoreLines
-    .map((l, i) => `<tspan x="540" dy="${i === 0 ? 0 : 50}">${escapeXml(l)}</tspan>`)
-    .join("");
+
+  // Layout Y anchors
+  const badgeY = 310;          // badge top
+  const matchY = twoLine ? 460 : 490;  // match title baseline
+  const dividerY = twoLine ? 610 : 575;
+  const pickLabelY = dividerY + 65;
+  const pickTextY = pickLabelY + 62;
+  const scoreLabelY = pickTextY + 72;
+  const scoreTextY = scoreLabelY + 56;
 
   const svg = `
 <svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#1A237E"/>
-      <stop offset="100%" stop-color="#0D1452"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0E1554"/>
+      <stop offset="100%" stop-color="#080E30"/>
+    </linearGradient>
+    <linearGradient id="badgeGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0DBF76"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="cardGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.02"/>
     </linearGradient>
   </defs>
+
+  <!-- Background -->
   <rect width="${W}" height="${H}" fill="url(#bg)"/>
-  <rect x="0" y="0" width="${W}" height="14" fill="${red}"/>
-  <rect x="0" y="${H - 14}" width="${W}" height="14" fill="${red}"/>
 
-  <text x="540" y="180" font-family="Helvetica, Arial, sans-serif" font-size="44" font-weight="700" fill="${cream}" text-anchor="middle" letter-spacing="6">PROBALY PICK RESULT</text>
+  <!-- Subtle diagonal accent lines -->
+  <line x1="600" y1="0" x2="1080" y2="480" stroke="#FFFFFF" stroke-width="1.5" opacity="0.03"/>
+  <line x1="750" y1="0" x2="1080" y2="330" stroke="#FFFFFF" stroke-width="1.5" opacity="0.03"/>
+  <line x1="900" y1="0" x2="1080" y2="180" stroke="#FFFFFF" stroke-width="1.5" opacity="0.03"/>
+  <line x1="0" y1="600" x2="480" y2="1080" stroke="#FFFFFF" stroke-width="1.5" opacity="0.03"/>
+  <line x1="0" y1="750" x2="330" y2="1080" stroke="#FFFFFF" stroke-width="1.5" opacity="0.03"/>
 
-  <rect x="290" y="225" width="500" height="90" rx="45" fill="${emerald}"/>
-  <text x="540" y="288" font-family="Helvetica, Arial, sans-serif" font-size="58" font-weight="800" fill="#ffffff" text-anchor="middle" letter-spacing="3">WE CALLED IT</text>
+  <!-- Red accent bars top + bottom -->
+  <rect x="0" y="0" width="${W}" height="10" fill="${red}"/>
+  <rect x="0" y="${H - 10}" width="${W}" height="10" fill="${red}"/>
 
-  <text x="540" y="430" font-family="Helvetica, Arial, sans-serif" font-size="64" font-weight="800" fill="${cream}" text-anchor="middle">${matchTSpans}</text>
+  <!-- Logo background circle (logo image composited separately) -->
+  <circle cx="540" cy="160" r="72" fill="#FFFFFF" opacity="0.07"/>
 
-  <line x1="200" y1="${matchLines.length > 1 ? 590 : 520}" x2="880" y2="${matchLines.length > 1 ? 590 : 520}" stroke="${red}" stroke-width="4"/>
+  <!-- PROBALY wordmark + tagline -->
+  <text x="540" y="276" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="30" font-weight="800" fill="${red}" text-anchor="middle" letter-spacing="10">PROBALY</text>
+  <text x="540" y="302" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="${grey}" text-anchor="middle" letter-spacing="4">AI SPORTS PREDICTIONS</text>
 
-  <text x="540" y="${matchLines.length > 1 ? 660 : 600}" font-family="Helvetica, Arial, sans-serif" font-size="34" font-weight="500" fill="#B0BEC5" text-anchor="middle" letter-spacing="3">OUR PICK</text>
-  <text x="540" y="${matchLines.length > 1 ? 730 : 670}" font-family="Helvetica, Arial, sans-serif" font-size="56" font-weight="700" fill="${cream}" text-anchor="middle">${escapeXml(pickLine)}</text>
+  <!-- CORRECT badge — content group (checkmark + text) centered at x=540 -->
+  <rect x="255" y="${badgeY}" width="570" height="80" rx="40" fill="url(#badgeGrad)"/>
+  <!-- Checkmark: visually grouped with text, centered together -->
+  <polyline points="382,${badgeY + 42} 398,${badgeY + 57} 424,${badgeY + 26}"
+    stroke="${white}" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="582" y="${badgeY + 52}" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+    font-size="38" font-weight="800" fill="${white}" text-anchor="middle" letter-spacing="5">CORRECT</text>
 
-  <text x="540" y="${matchLines.length > 1 ? 820 : 770}" font-family="Helvetica, Arial, sans-serif" font-size="30" font-weight="500" fill="#B0BEC5" text-anchor="middle" letter-spacing="3">FINAL</text>
-  <text x="540" y="${matchLines.length > 1 ? 880 : 830}" font-family="Helvetica, Arial, sans-serif" font-size="44" font-weight="700" fill="${cream}" text-anchor="middle">${scoreTSpans}</text>
+  <!-- Frosted card area -->
+  <rect x="80" y="418" width="920" height="${twoLine ? 460 : 420}" rx="20" fill="url(#cardGrad)"/>
+  <rect x="80" y="418" width="920" height="${twoLine ? 460 : 420}" rx="20" fill="none"
+    stroke="#FFFFFF" stroke-width="1" opacity="0.08"/>
 
-  <text x="540" y="990" font-family="Helvetica, Arial, sans-serif" font-size="38" font-weight="800" fill="${red}" text-anchor="middle" letter-spacing="8">PROBALY</text>
-  <text x="540" y="1030" font-family="Helvetica, Arial, sans-serif" font-size="22" font-weight="500" fill="#90A4AE" text-anchor="middle" letter-spacing="4">probaly.net</text>
+  <!-- Match title -->
+  <text x="540" y="${matchY}" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+    font-size="56" font-weight="800" fill="${white}" text-anchor="middle">${matchTSpans}</text>
+
+  <!-- Divider -->
+  <line x1="180" y1="${dividerY}" x2="900" y2="${dividerY}" stroke="${red}" stroke-width="2" opacity="0.5"/>
+  <circle cx="540" cy="${dividerY}" r="5" fill="${red}" opacity="0.7"/>
+
+  <!-- Our pick -->
+  <text x="540" y="${pickLabelY}" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+    font-size="20" font-weight="500" fill="${grey}" text-anchor="middle" letter-spacing="5">OUR PICK</text>
+  <text x="540" y="${pickTextY}" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+    font-size="46" font-weight="700" fill="${white}" text-anchor="middle">${escapeXml(pickLine)}</text>
+
+  <!-- Final score -->
+  <text x="540" y="${scoreLabelY}" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+    font-size="20" font-weight="500" fill="${grey}" text-anchor="middle" letter-spacing="5">FINAL SCORE</text>
+  <text x="540" y="${scoreTextY}" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+    font-size="44" font-weight="700" fill="${emerald}" text-anchor="middle">${escapeXml(scoreLines[0] || scoreLine)}</text>
+
+  <!-- Bottom branding -->
+  <text x="540" y="1010" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+    font-size="20" font-weight="400" fill="${dimGrey}" text-anchor="middle" letter-spacing="2">probaly.net  ·  App Store  ·  Play Store</text>
 </svg>`.trim();
 
   const fileName = `win-${prediction.id}-${Date.now()}.png`;
   const filePath = path.join(UPLOAD_DIR, fileName);
 
-  await sharp(Buffer.from(svg))
-    .png({ compressionLevel: 9 })
-    .toFile(filePath);
+  // 1. Render SVG to PNG base buffer
+  const baseBuffer = await sharp(Buffer.from(svg)).png().toBuffer();
+
+  // 2. Composite the Probaly logo (centered at the top circle, 130×130)
+  const logoPath = path.resolve(process.cwd(), "server", "assets", "probaly-logo.jpg");
+  let finalBuffer: Buffer;
+  try {
+    const logoResized = await sharp(logoPath)
+      .resize(130, 130, { fit: "cover" })
+      .png()
+      .toBuffer();
+    finalBuffer = await sharp(baseBuffer)
+      .composite([{ input: logoResized, left: 475, top: 95 }])
+      .png({ compressionLevel: 9 })
+      .toBuffer();
+  } catch (logoErr) {
+    console.warn("[PUBLER] Logo composite failed, using base image:", logoErr);
+    finalBuffer = await sharp(baseBuffer).png({ compressionLevel: 9 }).toBuffer();
+  }
+
+  await fs.writeFile(filePath, finalBuffer);
 
   const publicUrl = `${getPublicBaseUrl()}${PUBLIC_PREFIX}/${fileName}`;
   return { filePath, publicUrl, fileName };
@@ -321,16 +394,16 @@ export async function composeWinImage(
 export function buildWinCaption(prediction: Prediction, scoreLine: string): string {
   const sport = (prediction.sport || "").toUpperCase();
   return [
-    `WE CALLED IT.`,
+    `Probaly prediction won!`,
     ``,
     `${prediction.matchTitle}`,
     `Our AI pick: ${prediction.predictedOutcome}`,
     `Final: ${scoreLine}`,
     ``,
-    `Probaly is available on the App Store and Play Store.`,
-    `Visit probaly.net for more info.`,
+    `Download Probaly on the App Store and Play Store.`,
+    `Visit probaly.net for more AI sports predictions.`,
     ``,
-    `#Probaly #${sport} #SportsAnalytics #AI #SportsBetting`,
+    `#Probaly #${sport} #SportsAnalytics #AIPredictions #SportsBetting`,
   ].join("\n");
 }
 

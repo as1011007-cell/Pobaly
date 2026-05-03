@@ -1104,6 +1104,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Publer: preview the win image for a prediction (compose only, no posting)
+  app.get("/api/admin/publer/preview/:predictionId", requireAdmin, adminRateLimit, async (req: Request, res: Response) => {
+    try {
+      const { getPredictionById } = await import("./services/predictionService");
+      const { composeWinImage } = await import("./services/publerService");
+      const pred = await getPredictionById(Number(req.params.predictionId));
+      if (!pred) return res.status(404).json({ error: "not found" });
+      const img = await composeWinImage(pred, req.query.score as string || "Team A 2-1 Team B");
+      res.json({ url: img.publicUrl });
+    } catch (e: any) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
   // Publer: check async job status by jobId
   app.get("/api/admin/publer/job/:jobId", requireAdmin, adminRateLimit, async (req: Request, res: Response) => {
     try {
