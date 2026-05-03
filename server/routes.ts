@@ -5,6 +5,7 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { signToken, setCachedTokenVersion, requireAuth, optionalAuth, requireAdmin, requireWebhookAuth, rateLimit } from "./auth";
 import { checkRCSubscription } from "./revenueCatService";
+import { setPremiumActivated, setPremiumDeactivated, getCachedPremium } from "./services/premiumCacheService";
 import { validateEmailDeliverable } from "./emailValidation";
 import { sendPasswordResetEmail, isEmailConfigured } from "./services/emailService";
 import { createPasswordResetToken, consumeTokenAndResetPassword } from "./services/passwordResetService";
@@ -317,6 +318,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (req.userId && req.userId !== userId) {
         return res.status(403).json({ error: "Forbidden" });
       }
+      // FAST PATH: if the webhook or /sync endpoint marked this user premium
+      // in the last 60 seconds, serve from in-memory cache without touching
+      // the DB or RevenueCat at all. This eliminates the 3–6s post-purchase
+      // stall a user used to see while polling for premium status to flip.
+      const cached = getCachedPremium(userId);
+      if (cached?.isPremium) {
+        return res.json({
+          subscription: null,
+          isPremium: true,
+          expiryDate: cached.expiry,
+        });
+      }
+
       let user = await storage.getUser(userId);
 
       if (!user) {
@@ -325,11 +339,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // If user is not premium in DB, AWAIT the RC check and reflect the
       // result in this same response. Safety net for missed RC webhooks.
+      // Timeout dropped from 4s to 2s — webhook reconciles missed activations
+      // and the cache above handles the just-purchased case, so this fallback
+      // only matters for the rare webhook-failure edge case where shorter is
+      // better UX than a 4s stall.
       if (!user.isPremium) {
         try {
           const rcStatus = await Promise.race([
             checkRCSubscription(userId),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000)),
           ]);
           if (rcStatus?.isPremium) {
             const isAnnual = isAnnualProduct(rcStatus.productIdentifier);
@@ -343,6 +361,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               subscriptionExpiry: expiry,
               premiumSince: new Date(),
             });
+            setPremiumActivated(userId, expiry);
             user = { ...user, isPremium: true, subscriptionExpiry: expiry } as typeof user;
             console.log(`[RC] sync check activated premium for user ${userId}`);
           }
@@ -392,7 +411,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // random userId and claiming premium without a real purchase.
       const jwtAuthenticated = !!req.userId;
 
-      const user = await storage.getUser(userId);
+      // Run getUser + checkRCSubscription in parallel when the client claims
+      // a subscription. Previously these were serial; running them together
+      // shaves ~50–150ms off the hot path without any correctness change
+      // (we still gate on the RC result before granting premium).
+      const userPromise = storage.getUser(userId);
+      const rcStatusPromise = isSubscribed ? checkRCSubscription(userId) : Promise.resolve(null);
+      const user = await userPromise;
       if (!user) return res.status(404).json({ error: "User not found" });
 
       if (isSubscribed) {
@@ -404,7 +429,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // hasn't propagated the purchase yet, the webhook will reconcile, and
         // the client's AppState refresh will pick up isPremium=true on its
         // next call.
-        const rcStatus = await checkRCSubscription(userId);
+        const rcStatus = await rcStatusPromise;
         if (!rcStatus?.isPremium) {
           console.log(
             `RevenueCat sync: claim rejected for user ${userId} — RC did not confirm (jwt=${jwtAuthenticated})`
@@ -430,6 +455,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           updateData.premiumSince = new Date();
         }
 
+        // Populate the in-memory cache BEFORE the DB write so any concurrent
+        // /api/subscription poll from the client sees premium=true instantly,
+        // even if the DB write takes a few hundred ms to land.
+        setPremiumActivated(userId, expiry);
         await storage.updateUserStripeInfo(userId, updateData);
         const isAnnual = isAnnualProduct(productIdentifier);
         console.log(
@@ -440,6 +469,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Only allow a downgrade if the request was JWT-authenticated
         if (jwtAuthenticated) {
           await storage.updateUserStripeInfo(userId, { isPremium: false });
+          setPremiumDeactivated(userId);
           console.log(`RevenueCat sync [client-claim]: user ${userId} → isPremium=false`);
         }
         return res.json({ isPremium: false });
@@ -465,6 +495,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const eventType: string | undefined = event?.event?.type;
       const productId = event?.event?.product_id;
       const expirationAtMs = event?.event?.expiration_at_ms;
+      // RC event timestamp — used by the in-memory premium cache to reject
+      // out-of-order writes (e.g. a delayed INITIAL_PURCHASE arriving AFTER
+      // a CANCELLATION must not flip the user back to premium).
+      const eventTimestampMs: number | undefined =
+        typeof event?.event?.event_timestamp_ms === "number" ? event.event.event_timestamp_ms : undefined;
 
       // TRANSFER events use transferred_from/transferred_to arrays instead of
       // app_user_id. Every other event type uses app_user_id directly.
@@ -515,6 +550,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               })();
           const update: any = { isPremium: true, subscriptionExpiry: expiry };
           if (!toUser.isPremium) update.premiumSince = new Date();
+          setPremiumActivated(String(toId), expiry, eventTimestampMs);
           await storage.updateUserStripeInfo(String(toId), update);
           console.log(`RevenueCat webhook: TRANSFER → isPremium=true for ${toId}`);
         }
@@ -548,10 +584,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         const webhookUpdate: any = { isPremium: true, subscriptionExpiry: expiry };
         if (!user.isPremium) webhookUpdate.premiumSince = new Date();
+        // Cache write BEFORE DB write so concurrent client polls hit the
+        // fast path immediately — webhook arrives 1–2s after Apple confirms
+        // the purchase, and the user's app starts polling right away.
+        // eventTimestampMs ordering protects against out-of-order webhooks.
+        setPremiumActivated(String(appUserId), expiry, eventTimestampMs);
         await storage.updateUserStripeInfo(String(appUserId), webhookUpdate);
         console.log(`RevenueCat webhook: ${eventType} → isPremium=true for ${appUserId}`);
       } else if (deactivatingEvents.includes(eventType)) {
         await storage.updateUserStripeInfo(String(appUserId), { isPremium: false });
+        setPremiumDeactivated(String(appUserId), eventTimestampMs);
         console.log(`RevenueCat webhook: ${eventType} → isPremium=false for ${appUserId}`);
       } else {
         console.log(`RevenueCat webhook: unhandled event type ${eventType}`);
