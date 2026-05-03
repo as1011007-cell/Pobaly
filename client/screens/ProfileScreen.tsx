@@ -65,11 +65,11 @@ export default function ProfileScreen() {
 
   const selectedPackage = selectedPlan === "monthly" ? monthlyPackage : annualPackage;
 
-  // Hydrate last-seen localized prices from disk so the prices appear
-  // instantly on subsequent app launches; RC refreshes them in background.
-  // Falls back to a small inline spinner if neither live nor cached price.
-  const [cachedMonthly, setCachedMonthly] = useState<string | undefined>(undefined);
-  const [cachedAnnual, setCachedAnnual] = useState<string | undefined>(undefined);
+  // Hydrate last-seen prices (formatted string + numeric + currency) from
+  // disk so the entire price card — including the multiplied strike-through
+  // — appears instantly on subsequent launches; RC refreshes in background.
+  const [cachedMonthly, setCachedMonthly] = useState<{ priceString: string; price: number; currencyCode: string } | undefined>(undefined);
+  const [cachedAnnual, setCachedAnnual] = useState<{ priceString: string; price: number; currencyCode: string } | undefined>(undefined);
   useEffect(() => {
     getCachedPrices().then((c) => {
       if (c.monthly) setCachedMonthly(c.monthly);
@@ -77,13 +77,16 @@ export default function ProfileScreen() {
     });
   }, []);
 
-  const monthlyPrice = monthlyPackage?.product.priceString ?? cachedMonthly;
-  const annualPrice = annualPackage?.product.priceString ?? cachedAnnual;
-  // Strike-through "regular" prices, computed from the live RC package so
-  // they always match the live currency. Hidden until the live package
-  // resolves to avoid mixed-currency displays.
-  const monthlyStrike = formatStrikePrice(monthlyPackage, STRIKE_MULTIPLIER_MONTHLY);
-  const annualStrike = formatStrikePrice(annualPackage, STRIKE_MULTIPLIER_ANNUAL);
+  const monthlyPrice = monthlyPackage?.product.priceString ?? cachedMonthly?.priceString;
+  const annualPrice = annualPackage?.product.priceString ?? cachedAnnual?.priceString;
+  // Strike-through prefers the live RC package, falls back to the cached
+  // numeric + currency. Always currency-matched, never USD next to a non-USD.
+  const monthlyStrike =
+    formatStrikePrice(monthlyPackage, STRIKE_MULTIPLIER_MONTHLY) ??
+    formatStrikePrice(cachedMonthly ? { product: cachedMonthly } : undefined, STRIKE_MULTIPLIER_MONTHLY);
+  const annualStrike =
+    formatStrikePrice(annualPackage, STRIKE_MULTIPLIER_ANNUAL) ??
+    formatStrikePrice(cachedAnnual ? { product: cachedAnnual } : undefined, STRIKE_MULTIPLIER_ANNUAL);
 
   const handleSelectPlan = (plan: PlanType) => {
     setSelectedPlan(plan);

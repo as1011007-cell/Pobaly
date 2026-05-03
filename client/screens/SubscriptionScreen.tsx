@@ -94,8 +94,8 @@ export default function SubscriptionScreen() {
   // hydrate the last-seen prices from disk for an instant display while RC
   // refreshes in the background. If we have neither a live nor a cached
   // price, we show a small inline spinner instead of a flat placeholder.
-  const [cachedMonthly, setCachedMonthly] = useState<string | undefined>(undefined);
-  const [cachedAnnual, setCachedAnnual] = useState<string | undefined>(undefined);
+  const [cachedMonthly, setCachedMonthly] = useState<{ priceString: string; price: number; currencyCode: string } | undefined>(undefined);
+  const [cachedAnnual, setCachedAnnual] = useState<{ priceString: string; price: number; currencyCode: string } | undefined>(undefined);
   useEffect(() => {
     getCachedPrices().then((c) => {
       if (c.monthly) setCachedMonthly(c.monthly);
@@ -103,14 +103,18 @@ export default function SubscriptionScreen() {
     });
   }, []);
 
-  const monthlyPriceLabel = monthlyPackage?.product.priceString ?? cachedMonthly;
-  const annualPriceLabel = annualPackage?.product.priceString ?? cachedAnnual;
-  // Compute strike-through "regular" prices from the live RC package so they
-  // are always in the same currency as the actual price. Renders nothing
-  // until the live package is available — we never mix USD strike-through
-  // with a localized current price.
-  const monthlyStrike = formatStrikePrice(monthlyPackage, STRIKE_MULTIPLIER_MONTHLY);
-  const annualStrike = formatStrikePrice(annualPackage, STRIKE_MULTIPLIER_ANNUAL);
+  const monthlyPriceLabel = monthlyPackage?.product.priceString ?? cachedMonthly?.priceString;
+  const annualPriceLabel = annualPackage?.product.priceString ?? cachedAnnual?.priceString;
+  // Compute strike-through "regular" prices from the live RC package OR the
+  // cached numeric price + currency code, whichever resolves first. This way
+  // the strike also renders instantly on every repeat launch, not just the
+  // current price.
+  const monthlyStrike =
+    formatStrikePrice(monthlyPackage, STRIKE_MULTIPLIER_MONTHLY) ??
+    formatStrikePrice(cachedMonthly ? { product: cachedMonthly } : undefined, STRIKE_MULTIPLIER_MONTHLY);
+  const annualStrike =
+    formatStrikePrice(annualPackage, STRIKE_MULTIPLIER_ANNUAL) ??
+    formatStrikePrice(cachedAnnual ? { product: cachedAnnual } : undefined, STRIKE_MULTIPLIER_ANNUAL);
 
   const handleSelectPlan = (plan: PlanType) => {
     setSelectedPlan(plan);

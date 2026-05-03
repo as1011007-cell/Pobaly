@@ -10,8 +10,9 @@ import { queryClient } from "@/lib/query-client";
 // is slow on cold start (1–5s and worse on poor networks), so on subsequent
 // app launches we hydrate these instantly while RevenueCat refreshes in the
 // background. Keys are scoped per app — safe to leave forever.
-const PRICE_CACHE_KEY = "@probaly/rc_price_cache_v1";
-type CachedPrices = { monthly?: string; annual?: string };
+const PRICE_CACHE_KEY = "@probaly/rc_price_cache_v2";
+type CachedPriceEntry = { priceString: string; price: number; currencyCode: string };
+type CachedPrices = { monthly?: CachedPriceEntry; annual?: CachedPriceEntry };
 
 export async function getCachedPrices(): Promise<CachedPrices> {
   try {
@@ -105,6 +106,39 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
+// Shared queryFn used both by the React Query hook and by the prefetch at
+// app launch — keeps both paths writing into the same React Query cache so
+// there's only ever one in-flight native StoreKit call on cold start.
+async function fetchOfferingsWithDiag() {
+  try {
+    return await withTimeout(Purchases.getOfferings(), 20000);
+  } catch (e: any) {
+    console.warn(
+      "[RC diag] getOfferings failed:",
+      "code=", e?.code,
+      "userCancelled=", e?.userCancelled,
+      "underlying=", e?.underlyingErrorMessage,
+      "msg=", e?.message
+    );
+    throw e;
+  }
+}
+
+function persistOfferingsToCache(offerings: any) {
+  const current = offerings?.current;
+  if (!current) return;
+  const monthly = current.availablePackages.find((p: any) => p.packageType === "MONTHLY")?.product;
+  const annual = current.availablePackages.find((p: any) => p.packageType === "ANNUAL")?.product;
+  const next: CachedPrices = {};
+  if (monthly?.priceString && monthly.currencyCode) {
+    next.monthly = { priceString: monthly.priceString, price: monthly.price, currencyCode: monthly.currencyCode };
+  }
+  if (annual?.priceString && annual.currencyCode) {
+    next.annual = { priceString: annual.priceString, price: annual.price, currencyCode: annual.currencyCode };
+  }
+  if (next.monthly || next.annual) void setCachedPrices(next);
+}
+
 export function initializeRevenueCat() {
   if (_initialized) return;
   const apiKey = getRevenueCatApiKey();
@@ -113,6 +147,23 @@ export function initializeRevenueCat() {
   Purchases.configure({ apiKey });
   _initialized = true;
   console.log(`RevenueCat initialized [${__DEV__ ? "test" : Platform.OS === "ios" ? "ios" : "android"}]`);
+
+  // Pre-warm the offerings via React Query's prefetch — kicks off the native
+  // StoreKit / Play Billing fetch immediately, before the SubscriptionProvider
+  // mounts. By the time useQuery(['revenuecat','offerings']) runs, the data
+  // is either already in the React Query cache (instant) or in-flight (the
+  // hook subscribes to the same promise, no duplicate native call).
+  void queryClient
+    .prefetchQuery({
+      queryKey: ["revenuecat", "offerings"],
+      queryFn: fetchOfferingsWithDiag,
+      staleTime: 60 * 60 * 1000,
+    })
+    .then(() => {
+      const data = queryClient.getQueryData<any>(["revenuecat", "offerings"]);
+      if (data) persistOfferingsToCache(data);
+    })
+    .catch(() => {});
 }
 
 export function isRevenueCatReady(): boolean {
@@ -164,41 +215,23 @@ function useSubscriptionContext() {
 
   const offeringsQuery = useQuery({
     queryKey: ["revenuecat", "offerings"],
-    queryFn: async () => {
-      try {
-        return await withTimeout(Purchases.getOfferings(), 20000);
-      } catch (e: any) {
-        console.warn(
-          "[RC diag] getOfferings failed:",
-          "code=", e?.code,
-          "userCancelled=", e?.userCancelled,
-          "underlying=", e?.underlyingErrorMessage,
-          "msg=", e?.message
-        );
-        throw e;
-      }
-    },
+    queryFn: fetchOfferingsWithDiag,
     // Keep offerings fresh for 1 hour — prices change rarely and StoreKit
     // calls are expensive. The on-device price cache below covers the
-    // cross-launch case.
+    // cross-launch case. The prefetch in initializeRevenueCat() typically
+    // populates this cache before the hook even mounts.
     staleTime: 60 * 60 * 1000,
     retry: 3,
     retryDelay: (attempt) => Math.min(2000 * (attempt + 1), 8000),
     enabled: _initialized,
   });
 
-  // After offerings resolve, persist the localized price strings to disk so
-  // the next app launch can hydrate them instantly while RC refetches in
-  // the background.
+  // After offerings resolve, persist numeric price + currency code (not just
+  // the formatted string) so the next cold start can render BOTH the current
+  // price and the multiplied strike-through entirely from cache.
   const offeringsData = offeringsQuery.data;
   useEffect(() => {
-    const current = offeringsData?.current;
-    if (!current) return;
-    const monthly = current.availablePackages.find((p) => p.packageType === "MONTHLY")?.product.priceString;
-    const annual = current.availablePackages.find((p) => p.packageType === "ANNUAL")?.product.priceString;
-    if (monthly || annual) {
-      void setCachedPrices({ monthly, annual });
-    }
+    if (offeringsData) persistOfferingsToCache(offeringsData);
   }, [offeringsData]);
 
   const purchaseMutation = useMutation({
