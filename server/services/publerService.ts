@@ -100,8 +100,8 @@ async function ensureTable() {
 // Daily slots (UTC) — 8 evenly spread between 10 AM and ~9 PM.
 // Picked to span EU evenings + US morning/afternoon.
 const DAILY_SLOTS_UTC: Array<[number, number]> = [
-  [10, 0], [11, 30], [13, 0], [14, 30],
-  [16, 0], [17, 30], [19, 0], [20, 30],
+  [10, 15], [11, 36], [13, 13], [14, 21],
+  [16, 17], [17, 34], [19, 19], [20, 34],
 ];
 const MAX_FUTURE_SCHEDULED = 16; // ~2 days worth — drop wins beyond this
 
