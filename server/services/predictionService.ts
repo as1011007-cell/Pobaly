@@ -576,16 +576,16 @@ const FREE_TIP_PREFERRED_SPORTS = new Set(["basketball", "football", "mma"]);
 // Sports we will only use for the free tip as a last resort (high randomness).
 const FREE_TIP_AVOID_SPORTS = new Set(["baseball", "hockey", "tennis", "cricket", "golf"]);
 
-async function _generateDailyFreeTip(): Promise<void> {
+async function _generateDailyFreeTip(opts?: { force?: boolean }): Promise<void> {
   const release = await acquireSystemPickLock();
   try {
-    return await _generateDailyFreeTipImpl();
+    return await _generateDailyFreeTipImpl(opts);
   } finally {
     release();
   }
 }
 
-async function _generateDailyFreeTipImpl(): Promise<void> {
+async function _generateDailyFreeTipImpl(opts?: { force?: boolean }): Promise<void> {
   console.log("Generating daily free prediction — batch scoring all candidates...");
 
   // Final-defense check (under the system-pick lock): if a fresh tip was
@@ -593,12 +593,47 @@ async function _generateDailyFreeTipImpl(): Promise<void> {
   // The active-tip check in `generateDailyFreePrediction` happens BEFORE the
   // lock is acquired, so two concurrent calls can both pass that check; this
   // re-check after acquiring the lock catches that race.
-  const existingActive = await getTodaysActiveFreePrediction();
-  if (existingActive) {
-    console.log(
-      `[FREE-TIP] Skipping generation — active free tip already exists ("${existingActive.matchTitle}")`,
-    );
-    return;
+  //
+  // `force: true` bypasses this guard — used by the resolver's gap-free
+  // swap path when today's tip is about to be marked incorrect. In that
+  // case the existing tip is intentionally being replaced, so we WANT a
+  // second insert. The new (later createdAt) row wins via `orderBy desc`
+  // in getTodaysActiveFreePrediction, and the loser gets marked incorrect
+  // immediately after.
+  if (!opts?.force) {
+    const existingActive = await getTodaysActiveFreePrediction();
+    if (existingActive) {
+      console.log(
+        `[FREE-TIP] Skipping generation — active free tip already exists ("${existingActive.matchTitle}")`,
+      );
+      return;
+    }
+  } else {
+    // Force-mode dedup: another resolver may have already won the race
+    // and inserted a fresh replacement seconds ago. Without this check,
+    // N concurrent forced calls would each insert a tip → N duplicate
+    // free tips for the same day. We accept any unresolved free tip
+    // inserted in the last 60s as proof a sibling forced-swap finished
+    // and skip ours. The 60s window comfortably covers the AI scoring +
+    // DB insert latency (typically 5–30s).
+    const sixtySecondsAgo = new Date(Date.now() - 60_000);
+    const [recent] = await db.select()
+      .from(predictions)
+      .where(
+        and(
+          eq(predictions.isPremium, false),
+          isNull(predictions.userId),
+          isNull(predictions.result),
+          gte(predictions.createdAt, sixtySecondsAgo),
+        ),
+      )
+      .limit(1);
+    if (recent) {
+      console.log(
+        `[FREE-TIP] Force-skip: a fresh replacement ("${recent.matchTitle}") was already inserted by a concurrent run.`,
+      );
+      return;
+    }
   }
 
   const matches = await getUpcomingMatches();
@@ -2037,10 +2072,39 @@ export async function resolvePredictionResults(includeOddsApi: boolean = false):
         .where(eq(predictions.id, pred.id));
       correct++;
     } else {
-      await db.update(predictions)
+      // GAP-FREE LOSS SWAP: if this is today's active free tip about to be
+      // marked incorrect, generate the replacement FIRST while the current
+      // tip is still NULL/visible. After insert, the new (later createdAt)
+      // row wins the `orderBy desc` in getTodaysActiveFreePrediction, so
+      // the user-facing endpoint never sees a missing tip. We pass force:true
+      // to bypass the "skip if active tip exists" guard since the active tip
+      // is precisely what we're replacing.
+      const isFreeTipToday =
+        !pred.isPremium &&
+        !pred.userId &&
+        pred.createdAt &&
+        new Date(pred.createdAt) >= getStartOfToday();
+
+      if (isFreeTipToday) {
+        try {
+          console.log(`[GAP-FREE] Free tip "${pred.matchTitle}" lost — pre-generating replacement before marking incorrect...`);
+          isGeneratingFreeTip = false;
+          await _generateDailyFreeTip({ force: true });
+        } catch (err) {
+          console.error("[GAP-FREE] Pre-generation failed; marking incorrect anyway. Next 30-min checkAndReplaceFreeTip will retry:", err);
+        }
+      }
+
+      // CAS-flip: only count this loss if WE are the resolver instance that
+      // actually flips NULL → 'incorrect'. A concurrent resolver run on the
+      // same row will get 0 affected rows here and won't double-count. (The
+      // gap-free generation above is already idempotent via the 60s dedup
+      // check inside _generateDailyFreeTipImpl.)
+      const flipped = await db.update(predictions)
         .set({ result: "incorrect" })
-        .where(eq(predictions.id, pred.id));
-      incorrect++;
+        .where(and(eq(predictions.id, pred.id), isNull(predictions.result)))
+        .returning({ id: predictions.id });
+      if (flipped.length > 0) incorrect++;
     }
   }
 
