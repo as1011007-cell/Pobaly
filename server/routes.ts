@@ -1052,6 +1052,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Publer: discover workspaces + accounts so the admin can pick which
+  // IG/FB accounts to post to. Returns the IDs to copy into the
+  // PUBLER_WORKSPACE_ID and PUBLER_ACCOUNT_IDS secrets.
+  app.get("/api/admin/publer/discover", requireAdmin, adminRateLimit, async (_req: Request, res: Response) => {
+    try {
+      const { listWorkspaces, listAccounts } = await import("./services/publerService");
+      const ws = await listWorkspaces();
+      const accs = process.env.PUBLER_WORKSPACE_ID ? await listAccounts() : null;
+      res.json({
+        workspaces: ws.body,
+        accounts: accs?.body ?? null,
+        note: "Set PUBLER_WORKSPACE_ID first, then re-call this endpoint to see accounts.",
+      });
+    } catch (error: any) {
+      console.error("Publer discover error:", error);
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+
+  // Publer: trigger a test post for a given prediction id (must be a 'correct'
+  // public free tip with valid score data). Useful for verifying the wiring
+  // end-to-end before waiting for an organic win.
+  app.post("/api/admin/publer/test-post", requireAdmin, adminRateLimit, async (req: Request, res: Response) => {
+    try {
+      const predictionId = Number(req.body?.predictionId);
+      const scoreLine = String(req.body?.scoreLine || "Test 0-0");
+      if (!predictionId) return res.status(400).json({ error: "predictionId required" });
+      const { getPredictionById } = await import("./services/predictionService");
+      const pred = await getPredictionById(predictionId);
+      if (!pred) return res.status(404).json({ error: "prediction not found" });
+      const { postFreeTipWin } = await import("./services/publerService");
+      const r = await postFreeTipWin(pred, scoreLine);
+      res.json(r);
+    } catch (error: any) {
+      console.error("Publer test-post error:", error);
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+
   // Force refresh prediction history (admin endpoint)
   app.post("/api/predictions/refresh-history", requireAdmin, adminRateLimit, async (req: Request, res: Response) => {
     try {

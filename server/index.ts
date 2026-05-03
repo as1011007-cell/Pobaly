@@ -425,6 +425,17 @@ function setupErrorHandler(app: express.Application) {
     log(`Telegram service init failed (continuing): ${(err as Error).message}`);
   }
 
+  // Publer auto-posting: bootstraps social_posts table and serves the
+  // /uploads/social/ public dir where win-celebration images are written.
+  // Posts are triggered automatically when a free tip flips to 'correct'
+  // (see resolvePredictionResults in predictionService.ts).
+  try {
+    const { initPublerService } = await import("./services/publerService");
+    await initPublerService(app);
+  } catch (err) {
+    log(`Publer service init failed (continuing): ${(err as Error).message}`);
+  }
+
   setupErrorHandler(app);
 
   // Single-active-session support: ensure users.token_version exists BEFORE

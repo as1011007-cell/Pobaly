@@ -2097,10 +2097,33 @@ export async function resolvePredictionResults(includeOddsApi: boolean = false):
     }
 
     if (isCorrect) {
-      await db.update(predictions)
+      // CAS-flip: must allow NULL OR 'unresolved' to match the SELECT predicate
+      // above so retry resolution from the 'unresolved' retry pool can still flip
+      // to 'correct'. Concurrent resolver runs that already flipped this row get
+      // 0 returned rows and won't double-count or double-post.
+      const upd = await db.update(predictions)
         .set({ result: "correct" })
-        .where(eq(predictions.id, pred.id));
+        .where(and(
+          eq(predictions.id, pred.id),
+          sql`(${predictions.result} IS NULL OR ${predictions.result} = 'unresolved')`,
+        ))
+        .returning({ id: predictions.id });
+
+      // Only count + post when WE actually performed the flip.
+      if (upd.length === 0) continue;
       correct++;
+
+      // Social auto-post: limited to public free tips (userId NULL, not premium)
+      // so we don't spam socials with premium picks. Fire-and-forget; never
+      // block the resolver loop on Publer/network latency.
+      if (!pred.isPremium && !pred.userId) {
+        const scoreLine = `${matchedGame.winner} ${matchedGame.homeScore}-${matchedGame.awayScore}`;
+        import("./publerService").then(({ postFreeTipWin }) => {
+          postFreeTipWin(pred, scoreLine).catch((e) =>
+            console.error(`[RESOLVE] Social post for ${pred.id} failed:`, e),
+          );
+        }).catch((e) => console.error("[RESOLVE] publerService import failed:", e));
+      }
     } else {
       // GAP-FREE LOSS SWAP: if this is today's active free tip about to be
       // marked incorrect, generate the replacement FIRST while the current
@@ -2132,7 +2155,10 @@ export async function resolvePredictionResults(includeOddsApi: boolean = false):
       // check inside _generateDailyFreeTipImpl.)
       const flipped = await db.update(predictions)
         .set({ result: "incorrect" })
-        .where(and(eq(predictions.id, pred.id), isNull(predictions.result)))
+        .where(and(
+          eq(predictions.id, pred.id),
+          sql`(${predictions.result} IS NULL OR ${predictions.result} = 'unresolved')`,
+        ))
         .returning({ id: predictions.id });
       if (flipped.length > 0) incorrect++;
     }
