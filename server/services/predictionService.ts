@@ -1535,9 +1535,37 @@ async function generateDemoPredictionsImpl(): Promise<void> {
   console.log(`Demo predictions generation complete: ${inserted}/${items.length} inserted`);
 }
 
+// Safety net: most recent unresolved free tip whose match hasn't started yet,
+// regardless of when it was created. Used as a fallback if today's tip isn't
+// ready (mid-generation, generation failed, no matches today, etc.) so the
+// /api/predictions/free-tip endpoint NEVER returns null when a usable tip
+// exists somewhere in the DB.
+async function getMostRecentDisplayableFreeTip() {
+  const now = new Date();
+  const [tip] = await db.select()
+    .from(predictions)
+    .where(
+      and(
+        eq(predictions.isPremium, false),
+        isNull(predictions.userId),
+        sql`${predictions.matchTime} > ${now.toISOString()}::timestamp`,
+        sql`${predictions.expiresAt} > ${predictions.matchTime}`,
+        sql`(${predictions.result} IS NULL OR ${predictions.result} = 'correct')`
+      )
+    )
+    .orderBy(desc(predictions.createdAt))
+    .limit(1);
+  return tip || null;
+}
+
 export async function getFreeTip() {
   await generateDailyFreePrediction();
-  return await getTodaysActiveFreePrediction();
+  // Prefer today's freshly-generated tip; if it's not ready yet (mid-gen,
+  // failed gen, no qualifying matches), surface yesterday's still-upcoming
+  // tip rather than returning null. Guarantees no visible gap to the user.
+  const todays = await getTodaysActiveFreePrediction();
+  if (todays) return todays;
+  return await getMostRecentDisplayableFreeTip();
 }
 
 export async function forceNewFreeTip(): Promise<void> {
@@ -2268,13 +2296,30 @@ async function purgeFakeHistoryEntries(): Promise<void> {
 
 async function resetAndGenerateDailyFreeTip(): Promise<void> {
   const startOfToday = getStartOfToday();
-  // Clear the previous day's free tip — but PRESERVE winning tips so they
-  // can show in user history per the rules in replit.md (free users see
-  // correct free daily tips for 30 days; premium users see them too).
-  // We only delete tips that are still unresolved (NULL) or that lost
-  // (incorrect). Winning tips stay in the DB; the natural history filter
-  // (created_at < startOfToday) keeps them out of "today's free tip" lookup
-  // while still surfacing them in history.
+
+  // GAP-FREE ATOMIC SWAP: generate the new tip FIRST while yesterday's tip
+  // is still in the DB acting as the safety-net fallback (see getFreeTip).
+  // Only after the new tip is confirmed inserted do we delete yesterday's
+  // stale unresolved/incorrect rows. If generation fails (no matches, AI
+  // timeout, etc.) yesterday's tip stays in place — better a slightly-stale
+  // prediction than an empty screen.
+  //
+  // Visibility note: getTodaysActiveFreePrediction filters by
+  // `createdAt >= startOfToday`, so yesterday's tip is invisible to the
+  // generation guard at line 596 — generation proceeds unhindered.
+  isGeneratingFreeTip = false;
+  await _generateDailyFreeTip();
+
+  const newTip = await getTodaysActiveFreePrediction();
+  if (!newTip) {
+    console.warn(
+      "[midnight] new free-tip generation produced no active tip — preserving yesterday's tip as fallback. Next 30-min checkAndReplaceFreeTip will retry."
+    );
+    return;
+  }
+
+  // New tip is live — safe to remove yesterday's stale rows.
+  // Winners are preserved per replit.md history rules.
   await db.delete(predictions).where(
     and(
       eq(predictions.isPremium, false),
@@ -2284,9 +2329,7 @@ async function resetAndGenerateDailyFreeTip(): Promise<void> {
       sql`(${predictions.result} IS NULL OR ${predictions.result} = 'incorrect')`
     )
   );
-  console.log("Midnight reset: cleared previous day's unresolved/incorrect free tips (winners preserved for history)");
-  isGeneratingFreeTip = false;
-  await _generateDailyFreeTip();
+  console.log(`[midnight] gap-free swap complete — new tip live ("${newTip.matchTitle}"); yesterday's stale tips cleared.`);
 }
 
 export async function dailyPredictionRefresh(): Promise<void> {
