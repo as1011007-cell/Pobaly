@@ -1,11 +1,12 @@
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import { View, StyleSheet, FlatList, RefreshControl, ActivityIndicator, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
-import { useFocusEffect, useNavigation } from "@react-navigation/native";
+import { useIsFocused, useNavigation } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { useQuery } from "@tanstack/react-query";
 
 import { LiveMatchCard } from "@/components/LiveMatchCard";
 import { EmptyState } from "@/components/EmptyState";
@@ -25,45 +26,30 @@ export default function LiveScreen() {
   const { isPremium } = useAuth();
   const { t } = useLanguage();
   const navigation = useNavigation<any>();
-
+  const isFocused = useIsFocused();
   const [refreshing, setRefreshing] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [liveMatches, setLiveMatches] = useState<LiveMatch[]>([]);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const refreshingRef = useRef(false);
 
-  const loadLive = useCallback(async () => {
-    try {
-      const matches = await fetchLiveMatches();
-      setLiveMatches(matches);
-    } catch (error) {
-      console.error("Error loading live matches:", error);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      if (isPremium) {
-        loadLive();
-        intervalRef.current = setInterval(loadLive, 60000);
-      } else {
-        setLoading(false);
-      }
-      return () => {
-        if (intervalRef.current) {
-          clearInterval(intervalRef.current);
-          intervalRef.current = null;
-        }
-      };
-    }, [loadLive, isPremium])
-  );
+  // Live matches: auto-refreshes every 60s while the screen is focused.
+  // When the user switches away (isFocused=false) polling stops — no wasted
+  // background requests. Re-enabled instantly when the user comes back.
+  const { data: liveMatches = [], isLoading, refetch } = useQuery<LiveMatch[]>({
+    queryKey: ["/api/live-matches"],
+    queryFn: fetchLiveMatches,
+    enabled: isPremium,
+    staleTime: 30_000,
+    refetchInterval: isPremium && isFocused ? 60_000 : false,
+    retry: 2,
+  });
 
   const onRefresh = useCallback(async () => {
+    if (refreshingRef.current) return;
+    refreshingRef.current = true;
     setRefreshing(true);
-    await loadLive();
+    await refetch();
     setRefreshing(false);
-  }, [loadLive]);
+    refreshingRef.current = false;
+  }, [refetch]);
 
   const handleUpgradePress = () => {
     navigation.navigate("Subscription");
@@ -112,7 +98,7 @@ export default function LiveScreen() {
     );
   }
 
-  if (loading) {
+  if (isLoading) {
     return (
       <View
         style={[

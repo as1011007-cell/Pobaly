@@ -377,6 +377,11 @@ function setupErrorHandler(app: express.Application) {
   );
   app.use(express.urlencoded({ extended: false }));
 
+  // Compress all HTTP responses. Reduces JSON payload sizes by 60-80%,
+  // which directly cuts transfer time for every API call at scale.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  app.use(require("compression")());
+
   setupRequestLogging(app);
   configureLegalPages(app);
 

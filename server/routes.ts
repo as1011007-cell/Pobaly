@@ -678,6 +678,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Non-blocking translate so a fresh-language premium feed never stalls
       // on Groq. Cache misses fall back to English; the next request is hot.
       const localized = isPremiumUser ? await translatePredictionsBackground(preds as any[], lang) : preds;
+      // Private: personalized to this user. 30s max-age with 60s stale-while-
+      // revalidate so the client serves from cache on quick tab switches while
+      // a background refresh catches any new predictions.
+      res.set("Cache-Control", "private, max-age=30, stale-while-revalidate=60");
       res.json({ predictions: isPremiumUser ? localized : preds.map(redactPrediction) });
     } catch (error: any) {
       res.status(500).json({ error: safeErrorMessage(error) });
@@ -717,6 +721,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Non-blocking translate — Live tab must feel instant; English fallback
       // on first cold request is acceptable, then localized from cache.
       const localized = await translatePredictionsBackground(predictions as any[], lang);
+      res.set("Cache-Control", "private, max-age=30, stale-while-revalidate=30");
       res.json({ predictions: localized });
     } catch (error: any) {
       res.status(500).json({ error: safeErrorMessage(error) });
@@ -726,6 +731,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/live-matches", apiReadRateLimit, async (_req: Request, res: Response) => {
     try {
       const matches = await getLiveMatches();
+      // Public endpoint — no auth, same data for everyone. 30s max-age keeps
+      // score displays reasonably fresh without hammering the origin on every poll.
+      res.set("Cache-Control", "public, max-age=30, stale-while-revalidate=30");
       res.json({ matches });
     } catch (error: any) {
       res.status(500).json({ error: safeErrorMessage(error) });
@@ -750,6 +758,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // hundreds of items — blocking on Groq would stall the response by
       // tens of seconds on first view in a fresh language.
       const localized = await translatePredictionsBackground(predictions as any[], lang);
+      // History changes only when the daily resolver runs — 2-min client cache
+      // is aggressive enough to hide the latency without showing stale wins/losses.
+      res.set("Cache-Control", "private, max-age=120, stale-while-revalidate=120");
       res.json({ predictions: localized });
     } catch (error: any) {
       res.status(500).json({ error: safeErrorMessage(error) });
@@ -790,6 +801,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!visibleIds.has(Number(p.id))) return redactPrediction(p);
         return localizedById.get(Number(p.id)) ?? p;
       });
+      // Sport feeds refresh once a day; 60s client cache is safe.
+      res.set("Cache-Control", "private, max-age=60, stale-while-revalidate=60");
       res.json({ predictions: out });
     } catch (error: any) {
       res.status(500).json({ error: safeErrorMessage(error) });
@@ -806,6 +819,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isPremiumUser = u?.isPremium === true;
       }
       const counts = await getSportPredictionCounts(userId, isPremiumUser);
+      res.set("Cache-Control", "private, max-age=60, stale-while-revalidate=60");
       res.json({ counts });
     } catch (error: any) {
       res.status(500).json({ error: safeErrorMessage(error) });
@@ -836,6 +850,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const result = isRedacted
         ? redactPrediction(prediction)
         : (await translatePrediction(prediction as any, lang)) ?? prediction;
+      // Individual predictions are immutable once resolved — 5-min cache is safe.
+      res.set("Cache-Control", "private, max-age=300, stale-while-revalidate=300");
       res.json({ prediction: result });
     } catch (error: any) {
       res.status(500).json({ error: safeErrorMessage(error) });

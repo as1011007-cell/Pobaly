@@ -1,9 +1,10 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React from "react";
 import { View, StyleSheet, FlatList, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { RouteProp, useRoute, useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { useQuery } from "@tanstack/react-query";
 
 import { PredictionCard } from "@/components/PredictionCard";
 import { EmptyState } from "@/components/EmptyState";
@@ -27,25 +28,15 @@ export default function SportDetailScreen() {
   const navigation = useNavigation<NavigationProp>();
   const { user, isPremium } = useAuth();
 
-  const [loading, setLoading] = useState(true);
-  const [predictions, setPredictions] = useState<Prediction[]>([]);
-
   const { language, t } = useLanguage();
 
-  const loadPredictions = useCallback(async () => {
-    try {
-      const data = await fetchPredictionsBySport(route.params.sport, user?.id, isPremium, language);
-      setPredictions(data);
-    } catch (error) {
-      console.error("Error loading sport predictions:", error);
-    } finally {
-      setLoading(false);
-    }
-  }, [route.params.sport, user?.id, isPremium, language]);
-
-  useEffect(() => {
-    loadPredictions();
-  }, [loadPredictions]);
+  // Predictions for this sport — cached for 5 min (predictions refresh once a day).
+  const { data: predictions = [], isLoading } = useQuery<Prediction[]>({
+    queryKey: ["/api/predictions/sport", route.params.sport, user?.id, isPremium, language],
+    queryFn: () => fetchPredictionsBySport(route.params.sport, user?.id, isPremium, language),
+    staleTime: 5 * 60 * 1000,
+    retry: 2,
+  });
 
   const handlePredictionPress = (prediction: Prediction) => {
     if (prediction.isPremium && !isPremium) {
@@ -65,7 +56,7 @@ export default function SportDetailScreen() {
     </View>
   );
 
-  if (loading) {
+  if (isLoading) {
     return (
       <View
         style={[

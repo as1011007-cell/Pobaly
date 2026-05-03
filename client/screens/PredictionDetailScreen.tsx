@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { View, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -6,6 +6,7 @@ import { RouteProp, useRoute } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import { format } from "date-fns";
 import { LinearGradient } from "expo-linear-gradient";
+import { useQuery } from "@tanstack/react-query";
 
 import { ThemedText } from "@/components/ThemedText";
 import { ConfidenceBadge } from "@/components/ConfidenceBadge";
@@ -28,25 +29,18 @@ export default function PredictionDetailScreen() {
   const headerHeight = useHeaderHeight();
   const route = useRoute<PredictionDetailRouteProp>();
 
-  const [loading, setLoading] = useState(true);
-  const [prediction, setPrediction] = useState<Prediction | null>(null);
   const { language, t } = useLanguage();
 
-  useEffect(() => {
-    async function loadPrediction() {
-      try {
-        const data = await fetchPredictionById(route.params.predictionId, language);
-        setPrediction(data);
-      } catch (error) {
-        console.error("Error loading prediction:", error);
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadPrediction();
-  }, [route.params.predictionId, language]);
+  // Individual predictions are immutable once created — cache for 10 min.
+  // Navigating back to the same prediction detail renders instantly.
+  const { data: prediction = null, isLoading } = useQuery<Prediction | null>({
+    queryKey: ["/api/predictions", route.params.predictionId, language],
+    queryFn: () => fetchPredictionById(route.params.predictionId, language),
+    staleTime: 10 * 60 * 1000,
+    retry: 2,
+  });
 
-  if (loading) {
+  if (isLoading) {
     return (
       <View style={[styles.container, { backgroundColor: theme.backgroundRoot, justifyContent: "center", alignItems: "center" }]}>
         <ActivityIndicator size="large" color={theme.accent} />

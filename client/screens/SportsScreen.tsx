@@ -1,10 +1,11 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useMemo } from "react";
 import { View, StyleSheet, FlatList, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
-import { useNavigation, useFocusEffect } from "@react-navigation/native";
+import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { useQuery } from "@tanstack/react-query";
 
 import { SportCategoryCard } from "@/components/SportCategoryCard";
 import { useTheme } from "@/hooks/useTheme";
@@ -24,29 +25,19 @@ export default function SportsScreen() {
   const { theme } = useTheme();
   const navigation = useNavigation<NavigationProp>();
   const { user, isPremium } = useAuth();
-  
-  const [sportCategories, setSportCategories] = useState<SportCategory[]>(baseSportCategories);
-  const [loading, setLoading] = useState(true);
 
-  const loadCounts = useCallback(async () => {
-    try {
-      const counts = await fetchSportPredictionCounts(user?.id, isPremium);
-      const updatedCategories = baseSportCategories.map(cat => ({
-        ...cat,
-        predictionCount: counts[cat.id] || 0,
-      }));
-      setSportCategories(updatedCategories);
-    } catch (error) {
-      console.error("Error loading sport counts:", error);
-    } finally {
-      setLoading(false);
-    }
-  }, [user?.id, isPremium]);
+  // Prediction counts per sport — cached for 5 min so every tab switch
+  // renders instantly from the React Query cache instead of hitting the network.
+  const { data: counts = {}, isLoading } = useQuery<Record<string, number>>({
+    queryKey: ["/api/predictions/counts", user?.id, isPremium],
+    queryFn: () => fetchSportPredictionCounts(user?.id, isPremium),
+    staleTime: 5 * 60 * 1000,
+    retry: 2,
+  });
 
-  useFocusEffect(
-    useCallback(() => {
-      loadCounts();
-    }, [loadCounts])
+  const sportCategories = useMemo<SportCategory[]>(
+    () => baseSportCategories.map(cat => ({ ...cat, predictionCount: counts[cat.id] || 0 })),
+    [counts],
   );
 
   const handleCategoryPress = (category: SportCategory) => {
@@ -62,7 +53,7 @@ export default function SportsScreen() {
     </View>
   );
 
-  if (loading) {
+  if (isLoading) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: theme.backgroundRoot, paddingTop: headerHeight }]}>
         <ActivityIndicator size="large" color={theme.primary} />

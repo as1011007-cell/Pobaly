@@ -1,10 +1,11 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import { View, StyleSheet, FlatList, RefreshControl, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { HistoryCard } from "@/components/HistoryCard";
 import { EmptyState } from "@/components/EmptyState";
@@ -19,6 +20,8 @@ import { Prediction } from "@/types";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
+const HISTORY_STALE_MS = 2 * 60 * 1000;
+
 export default function HistoryScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
@@ -26,38 +29,43 @@ export default function HistoryScreen() {
   const { theme } = useTheme();
   const { user } = useAuth();
   const navigation = useNavigation<NavigationProp>();
-
+  const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [historyPredictions, setHistoryPredictions] = useState<Prediction[]>([]);
+  const refreshingRef = useRef(false);
 
   const { language } = useLanguage();
 
-  const loadHistory = useCallback(async () => {
-    try {
-      const predictions = await fetchHistoryPredictions(user?.id, language);
-      setHistoryPredictions(predictions);
-    } catch (error) {
-      console.error("Error loading history:", error);
-    } finally {
-      setLoading(false);
-    }
-  }, [user?.id, language]);
+  const queryKey = ["/api/predictions/history", user?.id, language] as const;
 
+  const { data: historyPredictions = [], isLoading, refetch } = useQuery<Prediction[]>({
+    queryKey,
+    queryFn: () => fetchHistoryPredictions(user?.id, language),
+    staleTime: HISTORY_STALE_MS,
+    retry: 2,
+  });
+
+  // Refetch on focus only when the cached data is stale (> 2 min old).
+  // Return visits within 2 min render instantly from the React Query cache.
   useFocusEffect(
     useCallback(() => {
-      loadHistory();
-    }, [loadHistory])
+      const state = queryClient.getQueryState(queryKey);
+      if (!state?.dataUpdatedAt || Date.now() - state.dataUpdatedAt >= HISTORY_STALE_MS) {
+        refetch();
+      }
+    }, [queryClient, refetch]),
   );
 
   const onRefresh = useCallback(async () => {
+    if (refreshingRef.current) return;
+    refreshingRef.current = true;
     setRefreshing(true);
-    await loadHistory();
+    await queryClient.invalidateQueries({ queryKey });
+    await refetch();
     setRefreshing(false);
-  }, [loadHistory]);
+    refreshingRef.current = false;
+  }, [queryClient, refetch]);
 
   const handlePredictionPress = (prediction: Prediction) => {
-    // History items are already-resolved past predictions — no paywall on them.
     navigation.navigate("PredictionDetail", { predictionId: prediction.id });
   };
 
@@ -70,7 +78,7 @@ export default function HistoryScreen() {
     </View>
   );
 
-  if (loading) {
+  if (isLoading) {
     return (
       <View
         style={[
