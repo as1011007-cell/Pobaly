@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef } from "react";
-import { View, StyleSheet, FlatList, RefreshControl, ActivityIndicator } from "react-native";
+import { View, StyleSheet, FlatList, RefreshControl, ActivityIndicator, ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -10,6 +10,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ThemedText } from "@/components/ThemedText";
 import { PredictionCard } from "@/components/PredictionCard";
 import { SectionHeader } from "@/components/SectionHeader";
+import { SkeletonCard } from "@/components/SkeletonCard";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -19,6 +20,12 @@ import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import type { Prediction } from "@/types";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
+type PredictionItem = Prediction | { _isSkeleton: true; id: string };
+const SKELETONS: PredictionItem[] = [0, 1, 2, 3].map((i) => ({
+  _isSkeleton: true as const,
+  id: `skeleton-${i}`,
+}));
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
@@ -61,8 +68,6 @@ export default function HomeScreen() {
     staleTime: 5 * 60 * 1000,
     retry: 2,
   });
-
-  const loading = freeTipLoading || premiumLoading;
 
   const onRefresh = useCallback(async () => {
     if (refreshingRef.current) return;
@@ -149,35 +154,43 @@ export default function HomeScreen() {
     </View>
   );
 
-  const displayPredictions = isPremium ? premiumPredictions.slice(0, 4) : premiumPredictions;
+  // Skeleton placeholders shown while premium predictions are fetching for the
+  // first time (no cache yet). On every subsequent open the React Query cache
+  // is hydrated from AsyncStorage before this screen mounts, so `premiumLoading`
+  // is false from the very first render and these are never shown.
+  const showSkeletons = premiumLoading && premiumPredictions.length === 0;
+  const displayPredictions: PredictionItem[] = showSkeletons
+    ? SKELETONS
+    : isPremium
+      ? premiumPredictions.slice(0, 4)
+      : premiumPredictions;
 
-  const renderPrediction = ({ item, index }: { item: typeof premiumPredictions[0]; index: number }) => (
-    <View style={[styles.predictionItem, index % 2 === 0 ? styles.leftItem : styles.rightItem]}>
-      <PredictionCard
-        prediction={item}
-        variant="compact"
-        isLocked={!isPremium}
-        onPress={() => {
-          if (isPremium) {
-            handlePredictionPress(item.id);
-          } else {
-            handleUpgradePress();
-          }
-        }}
-      />
-    </View>
-  );
-
-  if (loading) {
+  const renderPrediction = ({ item, index }: { item: PredictionItem; index: number }) => {
+    const style = [
+      styles.predictionItem,
+      (index % 2 === 0 ? styles.leftItem : styles.rightItem) as ViewStyle,
+    ];
+    if ("_isSkeleton" in item) {
+      return (
+        <View style={style}>
+          <SkeletonCard variant="compact" />
+        </View>
+      );
+    }
     return (
-      <View style={[styles.emptyContainer, { backgroundColor: theme.backgroundRoot }]}>
-        <ActivityIndicator size="large" color={theme.accent} />
-        <ThemedText type="body" style={{ marginTop: Spacing.lg, color: theme.textSecondary }}>
-          {t.loadingPredictions}
-        </ThemedText>
+      <View style={style}>
+        <PredictionCard
+          prediction={item}
+          variant="compact"
+          isLocked={!isPremium}
+          onPress={() => {
+            if (isPremium) handlePredictionPress(item.id);
+            else handleUpgradePress();
+          }}
+        />
       </View>
     );
-  }
+  };
 
   return (
     <FlatList
@@ -239,10 +252,5 @@ const styles = StyleSheet.create({
   },
   rightItem: {
     marginLeft: "2%",
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
   },
 });
