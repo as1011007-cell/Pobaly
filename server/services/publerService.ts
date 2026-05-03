@@ -279,29 +279,30 @@ export async function composeWinImage(
   const asc = (fs: number) => Math.round(fs * 0.78);
 
   // --- Sizes ---
-  const LOGO_R   = 60;   // logo icon half-size → 120×120 icon
-  const BADGE_H  = 44;   // CORRECT badge height (compact)
-  const BADGE_W  = 340;  // CORRECT badge width
-  const FS_HDR   = 30;   // "PROBALY PICK RESULT"
-  const FS_MATCH = 52;
-  const FS_LBL   = 20;
-  const FS_PICK  = 52;
-  const FS_URL   = 22;
-  const MATCH_DY = 62;   // dy between wrapped title lines
-  const IMG_W    = 272;  // store-badge image width (same for both)
-  const IMG_H    = 80;   // store-badge image height (same for both)
-  const DIV_H    = 5;
+  const LOGO_R      = 60;   // logo icon half-size → 120×120 icon
+  const BADGE_H     = 58;   // CORRECT badge height (bigger)
+  const BADGE_W     = 420;  // CORRECT badge width
+  const FS_CORRECT  = 28;   // font inside CORRECT badge
+  const FS_HDR      = 30;   // "PROBALY PICK RESULT"
+  const FS_MATCH    = 52;
+  const FS_LBL      = 20;
+  const FS_PICK     = 52;
+  const FS_URL      = 22;
+  const MATCH_DY    = 62;   // dy between wrapped title lines
+  const IMG_W       = 230;  // store-badge image width  (both same)
+  const IMG_H       = 81;   // store-badge image height (both same, 230/2.84)
+  const DIV_H       = 5;
 
-  // --- Vertical gaps ---
-  const G_LOGO_HDR    = 24;
-  const G_HDR_BADGE   = 18;
-  const G_BADGE_MATCH = 32;
-  const G_MATCH_DIV   = 38;
-  const G_DIV_LBL     = 46;
-  const G_LBL_TXT     = 14;
-  const G_PICK_SCORE  = 38;
-  const G_SCORE_BADGE = 60;
-  const G_BADGE_URL   = 20;
+  // --- Vertical gaps (more breathing room) ---
+  const G_LOGO_HDR    = 28;
+  const G_HDR_BADGE   = 22;
+  const G_BADGE_MATCH = 40;
+  const G_MATCH_DIV   = 44;
+  const G_DIV_LBL     = 52;
+  const G_LBL_TXT     = 16;
+  const G_PICK_SCORE  = 44;
+  const G_SCORE_BADGE = 62;
+  const G_BADGE_URL   = 22;
 
   // --- Total content height (used to centre vertically) ---
   const contentH =
@@ -357,14 +358,14 @@ export async function composeWinImage(
         font-size="${FS_HDR}" font-weight="800" fill="${white}"
         text-anchor="middle" letter-spacing="4">PROBALY PICK RESULT</text>
 
-  <!-- CORRECT badge — compact pill, no checkmark -->
+  <!-- CORRECT badge — bigger pill, no checkmark, text fills badge width -->
   <rect x="${540 - BADGE_W / 2}" y="${BADGE_Y}"
         width="${BADGE_W}" height="${BADGE_H}"
         rx="${Math.round(BADGE_H / 2)}" fill="${emerald}"/>
-  <text x="540" y="${BADGE_Y + Math.round(BADGE_H / 2) + Math.round(FS_LBL * 0.36)}"
+  <text x="540" y="${BADGE_Y + Math.round(BADGE_H / 2) + Math.round(FS_CORRECT * 0.36)}"
         font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
-        font-size="${FS_LBL}" font-weight="800" fill="${white}"
-        text-anchor="middle" letter-spacing="8">CORRECT</text>
+        font-size="${FS_CORRECT}" font-weight="800" fill="${white}"
+        text-anchor="middle" letter-spacing="4">CORRECT</text>
 
   <!-- Match title (word-wrapped, max 2 lines) -->
   <text x="540" y="${MATCH_Y1}"
