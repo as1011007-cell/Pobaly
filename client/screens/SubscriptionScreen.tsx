@@ -88,12 +88,16 @@ export default function SubscriptionScreen() {
   };
 
   const selectedPackage = selectedPlan === "monthly" ? monthlyPackage : annualPackage;
-  // Show real prices from RevenueCat, or fallback to known prices while loading/failed
-  const monthlyPrice = monthlyPackage?.product.priceString ?? "$49.99";
-  const annualPrice = annualPackage?.product.priceString ?? "$149.00";
-  // Always show the known prices — RevenueCat will update them live once loaded
-  const monthlyPriceLabel = monthlyPrice;
-  const annualPriceLabel = annualPrice;
+  // Prices come from RevenueCat's priceString, which StoreKit / Play Billing
+  // automatically formats in the user's local currency (e.g. "₹1,599",
+  // "€49.99"). While the offering is loading we show a neutral "…" placeholder
+  // instead of a hardcoded USD value, so non-USD users never briefly see the
+  // wrong currency. The strike-through "list price" below is also hidden until
+  // we have a real localized price to compare to.
+  const monthlyPriceLabel = monthlyPackage?.product.priceString ?? "…";
+  const annualPriceLabel = annualPackage?.product.priceString ?? "…";
+  const showOriginalMonthly = !!monthlyPackage;
+  const showOriginalAnnual = !!annualPackage;
 
   const handleSelectPlan = (plan: PlanType) => {
     setSelectedPlan(plan);
@@ -326,12 +330,9 @@ export default function SubscriptionScreen() {
               </View>
             </View>
             <View style={styles.planPriceRow}>
-              <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>$99.00</ThemedText>
-              {/* Always render the price string. The fallback ($49.99) shows
-                  immediately; when RevenueCat resolves the real package, the
-                  store-localized price swaps in live. No skeleton — gating on
-                  isLoading meant web/Browser-Mode users (and anyone on a slow
-                  network) saw a spinner for the full RC timeout. */}
+              {showOriginalMonthly ? (
+                <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>$99.00</ThemedText>
+              ) : null}
               <ThemedText type="h2" style={{ color: theme.text }}>{monthlyPriceLabel}</ThemedText>
               <ThemedText type="small" style={{ color: theme.textSecondary }}>{t.perMonth}</ThemedText>
             </View>
@@ -365,9 +366,9 @@ export default function SubscriptionScreen() {
               </View>
             </View>
             <View style={styles.planPriceRow}>
-              <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>$399.00</ThemedText>
-              {/* Same as monthly — always show the price; let RC swap the
-                  localized priceString in when it resolves. */}
+              {showOriginalAnnual ? (
+                <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>$399.00</ThemedText>
+              ) : null}
               <ThemedText type="h2" style={{ color: theme.text }}>{annualPriceLabel}</ThemedText>
               <ThemedText type="small" style={{ color: theme.textSecondary }}>{t.perYear}</ThemedText>
             </View>

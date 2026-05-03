@@ -64,8 +64,13 @@ export default function ProfileScreen() {
   const [selectedPlan, setSelectedPlan] = useState<PlanType>("annual");
 
   const selectedPackage = selectedPlan === "monthly" ? monthlyPackage : annualPackage;
-  const monthlyPrice = monthlyPackage?.product.priceString ?? "$49.99";
-  const annualPrice = annualPackage?.product.priceString ?? "$149.00";
+  // RevenueCat's priceString is auto-localized to the user's store currency
+  // (e.g. "₹1,599", "€49.99"). Show a neutral "…" placeholder while the
+  // offering loads so non-USD users never briefly see a hardcoded USD price.
+  const monthlyPrice = monthlyPackage?.product.priceString ?? "…";
+  const annualPrice = annualPackage?.product.priceString ?? "…";
+  const showOriginalMonthly = !!monthlyPackage;
+  const showOriginalAnnual = !!annualPackage;
 
   const handleSelectPlan = (plan: PlanType) => {
     setSelectedPlan(plan);
@@ -485,10 +490,9 @@ export default function ProfileScreen() {
                     </View>
                   </View>
                   <View style={styles.planPriceRow}>
-                    <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>$99</ThemedText>
-                    {/* Always render the price — fallback shows immediately,
-                        real RC priceString swaps in live when offerings load.
-                        Same fix as SubscriptionScreen — no skeleton gating. */}
+                    {showOriginalMonthly ? (
+                      <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>$99</ThemedText>
+                    ) : null}
                     <ThemedText type="h3" style={{ color: theme.text }}>{monthlyPrice}</ThemedText>
                     <ThemedText type="small" style={{ color: theme.textSecondary }}>{t.perMonth}</ThemedText>
                   </View>
@@ -521,8 +525,9 @@ export default function ProfileScreen() {
                     </View>
                   </View>
                   <View style={styles.planPriceRow}>
-                    <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>$399</ThemedText>
-                    {/* See monthly comment — always render, RC updates live. */}
+                    {showOriginalAnnual ? (
+                      <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>$399</ThemedText>
+                    ) : null}
                     <ThemedText type="h3" style={{ color: theme.text }}>{annualPrice}</ThemedText>
                     <ThemedText type="small" style={{ color: theme.textSecondary }}>{t.perYear}</ThemedText>
                   </View>
@@ -536,7 +541,7 @@ export default function ProfileScreen() {
 
               <Button
                 onPress={handleSubscribe}
-                disabled={isPurchasing}
+                disabled={isPurchasing || !selectedPackage}
                 style={styles.subscribeButton}
                 testID="button-subscribe"
               >
