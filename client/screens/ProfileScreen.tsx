@@ -75,7 +75,7 @@ export default function ProfileScreen() {
   const handleSubscribe = async () => {
     if (isPurchasing) return;
     if (!selectedPackage) {
-      Alert.alert(t.pricesUnavailable, t.couldNotConnectStore, [{ text: t.ok }]);
+      // Silently no-op — no alarming dialog for the user.
       return;
     }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);

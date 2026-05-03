@@ -146,14 +146,13 @@ function useSubscriptionContext() {
     isSubscribed,
     isLoading: offeringsQuery.isLoading && _initialized,
     isLoadingCustomer: customerInfoQuery.isLoading && _initialized,
-    // Suppress the "couldn't connect to store" UI on platforms where the
-    // store is intentionally unavailable (web + Expo Go run RevenueCat in
-    // Browser/Preview mode with no real offerings, so a failure here is
-    // expected and not actionable for the user).
-    offeringsError:
-      offeringsQuery.isError &&
-      Platform.OS !== "web" &&
-      Constants.executionEnvironment !== "storeClient",
+    // Always suppressed — a "couldn't connect to store" warning is not
+    // actionable for the user on any platform (web + Expo Go run in
+    // Browser/Preview mode; TestFlight/Play console builds may be missing
+    // products until store approval lands). Hiding the banner avoids
+    // alarming users; the Subscribe button itself will silently no-op
+    // if no package is loaded.
+    offeringsError: false,
     purchase: purchaseMutation.mutateAsync,
     restore: restoreMutation.mutateAsync,
     isPurchasing: purchaseMutation.isPending,

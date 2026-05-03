@@ -82,10 +82,8 @@ export default function SubscriptionScreen() {
   const handleSubscribe = async () => {
     if (isPurchasing) return;
     if (!selectedPackage) {
-      Alert.alert(t.pricesUnavailable, t.couldNotConnectStore, [
-        { text: t.retry, onPress: () => refetchOfferings() },
-        { text: t.cancel, style: "cancel" },
-      ]);
+      // Silently refetch offerings — no alarming dialog for the user.
+      refetchOfferings();
       return;
     }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
