@@ -284,7 +284,7 @@ export async function composeWinImage(
   // CORRECT badge width: auto-fit text with ~3 px side margin
   // "CORRECT" @ 28px ≈ 7 chars × 17px + 6 gaps × 3px = 137px → +6px = 143 → round up
   const FS_CORRECT  = 28;
-  const BADGE_W     = 150;  // tight pill — ~3px each side of "CORRECT" text
+  const BADGE_W     = 200;  // snug pill — letter-spacing 0 keeps text inside
   const FS_HDR      = 30;   // "PROBALY PICK RESULT"
   const FS_MATCH    = 52;
   const FS_LBL      = 20;
@@ -296,7 +296,7 @@ export async function composeWinImage(
   const DIV_H       = 5;
 
   // --- Vertical gaps ---
-  const G_LOGO_HDR    = 30;
+  const G_LOGO_HDR    = 52;  // extra gap: logo → "PROBALY PICK RESULT"
   const G_HDR_BADGE   = 26;
   const G_BADGE_MATCH = 44;
   const G_MATCH_DIV   = 50;
@@ -367,7 +367,7 @@ export async function composeWinImage(
   <text x="540" y="${BADGE_Y + Math.round(BADGE_H / 2) + Math.round(FS_CORRECT * 0.36)}"
         font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
         font-size="${FS_CORRECT}" font-weight="800" fill="${white}"
-        text-anchor="middle" letter-spacing="4">CORRECT</text>
+        text-anchor="middle" letter-spacing="0">CORRECT</text>
 
   <!-- Match title (word-wrapped, max 2 lines) -->
   <text x="540" y="${MATCH_Y1}"
