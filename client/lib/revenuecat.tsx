@@ -104,7 +104,20 @@ function useSubscriptionContext() {
 
   const offeringsQuery = useQuery({
     queryKey: ["revenuecat", "offerings"],
-    queryFn: () => withTimeout(Purchases.getOfferings(), 20000),
+    queryFn: async () => {
+      try {
+        return await withTimeout(Purchases.getOfferings(), 20000);
+      } catch (e: any) {
+        console.warn(
+          "[RC diag] getOfferings failed:",
+          "code=", e?.code,
+          "userCancelled=", e?.userCancelled,
+          "underlying=", e?.underlyingErrorMessage,
+          "msg=", e?.message
+        );
+        throw e;
+      }
+    },
     staleTime: 300 * 1000,
     retry: 3,
     retryDelay: (attempt) => Math.min(2000 * (attempt + 1), 8000),
@@ -113,8 +126,19 @@ function useSubscriptionContext() {
 
   const purchaseMutation = useMutation({
     mutationFn: async (packageToPurchase: any) => {
-      const { customerInfo } = await Purchases.purchasePackage(packageToPurchase);
-      return customerInfo;
+      try {
+        const { customerInfo } = await Purchases.purchasePackage(packageToPurchase);
+        return customerInfo;
+      } catch (e: any) {
+        console.warn(
+          "[RC diag] purchasePackage failed:",
+          "code=", e?.code,
+          "userCancelled=", e?.userCancelled,
+          "underlying=", e?.underlyingErrorMessage,
+          "msg=", e?.message
+        );
+        throw e;
+      }
     },
     onSuccess: () => customerInfoQuery.refetch(),
   });
@@ -153,6 +177,18 @@ function useSubscriptionContext() {
     // alarming users; the Subscribe button itself will silently no-op
     // if no package is loaded.
     offeringsError: false,
+    // Exposed for the hidden long-press diagnostic on SubscriptionScreen
+    // so we can pinpoint why a TestFlight / Play build can't load offerings
+    // (PURCHASE_NOT_ALLOWED, STORE_PROBLEM, PRODUCT_NOT_AVAILABLE, etc.).
+    diagnostics: {
+      initialized: _initialized,
+      apiKeyEnv: __DEV__ || Platform.OS === "web" || Constants.executionEnvironment === "storeClient" ? "test" : Platform.OS,
+      executionEnvironment: Constants.executionEnvironment ?? "unknown",
+      offeringsRawError: offeringsQuery.error as any,
+      purchaseRawError: purchaseMutation.error as any,
+      packagesAvailable: currentOffering?.availablePackages.length ?? 0,
+      currentOfferingId: currentOffering?.identifier ?? null,
+    },
     purchase: purchaseMutation.mutateAsync,
     restore: restoreMutation.mutateAsync,
     isPurchasing: purchaseMutation.isPending,

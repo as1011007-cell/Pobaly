@@ -56,7 +56,36 @@ export default function SubscriptionScreen() {
     isRestoring,
     isSubscribed,
     refetchCustomerInfo,
+    diagnostics,
   } = useSubscription();
+
+  // Hidden diagnostic — long-press the header image to surface the actual
+  // RevenueCat error code/message. Only useful for the developer when
+  // troubleshooting "could not connect to store" on TestFlight / Play builds.
+  const showStoreDiagnostics = () => {
+    const e: any = diagnostics.offeringsRawError;
+    const p: any = diagnostics.purchaseRawError;
+    const lines = [
+      `Platform: ${Platform.OS}`,
+      `Exec env: ${diagnostics.executionEnvironment}`,
+      `RC ready: ${diagnostics.initialized}`,
+      `Key env: ${diagnostics.apiKeyEnv}`,
+      `Offering: ${diagnostics.currentOfferingId ?? "(none loaded)"}`,
+      `Packages: ${diagnostics.packagesAvailable}`,
+      `Monthly pkg: ${monthlyPackage ? "yes" : "no"}`,
+      `Annual pkg: ${annualPackage ? "yes" : "no"}`,
+      "",
+      "Offerings error:",
+      e ? `  code=${e.code ?? "-"}\n  msg=${e.message ?? "-"}\n  underlying=${e.underlyingErrorMessage ?? "-"}` : "  (none)",
+      "",
+      "Purchase error:",
+      p ? `  code=${p.code ?? "-"}\n  msg=${p.message ?? "-"}\n  underlying=${p.underlyingErrorMessage ?? "-"}` : "  (none)",
+    ];
+    Alert.alert("Store diagnostics", lines.join("\n"), [
+      { text: "Retry offerings", onPress: () => refetchOfferings() },
+      { text: "Close", style: "cancel" },
+    ]);
+  };
 
   const selectedPackage = selectedPlan === "monthly" ? monthlyPackage : annualPackage;
   // Show real prices from RevenueCat, or fallback to known prices while loading/failed
@@ -244,11 +273,17 @@ export default function SubscriptionScreen() {
         ) : null}
 
         <View style={styles.header}>
-          <Image
-            source={require("../../assets/images/premium-unlock.png")}
-            style={styles.headerImage}
-            resizeMode="contain"
-          />
+          <Pressable
+            onLongPress={showStoreDiagnostics}
+            delayLongPress={1500}
+            testID="header-image-diagnostics"
+          >
+            <Image
+              source={require("../../assets/images/premium-unlock.png")}
+              style={styles.headerImage}
+              resizeMode="contain"
+            />
+          </Pressable>
           <ThemedText type="h2" style={styles.title}>{t.unlockAllPredictions}</ThemedText>
           <ThemedText type="body" style={{ color: theme.textSecondary, textAlign: "center" }}>
             {t.unlockAllPredictionsDesc}
