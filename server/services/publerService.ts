@@ -280,29 +280,31 @@ export async function composeWinImage(
 
   // --- Sizes ---
   const LOGO_R      = 60;   // logo icon half-size → 120×120 icon
-  const BADGE_H     = 58;   // CORRECT badge height (bigger)
-  const BADGE_W     = 420;  // CORRECT badge width
-  const FS_CORRECT  = 28;   // font inside CORRECT badge
+  const BADGE_H     = 58;   // CORRECT badge height
+  // CORRECT badge width: auto-fit text with ~3 px side margin
+  // "CORRECT" @ 28px ≈ 7 chars × 17px + 6 gaps × 3px = 137px → +6px = 143 → round up
+  const FS_CORRECT  = 28;
+  const BADGE_W     = 150;  // tight pill — ~3px each side of "CORRECT" text
   const FS_HDR      = 30;   // "PROBALY PICK RESULT"
   const FS_MATCH    = 52;
   const FS_LBL      = 20;
   const FS_PICK     = 52;
   const FS_URL      = 22;
-  const MATCH_DY    = 62;   // dy between wrapped title lines
-  const IMG_W       = 230;  // store-badge image width  (both same)
-  const IMG_H       = 81;   // store-badge image height (both same, 230/2.84)
+  const MATCH_DY    = 66;   // dy between wrapped title lines (more line-height)
+  const IMG_W       = 196;  // store-badge image width  (both same)
+  const IMG_H       = 69;   // store-badge image height (196/2.84 ≈ 69)
   const DIV_H       = 5;
 
-  // --- Vertical gaps (more breathing room) ---
-  const G_LOGO_HDR    = 28;
-  const G_HDR_BADGE   = 22;
-  const G_BADGE_MATCH = 40;
-  const G_MATCH_DIV   = 44;
-  const G_DIV_LBL     = 52;
-  const G_LBL_TXT     = 16;
-  const G_PICK_SCORE  = 44;
-  const G_SCORE_BADGE = 62;
-  const G_BADGE_URL   = 22;
+  // --- Vertical gaps ---
+  const G_LOGO_HDR    = 30;
+  const G_HDR_BADGE   = 26;
+  const G_BADGE_MATCH = 44;
+  const G_MATCH_DIV   = 50;
+  const G_DIV_LBL     = 56;
+  const G_LBL_TXT     = 18;
+  const G_PICK_SCORE  = 50;
+  const G_SCORE_BADGE = 90;  // extra gap before the bottom badge+url block
+  const G_BADGE_URL   = 24;
 
   // --- Total content height (used to centre vertically) ---
   const contentH =
@@ -373,8 +375,8 @@ export async function composeWinImage(
         font-size="${FS_MATCH}" font-weight="800" fill="${white}"
         text-anchor="middle">${matchTSpans}</text>
 
-  <!-- Divider — thick red line -->
-  <line x1="120" y1="${DIVIDER_Y}" x2="960" y2="${DIVIDER_Y}"
+  <!-- Divider — shorter, thick red line -->
+  <line x1="280" y1="${DIVIDER_Y}" x2="800" y2="${DIVIDER_Y}"
         stroke="${red}" stroke-width="${DIV_H}" stroke-linecap="round"/>
 
   <!-- OUR PICK label -->
