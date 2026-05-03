@@ -815,9 +815,11 @@ async function _generateDailyFreeTipImpl(opts?: { force?: boolean }): Promise<vo
       expiresAt: new Date(best.match.matchTime.getTime() + 3 * 60 * 60 * 1000),
     };
 
-    // Last-second dedup: a free tip with the same title for the same date
-    // already exists? Don't double-insert. The system-pick lock prevents
-    // the racing call paths; this query is the final guarantee.
+    // Last-second dedup: a *free* tip (isPremium=false) with the same title
+    // for the same date already exists? Don't double-insert. We must NOT
+    // dedupe against premium system picks here — premium picks share the
+    // same match pool, so blocking on them leaves the day with zero free
+    // tips. Only block against another existing free tip for the same match.
     const matchDateStr = predictionData.matchTime.toISOString().slice(0, 10);
     const collision = await db
       .select({ id: predictions.id })
@@ -825,6 +827,7 @@ async function _generateDailyFreeTipImpl(opts?: { force?: boolean }): Promise<vo
       .where(
         and(
           isNull(predictions.userId),
+          eq(predictions.isPremium, false),
           eq(predictions.matchTitle, predictionData.matchTitle),
           sql`date(${predictions.matchTime}) = ${matchDateStr}::date`,
         ),
@@ -832,7 +835,7 @@ async function _generateDailyFreeTipImpl(opts?: { force?: boolean }): Promise<vo
       .limit(1);
     if (collision.length > 0) {
       console.log(
-        `[FREE-TIP] Last-second dedup: skipping "${predictionData.matchTitle}" — system pick already exists (id=${collision[0].id})`,
+        `[FREE-TIP] Last-second dedup: skipping "${predictionData.matchTitle}" — another free tip already exists (id=${collision[0].id})`,
       );
       return;
     }
