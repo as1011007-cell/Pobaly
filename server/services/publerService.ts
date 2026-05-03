@@ -444,6 +444,10 @@ export async function listAccounts() {
   return await publerFetch("/accounts", { method: "GET" }, true);
 }
 
+export async function getJobStatus(jobId: string) {
+  return await publerFetch(`/job_status/${jobId}`, { method: "GET" }, true);
+}
+
 // Skip wins for matches that started > this many hours ago, so we never
 // backfill ancient wins from before the auto-poster was enabled.
 const STALE_MATCH_HOURS = 24;

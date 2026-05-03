@@ -1104,6 +1104,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Publer: check async job status by jobId
+  app.get("/api/admin/publer/job/:jobId", requireAdmin, adminRateLimit, async (req: Request, res: Response) => {
+    try {
+      const { getJobStatus } = await import("./services/publerService");
+      const r = await getJobStatus(req.params.jobId);
+      res.json(r.body);
+    } catch (error: any) {
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+
   // Publer: inspect recent social_posts rows for diagnosis.
   app.get("/api/admin/publer/posts", requireAdmin, adminRateLimit, async (_req: Request, res: Response) => {
     try {
