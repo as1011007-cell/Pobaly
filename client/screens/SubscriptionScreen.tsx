@@ -22,7 +22,7 @@ import { Button } from "@/components/Button";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/contexts/AuthContext";
 import { BorderRadius, Spacing } from "@/constants/theme";
-import { useSubscription, REVENUECAT_ENTITLEMENT_IDENTIFIER, fetchCustomerInfo, getCachedPrices } from "@/lib/revenuecat";
+import { useSubscription, REVENUECAT_ENTITLEMENT_IDENTIFIER, fetchCustomerInfo, getCachedPrices, formatStrikePrice, STRIKE_MULTIPLIER_MONTHLY, STRIKE_MULTIPLIER_ANNUAL } from "@/lib/revenuecat";
 import { apiRequest } from "@/lib/query-client";
 import { useLanguage } from "@/contexts/LanguageContext";
 
@@ -105,10 +105,12 @@ export default function SubscriptionScreen() {
 
   const monthlyPriceLabel = monthlyPackage?.product.priceString ?? cachedMonthly;
   const annualPriceLabel = annualPackage?.product.priceString ?? cachedAnnual;
-  // Hide the strike-through list price unless we have a real localized current
-  // price to compare against — avoids mixed-currency displays.
-  const showOriginalMonthly = !!monthlyPriceLabel;
-  const showOriginalAnnual = !!annualPriceLabel;
+  // Compute strike-through "regular" prices from the live RC package so they
+  // are always in the same currency as the actual price. Renders nothing
+  // until the live package is available — we never mix USD strike-through
+  // with a localized current price.
+  const monthlyStrike = formatStrikePrice(monthlyPackage, STRIKE_MULTIPLIER_MONTHLY);
+  const annualStrike = formatStrikePrice(annualPackage, STRIKE_MULTIPLIER_ANNUAL);
 
   const handleSelectPlan = (plan: PlanType) => {
     setSelectedPlan(plan);
@@ -341,8 +343,8 @@ export default function SubscriptionScreen() {
               </View>
             </View>
             <View style={styles.planPriceRow}>
-              {showOriginalMonthly ? (
-                <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>$99.00</ThemedText>
+              {monthlyStrike ? (
+                <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>{monthlyStrike}</ThemedText>
               ) : null}
               {monthlyPriceLabel ? (
                 <ThemedText type="h2" style={{ color: theme.text }}>{monthlyPriceLabel}</ThemedText>
@@ -381,8 +383,8 @@ export default function SubscriptionScreen() {
               </View>
             </View>
             <View style={styles.planPriceRow}>
-              {showOriginalAnnual ? (
-                <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>$399.00</ThemedText>
+              {annualStrike ? (
+                <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>{annualStrike}</ThemedText>
               ) : null}
               {annualPriceLabel ? (
                 <ThemedText type="h2" style={{ color: theme.text }}>{annualPriceLabel}</ThemedText>

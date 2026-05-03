@@ -31,6 +31,40 @@ async function setCachedPrices(next: CachedPrices) {
   }
 }
 
+// Render a strike-through "regular price" by multiplying the live RC price
+// (which is already in the user's local currency) and reformatting with the
+// same currency code. Returns undefined if we don't have enough info — the
+// caller should hide the strike-through in that case rather than showing a
+// hardcoded USD number next to a localized current price.
+//
+// Multipliers chosen to roughly preserve the prior $99 / $399 framing:
+//   monthly: 2.00x  ($49.99 -> ~$100)
+//   annual:  2.68x  ($149   -> ~$399)
+export function formatStrikePrice(
+  rcPackage: { product: { price?: number; currencyCode?: string } } | undefined | null,
+  multiplier: number,
+): string | undefined {
+  if (!rcPackage) return undefined;
+  const price = rcPackage.product.price;
+  const currencyCode = rcPackage.product.currencyCode;
+  if (typeof price !== "number" || price <= 0 || !currencyCode) return undefined;
+  const original = Math.round(price * multiplier);
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: currencyCode,
+      maximumFractionDigits: 0,
+    }).format(original);
+  } catch {
+    // Some RN runtimes ship a partial Intl. Fall back to a simple format
+    // using the localized symbol from priceString as a best effort.
+    return undefined;
+  }
+}
+
+export const STRIKE_MULTIPLIER_MONTHLY = 2.0;
+export const STRIKE_MULTIPLIER_ANNUAL = 2.68;
+
 // EXPO_PUBLIC_ keys are intentionally public — safe to have as fallbacks in source.
 // EAS builds inject these from eas.json env blocks; the fallbacks ensure Expo Go and
 // Replit dev environment work even without secrets configured in the host shell.

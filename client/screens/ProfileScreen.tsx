@@ -28,7 +28,7 @@ import { BorderRadius, Spacing } from "@/constants/theme";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { getLanguageName } from "@/lib/translations";
-import { useSubscription, REVENUECAT_ENTITLEMENT_IDENTIFIER, fetchCustomerInfo, getCachedPrices } from "@/lib/revenuecat";
+import { useSubscription, REVENUECAT_ENTITLEMENT_IDENTIFIER, fetchCustomerInfo, getCachedPrices, formatStrikePrice, STRIKE_MULTIPLIER_MONTHLY, STRIKE_MULTIPLIER_ANNUAL } from "@/lib/revenuecat";
 import {
   requestPermissionsWithState,
   getNotificationPermissionState,
@@ -79,8 +79,11 @@ export default function ProfileScreen() {
 
   const monthlyPrice = monthlyPackage?.product.priceString ?? cachedMonthly;
   const annualPrice = annualPackage?.product.priceString ?? cachedAnnual;
-  const showOriginalMonthly = !!monthlyPrice;
-  const showOriginalAnnual = !!annualPrice;
+  // Strike-through "regular" prices, computed from the live RC package so
+  // they always match the live currency. Hidden until the live package
+  // resolves to avoid mixed-currency displays.
+  const monthlyStrike = formatStrikePrice(monthlyPackage, STRIKE_MULTIPLIER_MONTHLY);
+  const annualStrike = formatStrikePrice(annualPackage, STRIKE_MULTIPLIER_ANNUAL);
 
   const handleSelectPlan = (plan: PlanType) => {
     setSelectedPlan(plan);
@@ -500,8 +503,8 @@ export default function ProfileScreen() {
                     </View>
                   </View>
                   <View style={styles.planPriceRow}>
-                    {showOriginalMonthly ? (
-                      <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>$99</ThemedText>
+                    {monthlyStrike ? (
+                      <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>{monthlyStrike}</ThemedText>
                     ) : null}
                     {monthlyPrice ? (
                       <ThemedText type="h3" style={{ color: theme.text }}>{monthlyPrice}</ThemedText>
@@ -539,8 +542,8 @@ export default function ProfileScreen() {
                     </View>
                   </View>
                   <View style={styles.planPriceRow}>
-                    {showOriginalAnnual ? (
-                      <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>$399</ThemedText>
+                    {annualStrike ? (
+                      <ThemedText style={[styles.originalPrice, { color: theme.textSecondary }]}>{annualStrike}</ThemedText>
                     ) : null}
                     {annualPrice ? (
                       <ThemedText type="h3" style={{ color: theme.text }}>{annualPrice}</ThemedText>
