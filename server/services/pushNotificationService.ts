@@ -373,7 +373,35 @@ const DAILY_FREE_TIP_COPY: LocalizedText = {
   ru: { title: "Ваш бесплатный прогноз дня готов!",          body: "Вас ждёт новый прогноз от ИИ. Откройте приложение, чтобы посмотреть!" },
 };
 
+const FREE_TIP_WON_COPY: LocalizedText = {
+  en: { title: "Free Tip Won!",               body: "Probaly's free tip of the day came in correct. Open the app to see the result!" },
+  es: { title: "¡El pronóstico gratuito ganó!", body: "El pronóstico gratuito de hoy fue correcto. ¡Abre la app para ver el resultado!" },
+  fr: { title: "Le pronostic gratuit a gagné !", body: "Le pronostic gratuit du jour est correct. Ouvre l'application pour voir le résultat !" },
+  de: { title: "Gratis-Tipp gewonnen!",         body: "Der heutige Gratis-Tipp war richtig. Öffne die App, um das Ergebnis zu sehen!" },
+  ja: { title: "無料予想が的中！",               body: "本日の無料予想が正解でした。アプリを開いて結果を確認しよう！" },
+  zh: { title: "免费推荐命中！",                body: "今日免费预测正确！打开应用查看结果吧！" },
+  ru: { title: "Бесплатный прогноз сыграл!",   body: "Бесплатный прогноз дня оказался верным. Открой приложение, чтобы увидеть результат!" },
+};
+
 // ── Public API ───────────────────────────────────────────────────────────────
+
+export async function notifyFreeTipWon(matchTitle: string): Promise<void> {
+  try {
+    const copy: LocalizedText = {
+      en: { title: "Free Tip Won!",               body: `${matchTitle} — our free tip was correct! Open the app to see the result.` },
+      es: { title: "¡El pronóstico gratuito ganó!", body: `${matchTitle} — nuestro pronóstico gratuito fue correcto. ¡Abre la app!` },
+      fr: { title: "Le pronostic gratuit a gagné !", body: `${matchTitle} — notre pronostic gratuit était correct. Ouvre l'application !` },
+      de: { title: "Gratis-Tipp gewonnen!",         body: `${matchTitle} — unser Gratis-Tipp war richtig. Öffne die App!` },
+      ja: { title: "無料予想が的中！",               body: `${matchTitle} — 無料予想が正解でした。アプリを確認しよう！` },
+      zh: { title: "免费推荐命中！",                body: `${matchTitle} — 免费预测正确！打开应用查看吧！` },
+      ru: { title: "Бесплатный прогноз сыграл!",   body: `${matchTitle} — бесплатный прогноз верный! Открой приложение!` },
+    };
+    await sendLocalizedNotificationsToAll(copy, { type: "free_tip_won", screen: "History" });
+    console.log(`[Push] Free tip won notification sent for: ${matchTitle}`);
+  } catch (error) {
+    console.error("[Push] Error sending free tip won notification:", error);
+  }
+}
 
 export async function notifyDailyFreePredictionReady(): Promise<void> {
   try {

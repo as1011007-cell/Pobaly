@@ -2126,6 +2126,16 @@ export async function resolvePredictionResults(includeOddsApi: boolean = false):
           );
         }).catch((e) => console.error("[RESOLVE] publerService import failed:", e));
       }
+
+      // Push notification: only for the free tip of the day (not premium picks).
+      const isFreeTipWin = !pred.isPremium && !pred.userId;
+      if (isFreeTipWin) {
+        import("./pushNotificationService").then(({ notifyFreeTipWon }) => {
+          notifyFreeTipWon(pred.matchTitle).catch((e) =>
+            console.error(`[RESOLVE] Free tip won push for ${pred.id} failed:`, e),
+          );
+        }).catch((e) => console.error("[RESOLVE] pushNotificationService import failed:", e));
+      }
     } else {
       // GAP-FREE LOSS SWAP: if this is today's active free tip about to be
       // marked incorrect, generate the replacement FIRST while the current
