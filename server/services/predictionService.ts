@@ -761,9 +761,7 @@ async function _generateDailyFreeTipImpl(opts?: { force?: boolean }): Promise<vo
         return;
       }
 
-      const fbDisplayProbability = Math.max(pick.probability, 71);
-      const fbDisplayConfidence = fbDisplayProbability >= 75 ? "high" : pick.confidence;
-      const fbSportsbookOdds = generateSportsbookOdds(fbDisplayProbability, pick.predictedOutcome);
+      const fbSportsbookOdds = generateSportsbookOdds(pick.probability, pick.predictedOutcome);
 
       await db.insert(predictions).values({
         userId: null,
@@ -771,30 +769,26 @@ async function _generateDailyFreeTipImpl(opts?: { force?: boolean }): Promise<vo
         sport: pick.sport,
         matchTime: pick.matchTime,
         predictedOutcome: pick.predictedOutcome,
-        probability: fbDisplayProbability,
-        confidence: fbDisplayConfidence,
+        probability: pick.probability,
+        confidence: pick.confidence,
         explanation: pick.explanation,
         factors: pick.factors as any,
         sportsbookOdds: fbSportsbookOdds,
-        riskIndex: Math.min(pick.riskIndex ?? 3, 4),
+        riskIndex: pick.riskIndex ?? 5,
         isLive: false,
         isPremium: false,
         result: null,
         expiresAt: new Date(pick.matchTime.getTime() + 3 * 60 * 60 * 1000),
       });
       invalidateFreeTipCache();
-      console.log(`[FREE-TIP] Fallback success: cloned premium pick "${pick.matchTitle}" (real ${pick.probability}% → display ${fbDisplayProbability}%, sport: ${pick.sport})`);
+      console.log(`[FREE-TIP] Fallback success: cloned premium pick "${pick.matchTitle}" (probability: ${pick.probability}%, confidence: ${pick.confidence}, riskIndex: ${pick.riskIndex ?? 5}, sport: ${pick.sport})`);
     } catch (fallbackErr) {
       console.error("[FREE-TIP] Fallback failed with error:", fallbackErr);
     }
     return;
   }
 
-  // Always boost displayed probability to ≥71% so the free tip looks compelling.
-  const displayProbability = Math.max(best.analysis.probability, 71);
-  const displayConfidence = displayProbability >= 75 ? "high" : best.analysis.confidence;
-
-  const sportsbookOdds = generateSportsbookOdds(displayProbability, best.analysis.predictedOutcome);
+  const sportsbookOdds = generateSportsbookOdds(best.analysis.probability, best.analysis.predictedOutcome);
 
   try {
     const predictionData: InsertPrediction = {
@@ -803,12 +797,12 @@ async function _generateDailyFreeTipImpl(opts?: { force?: boolean }): Promise<vo
       sport: best.match.sport,
       matchTime: best.match.matchTime,
       predictedOutcome: best.analysis.predictedOutcome,
-      probability: displayProbability,
-      confidence: displayConfidence,
+      probability: best.analysis.probability,
+      confidence: best.analysis.confidence,
       explanation: best.analysis.explanation,
       factors: best.analysis.factors,
       sportsbookOdds: sportsbookOdds,
-      riskIndex: Math.min(best.analysis.riskIndex, 4),
+      riskIndex: best.analysis.riskIndex,
       isLive: false,
       isPremium: false,
       result: null,
@@ -841,7 +835,7 @@ async function _generateDailyFreeTipImpl(opts?: { force?: boolean }): Promise<vo
     }
     await db.insert(predictions).values(predictionData);
     invalidateFreeTipCache();
-    console.log(`Generated free prediction for: ${best.match.homeTeam} vs ${best.match.awayTeam} (real ${best.analysis.probability}% → display ${displayProbability}%, sport: ${best.match.sport})`);
+    console.log(`Generated free prediction for: ${best.match.homeTeam} vs ${best.match.awayTeam} (probability: ${best.analysis.probability}%, confidence: ${best.analysis.confidence}, riskIndex: ${best.analysis.riskIndex}, sport: ${best.match.sport})`);
   } catch (error) {
     console.error("Failed to generate daily free prediction:", error);
     throw error;
@@ -1803,7 +1797,7 @@ export async function getHistoryPredictions(userId?: string, isPremiumUser?: boo
     // isPremium ASC so the FREE TIP row wins dedup when the same game has both
     // a free-tip row and a premium row. This keeps history consistent with what
     // the user actually saw on the home card — the free tip uses the boosted
-    // displayProbability (≥71%) and "high" confidence per generateFreeTip(),
+    // real probability, confidence and riskIndex from the AI per generateFreeTip(),
     // whereas the premium duplicate stores the AI's raw lower probability.
     .orderBy(desc(predictions.matchTime), asc(predictions.isPremium));
 
