@@ -527,10 +527,10 @@ function setupErrorHandler(app: express.Application) {
       await initPushTokensTable();
 
       // Fix any users stuck on isPremium=true with an expired subscription.
-      // Runs on startup and every 6 hours. Webhooks handle real-time events;
+      // Runs on startup and every 12 hours. Webhooks handle real-time events;
       // this is the safety net for any that were missed.
       await expiredSubscriptionCleanup();
-      setInterval(expiredSubscriptionCleanup, 6 * 60 * 60 * 1000);
+      setInterval(expiredSubscriptionCleanup, 12 * 60 * 60 * 1000);
 
       // Start daily prediction refresh scheduler (runs on startup and every 24 hours)
       startDailyRefreshScheduler();
