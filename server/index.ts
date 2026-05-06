@@ -13,6 +13,40 @@ import { eq } from "drizzle-orm";
 const app = express();
 const log = console.log;
 
+// Protected emails whose isPremium is managed by seedTestUser — never auto-downgrade
+const PROTECTED_PREMIUM_EMAILS = new Set(["test@probaly.app"]);
+
+async function expiredSubscriptionCleanup(): Promise<void> {
+  try {
+    const { sql } = await import("drizzle-orm");
+    // Single UPDATE…RETURNING: atomically downgrade every user whose subscription
+    // has expired, skipping protected accounts (test@probaly.app is always reset
+    // to a 10-year expiry by seedTestUser, so it will never appear here).
+    // NULL expiry = no expiry info — skip so manually-granted access is untouched.
+    const protectedList = Array.from(PROTECTED_PREMIUM_EMAILS).map(e => `'${e.replace(/'/g, "''")}'`).join(",");
+    const result: any = await db.execute(sql.raw(`
+      UPDATE users
+      SET is_premium = false
+      WHERE is_premium = true
+        AND subscription_expiry IS NOT NULL
+        AND subscription_expiry < NOW()
+        AND email NOT IN (${protectedList})
+      RETURNING id, email, subscription_expiry
+    `));
+    const rows: any[] = result?.rows ?? Array.from(result ?? []);
+    if (rows.length === 0) {
+      log("[SubscriptionCleanup] No expired premium users found.");
+      return;
+    }
+    log(
+      `[SubscriptionCleanup] Downgraded ${rows.length} expired premium user(s): ` +
+      rows.map((r: any) => `${r.email} (expired ${r.subscription_expiry})`).join(", ")
+    );
+  } catch (err) {
+    log(`[SubscriptionCleanup] Error: ${(err as Error).message}`);
+  }
+}
+
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
@@ -491,6 +525,12 @@ function setupErrorHandler(app: express.Application) {
       // Initialize push notification tokens table
       const { initPushTokensTable } = await import("./services/pushNotificationService");
       await initPushTokensTable();
+
+      // Fix any users stuck on isPremium=true with an expired subscription.
+      // Runs on startup and every 6 hours. Webhooks handle real-time events;
+      // this is the safety net for any that were missed.
+      await expiredSubscriptionCleanup();
+      setInterval(expiredSubscriptionCleanup, 6 * 60 * 60 * 1000);
 
       // Start daily prediction refresh scheduler (runs on startup and every 24 hours)
       startDailyRefreshScheduler();
