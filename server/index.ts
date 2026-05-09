@@ -444,31 +444,26 @@ function setupErrorHandler(app: express.Application) {
     log(`Password reset table init failed (continuing): ${(err as Error).message}`);
   }
 
-  // Telegram channel mirror: ingests photos/videos from the configured
-  // private channel and exposes them to the landing page for 24h.
-  // Mounts /api/landing/telegram-media + /uploads/telegram static serve.
-  try {
-    const { initTelegramService, disconnectTelegramClient } = await import("./services/telegramService");
-    await initTelegramService(app);
-    // Graceful shutdown: release the Telegram auth key before this process
-    // exits so the next deployment instance doesn't get AUTH_KEY_DUPLICATED.
-    process.on("SIGTERM", () => {
-      void disconnectTelegramClient().finally(() => process.exit(0));
-    });
-  } catch (err) {
-    log(`Telegram service init failed (continuing): ${(err as Error).message}`);
-  }
+  // Telegram channel mirror — DISABLED
+  // To re-enable, uncomment the block below.
+  // try {
+  //   const { initTelegramService, disconnectTelegramClient } = await import("./services/telegramService");
+  //   await initTelegramService(app);
+  //   process.on("SIGTERM", () => {
+  //     void disconnectTelegramClient().finally(() => process.exit(0));
+  //   });
+  // } catch (err) {
+  //   log(`Telegram service init failed (continuing): ${(err as Error).message}`);
+  // }
 
-  // Publer auto-posting: bootstraps social_posts table and serves the
-  // /uploads/social/ public dir where win-celebration images are written.
-  // Posts are triggered automatically when a free tip flips to 'correct'
-  // (see resolvePredictionResults in predictionService.ts).
-  try {
-    const { initPublerService } = await import("./services/publerService");
-    await initPublerService(app);
-  } catch (err) {
-    log(`Publer service init failed (continuing): ${(err as Error).message}`);
-  }
+  // Publer / Instagram auto-posting — DISABLED
+  // To re-enable, uncomment the block below.
+  // try {
+  //   const { initPublerService } = await import("./services/publerService");
+  //   await initPublerService(app);
+  // } catch (err) {
+  //   log(`Publer service init failed (continuing): ${(err as Error).message}`);
+  // }
 
   setupErrorHandler(app);
 
