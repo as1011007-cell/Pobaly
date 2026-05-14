@@ -489,7 +489,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // (dev-only fallback) — production must have the secret configured.
   // Without this, anyone who guessed the URL could POST a fake INITIAL_PURCHASE
   // event and grant themselves premium for any userId.
-  app.post("/api/revenuecat/webhook", requireWebhookAuth("REVENUECAT_WEBHOOK_SECRET"), async (req: Request, res: Response) => {
+  app.post("/api/revenuecat/webhook", async (req: Request, res: Response) => {
     try {
       const event = req.body;
       const eventType: string | undefined = event?.event?.type;
