@@ -280,6 +280,9 @@ function configureLegalPages(app: express.Application) {
   // Static assets used by the landing page.
   app.use("/assets", express.static(path.resolve(process.cwd(), "assets")));
 
+  // Serve uploaded files (social post images, fallback winnings screenshots, etc.)
+  app.use("/uploads", express.static(path.resolve(process.cwd(), "server", "uploads")));
+
   // Google Search Console verification.
   app.get("/google5558d3209820d790.html", (_req: Request, res: Response) => {
     const verifyPath = path.resolve(process.cwd(), "server", "templates", "google5558d3209820d790.html");
