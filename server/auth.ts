@@ -124,12 +124,11 @@ export async function optionalAuth(req: Request, res: Response, next: NextFuncti
       const currentVersion = await getCurrentTokenVersion(payload.sub);
       const tokenTv = typeof payload.tv === "number" ? payload.tv : 0;
       if (currentVersion !== null && tokenTv !== currentVersion) {
-        // The client is presenting a token from a previous session — kick it
-        // out even on otherwise-public endpoints so the app signs out fast.
-        return res.status(401).json({
-          error: "Your session ended because this account signed in on another device.",
-          code: "SESSION_REVOKED",
-        });
+        // Session revoked — proceed as unauthenticated so public endpoints
+        // (counts, free-tip, etc.) still return data instead of a blank screen.
+        // requireAuth endpoints will still return 401, which triggers sign-out
+        // in the app's AuthContext.
+        return next();
       }
       req.userId = payload.sub;
     }
