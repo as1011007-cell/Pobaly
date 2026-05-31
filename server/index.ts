@@ -520,6 +520,33 @@ function setupErrorHandler(app: express.Application) {
         log(`[DEMO] cleanup skipped: ${(err as Error).message}`);
       }
 
+      // Ensure DB indexes exist for hot query paths. All statements use
+      // IF NOT EXISTS so this block is fully idempotent on every deploy.
+      try {
+        const { sql: rawSql } = await import("drizzle-orm");
+        // Partial index: only correct, public predictions — exact match for history query
+        await db.execute(rawSql.raw(
+          `CREATE INDEX IF NOT EXISTS idx_predictions_history
+             ON predictions (match_time DESC)
+             WHERE result = 'correct' AND user_id IS NULL`
+        ));
+        // Active (pending) predictions per sport — used by sport screen and counts
+        await db.execute(rawSql.raw(
+          `CREATE INDEX IF NOT EXISTS idx_predictions_sport_active
+             ON predictions (sport, match_time ASC, user_id)
+             WHERE result IS NULL AND is_live = false`
+        ));
+        // Resolver: quickly find unresolved predictions whose match time has passed
+        await db.execute(rawSql.raw(
+          `CREATE INDEX IF NOT EXISTS idx_predictions_resolver
+             ON predictions (match_time ASC)
+             WHERE result IS NULL`
+        ));
+        log("[DB] Indexes verified/created OK");
+      } catch (err) {
+        log(`[DB] Index creation skipped: ${(err as Error).message}`);
+      }
+
       // Initialize push notification tokens table
       const { initPushTokensTable } = await import("./services/pushNotificationService");
       await initPushTokensTable();
