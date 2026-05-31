@@ -22,13 +22,19 @@ const ESPN_CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours
 
 const SPORTS_MAP: Record<string, { apiKey: string; sportName: string; league: string }[]> = {
   football: [
+    // Year-round / currently active
+    { apiKey: 'soccer_fifa_world_cup', sportName: 'football', league: 'FIFA World Cup' },
+    { apiKey: 'soccer_conmebol_copa_libertadores', sportName: 'football', league: 'Copa Libertadores' },
+    { apiKey: 'soccer_conmebol_copa_sudamericana', sportName: 'football', league: 'Copa Sudamericana' },
+    { apiKey: 'soccer_brazil_campeonato', sportName: 'football', league: 'Brazil Série A' },
+    { apiKey: 'soccer_usa_mls', sportName: 'football', league: 'MLS' },
+    // European leagues — active Aug–May; Odds API omits inactive leagues automatically
     { apiKey: 'soccer_epl', sportName: 'football', league: 'Premier League' },
     { apiKey: 'soccer_spain_la_liga', sportName: 'football', league: 'La Liga' },
     { apiKey: 'soccer_germany_bundesliga', sportName: 'football', league: 'Bundesliga' },
     { apiKey: 'soccer_italy_serie_a', sportName: 'football', league: 'Serie A' },
     { apiKey: 'soccer_france_ligue_one', sportName: 'football', league: 'Ligue 1' },
     { apiKey: 'soccer_uefa_champs_league', sportName: 'football', league: 'Champions League' },
-    { apiKey: 'soccer_usa_mls', sportName: 'football', league: 'MLS' },
   ],
   basketball: [
     { apiKey: 'basketball_nba', sportName: 'basketball', league: 'NBA' },
@@ -168,12 +174,18 @@ const ESPN_ENDPOINTS: { url: string; sport: string; league: string }[] = [
   { url: 'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard', sport: 'basketball', league: 'NBA' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard', sport: 'baseball', league: 'MLB' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard', sport: 'hockey', league: 'NHL' },
+  // Football — year-round active leagues listed first
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard', sport: 'football', league: 'FIFA World Cup' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/conmebol.libertadores/scoreboard', sport: 'football', league: 'Copa Libertadores' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/conmebol.sudamericana/scoreboard', sport: 'football', league: 'Copa Sudamericana' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/bra.1/scoreboard', sport: 'football', league: 'Brazil Série A' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard', sport: 'football', league: 'MLS' },
+  // European leagues — active Aug–May
   { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard', sport: 'football', league: 'Premier League' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/esp.1/scoreboard', sport: 'football', league: 'La Liga' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/ger.1/scoreboard', sport: 'football', league: 'Bundesliga' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/ita.1/scoreboard', sport: 'football', league: 'Serie A' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/fra.1/scoreboard', sport: 'football', league: 'Ligue 1' },
-  { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard', sport: 'football', league: 'MLS' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.champions/scoreboard', sport: 'football', league: 'Champions League' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard', sport: 'mma', league: 'UFC' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/tennis/atp/scoreboard', sport: 'tennis', league: 'ATP Tour' },
