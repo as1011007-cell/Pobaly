@@ -38,12 +38,13 @@ const SPORTS_MAP: Record<string, { apiKey: string; sportName: string; league: st
   ],
   basketball: [
     { apiKey: 'basketball_nba', sportName: 'basketball', league: 'NBA' },
+    { apiKey: 'basketball_wnba', sportName: 'basketball', league: 'WNBA' },
     { apiKey: 'basketball_euroleague', sportName: 'basketball', league: 'EuroLeague' },
     { apiKey: 'basketball_ncaab', sportName: 'basketball', league: 'NCAAB' },
   ],
   tennis: [
-    { apiKey: 'tennis_atp_monte_carlo_masters', sportName: 'tennis', league: 'ATP Monte-Carlo Masters' },
-    { apiKey: 'tennis_wta_charleston_open', sportName: 'tennis', league: 'WTA Charleston Open' },
+    { apiKey: 'tennis_atp_french_open', sportName: 'tennis', league: 'ATP French Open' },
+    { apiKey: 'tennis_wta_french_open', sportName: 'tennis', league: 'WTA French Open' },
   ],
   baseball: [
     { apiKey: 'baseball_mlb', sportName: 'baseball', league: 'MLB' },
@@ -172,6 +173,7 @@ export function isUsingFallbackData(): boolean {
 
 const ESPN_ENDPOINTS: { url: string; sport: string; league: string }[] = [
   { url: 'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard', sport: 'basketball', league: 'NBA' },
+  { url: 'https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard', sport: 'basketball', league: 'WNBA' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard', sport: 'baseball', league: 'MLB' },
   { url: 'https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard', sport: 'hockey', league: 'NHL' },
   // Football — year-round active leagues listed first
@@ -324,11 +326,20 @@ async function getESPNMatches(): Promise<SportsMatch[]> {
     }
   }
 
-  // Also fetch next 3 days for key leagues to ensure enough upcoming games
+  // Also fetch next 7 days for key leagues to ensure enough upcoming games
+  // (playoff series like NBA Finals / Stanley Cup only play every 2-3 days)
   const keyScheduleEndpoints = [
     { base: 'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard', sport: 'basketball', league: 'NBA' },
+    { base: 'https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard', sport: 'basketball', league: 'WNBA' },
     { base: 'https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard', sport: 'baseball', league: 'MLB' },
     { base: 'https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard', sport: 'hockey', league: 'NHL' },
+    // Year-round football leagues
+    { base: 'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard', sport: 'football', league: 'FIFA World Cup' },
+    { base: 'https://site.api.espn.com/apis/site/v2/sports/soccer/conmebol.libertadores/scoreboard', sport: 'football', league: 'Copa Libertadores' },
+    { base: 'https://site.api.espn.com/apis/site/v2/sports/soccer/conmebol.sudamericana/scoreboard', sport: 'football', league: 'Copa Sudamericana' },
+    { base: 'https://site.api.espn.com/apis/site/v2/sports/soccer/bra.1/scoreboard', sport: 'football', league: 'Brazil Série A' },
+    { base: 'https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard', sport: 'football', league: 'MLS' },
+    // European leagues — active Aug–May
     { base: 'https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard', sport: 'football', league: 'Premier League' },
     { base: 'https://site.api.espn.com/apis/site/v2/sports/soccer/esp.1/scoreboard', sport: 'football', league: 'La Liga' },
     { base: 'https://site.api.espn.com/apis/site/v2/sports/soccer/ger.1/scoreboard', sport: 'football', league: 'Bundesliga' },
@@ -341,7 +352,9 @@ async function getESPNMatches(): Promise<SportsMatch[]> {
 
   // dayOffset 0 = today (ESPN's default scoreboard often returns yesterday's
   // matchday during early UTC hours, so we explicitly query today as well).
-  for (let dayOffset = 0; dayOffset <= 3; dayOffset++) {
+  // Use 7-day window so playoff series (NBA Finals, Stanley Cup) that play
+  // every 2-3 days are always covered.
+  for (let dayOffset = 0; dayOffset <= 7; dayOffset++) {
     const d = new Date(currentTime);
     d.setUTCDate(d.getUTCDate() + dayOffset);
     const dateStr = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
