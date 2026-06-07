@@ -524,10 +524,15 @@ function setupErrorHandler(app: express.Application) {
       // IF NOT EXISTS so this block is fully idempotent on every deploy.
       try {
         const { sql: rawSql } = await import("drizzle-orm");
-        // Partial index: only correct, public predictions — exact match for history query
+        // Upgrade history index: INCLUDE expires_at/is_premium so the
+        // expires_at > match_time filter resolves from index leaf pages
+        // instead of heap lookups, preventing seq-scan fallback under load.
+        // Always drop + recreate — the new INCLUDE definition replaces the old one.
+        await db.execute(rawSql.raw(`DROP INDEX IF EXISTS idx_predictions_history`));
         await db.execute(rawSql.raw(
-          `CREATE INDEX IF NOT EXISTS idx_predictions_history
+          `CREATE INDEX idx_predictions_history
              ON predictions (match_time DESC)
+             INCLUDE (expires_at, is_premium)
              WHERE result = 'correct' AND user_id IS NULL`
         ));
         // Active (pending) predictions per sport — used by sport screen and counts

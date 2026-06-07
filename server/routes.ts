@@ -745,6 +745,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Server-side cache for the public (unauthenticated) history query.
+  // History only changes when the nightly resolver runs — a 3-min cache
+  // eliminates repeat seq-scans under burst traffic without stale risk.
+  const historyCache: { data: any[] | null; fetchedAt: number } = { data: null, fetchedAt: 0 };
+  const HISTORY_CACHE_TTL = 3 * 60 * 1000; // 3 minutes
+
   // Get history (correct predictions only)
   app.get("/api/predictions/history", apiReadRateLimit, optionalAuth, async (req: Request, res: Response) => {
     try {
@@ -757,12 +763,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isPremiumUser = u?.isPremium === true;
         premiumSince = u?.premiumSince || null;
       }
-      const predictions = await getHistoryPredictions(userId, isPremiumUser, premiumSince);
+
+      // Use server-side cache for the public base query (no user-specific filtering).
+      // Premium-user logic still runs per-request since it depends on premiumSince.
+      const now = Date.now();
+      let basePredictions: any[];
+      if (!userId && historyCache.data && (now - historyCache.fetchedAt) < HISTORY_CACHE_TTL) {
+        basePredictions = historyCache.data;
+      } else {
+        basePredictions = await getHistoryPredictions(userId, isPremiumUser, premiumSince);
+        if (!userId) {
+          historyCache.data = basePredictions;
+          historyCache.fetchedAt = now;
+        }
+      }
+
       // Non-blocking translate: returns cached translations immediately and
       // warms the cache for misses in the background. History can have
       // hundreds of items — blocking on Groq would stall the response by
       // tens of seconds on first view in a fresh language.
-      const localized = await translatePredictionsBackground(predictions as any[], lang);
+      const localized = await translatePredictionsBackground(basePredictions as any[], lang);
       // History changes only when the daily resolver runs — 2-min client cache
       // is aggressive enough to hide the latency without showing stale wins/losses.
       res.set("Cache-Control", "private, max-age=120, stale-while-revalidate=120");
